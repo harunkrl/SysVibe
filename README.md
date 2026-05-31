@@ -36,7 +36,7 @@ cd SysVibe
 If you prefer installing it manually, you can use `cargo install`:
 
 ```bash
-git clone https://github.com/yourusername/SysVibe.git
+git clone https://github.com/harunkrl/SysVibe.git
 cd SysVibe
 cargo install --path .
 ```

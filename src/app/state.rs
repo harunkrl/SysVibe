@@ -67,6 +67,12 @@ pub struct NetworkStats {
     pub tx_speed_bps: f64,
     pub rx_history: VecDeque<u64>,
     pub tx_history: VecDeque<u64>,
+    /// Cumulative bytes received since app start.
+    pub total_rx_bytes: u64,
+    /// Cumulative bytes transmitted since app start.
+    pub total_tx_bytes: u64,
+    /// Local IPv4 address of this interface.
+    pub local_ip: Option<String>,
 }
 
 /// A single temperature sensor reading.
@@ -105,6 +111,14 @@ pub struct DiskIoStats {
     pub write_speed_bps: f64,
     pub read_history: VecDeque<u64>,
     pub write_history: VecDeque<u64>,
+    /// Read IOPS (operations per second).
+    pub read_iops: u64,
+    /// Write IOPS (operations per second).
+    pub write_iops: u64,
+    /// Previous read operations count (for delta calc).
+    pub prev_read_ops: Option<u64>,
+    /// Previous write operations count (for delta calc).
+    pub prev_write_ops: Option<u64>,
 }
 
 /// A single kernel log entry.
@@ -136,6 +150,29 @@ pub struct GpuStats {
     pub vram_used_mb: u64,
     pub vram_total_mb: u64,
     pub temperature: f32,
+}
+
+/// Disk partition usage information.
+#[derive(Debug, Clone)]
+pub struct DiskPartitionInfo {
+    pub mount_point: String,
+    pub device: String,
+    pub fs_type: String,
+    pub total_bytes: u64,
+    pub used_bytes: u64,
+    pub available_bytes: u64,
+}
+
+/// Memory usage breakdown (used / buffers / cached / free).
+#[derive(Debug, Clone, Default)]
+pub struct MemoryBreakdown {
+    pub used_bytes: u64,
+    pub buffers_bytes: u64,
+    pub cached_bytes: u64,
+    pub free_bytes: u64,
+    pub total_bytes: u64,
+    pub swap_used_bytes: u64,
+    pub swap_total_bytes: u64,
 }
 
 /// Transient message shown in the footer for a few seconds.

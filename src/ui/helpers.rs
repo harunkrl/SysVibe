@@ -136,6 +136,39 @@ pub fn kv_line(key: &str, val: &str, color: Color) -> Line<'static> {
     ])
 }
 
+/// Format byte counts into human-readable (B, KB, MB, GB, TB).
+pub fn format_bytes(bytes: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = 1024 * KB;
+    const GB: u64 = 1024 * MB;
+    const TB: u64 = 1024 * GB;
+
+    if bytes >= TB {
+        format!("{:.1} TB", bytes as f64 / TB as f64)
+    } else if bytes >= GB {
+        format!("{:.1} GB", bytes as f64 / GB as f64)
+    } else if bytes >= MB {
+        format!("{:.0} MB", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{:.0} KB", bytes as f64 / KB as f64)
+    } else {
+        format!("{} B", bytes)
+    }
+}
+
+/// Create a compact key-value span pair for inline use.
+pub fn kv_span(key: &str, val: &str, key_color: Color) -> Span<'static> {
+    Span::styled(
+        format!("{}:{}", key, val),
+        Style::default().fg(key_color),
+    )
+}
+
+/// Create a styled value span.
+pub fn val_span(val: &str, color: Color) -> Span<'static> {
+    Span::styled(val.to_string(), Style::default().fg(color))
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // Layout helpers
 // ═══════════════════════════════════════════════════════════════════════

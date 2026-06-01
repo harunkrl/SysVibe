@@ -1,19 +1,29 @@
 //! SysVibe — Network I/O data collection.
 //!
-//! Computes per-interface receive/transmit speeds and maintains
-//! rolling history buffers for sparkline rendering.
+//! Computes per-interface receive/transmit speeds, cumulative session
+//! totals, local IP resolution, and maintains rolling history buffers
+//! for sparkline rendering.
 
 use std::collections::HashMap;
 use std::collections::VecDeque;
+use std::net::UdpSocket;
 use sysinfo::Networks;
 use super::super::helpers::push_history;
 use super::super::state::{NetworkStats, HISTORY_LEN};
+
+/// Resolve the local IPv4 address by briefly opening a UDP socket.
+fn resolve_local_ip() -> Option<String> {
+    let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect("8.8.8.8:80").ok()?;
+    Some(socket.local_addr().ok()?.ip().to_string())
+}
 
 /// Refresh network interface speeds and history.
 ///
 /// For every non-loopback interface, computes the byte-rate delta since the
 /// previous sample, converts to KB/s, and appends to the per-interface
-/// history ring buffer.
+/// history ring buffer. Also tracks cumulative session totals and resolves
+/// the local IP address.
 pub fn refresh_network(
     networks: &Networks,
     prev_bytes: &mut HashMap<String, (u64, u64)>,
@@ -21,6 +31,7 @@ pub fn refresh_network(
     elapsed: f64,
 ) {
     let mut new_stats = Vec::new();
+    let local_ip = resolve_local_ip();
 
     for (name, nd) in networks.list() {
         if name == "lo" {
@@ -39,12 +50,19 @@ pub fn refresh_network(
         let rx_kbs = (rx_speed_bps / 1024.0) as u64;
         let tx_kbs = (tx_speed_bps / 1024.0) as u64;
 
+        // Cumulative session totals: delta since last tick
+        let delta_rx = cur_rx.saturating_sub(prev_rx);
+        let delta_tx = cur_tx.saturating_sub(prev_tx);
+
         let existing = stats.iter_mut().find(|s| s.interface == *name);
         if let Some(existing) = existing {
             existing.rx_speed_bps = rx_speed_bps;
             existing.tx_speed_bps = tx_speed_bps;
             push_history(&mut existing.rx_history, rx_kbs);
             push_history(&mut existing.tx_history, tx_kbs);
+            existing.total_rx_bytes += delta_rx;
+            existing.total_tx_bytes += delta_tx;
+            existing.local_ip = local_ip.clone();
             new_stats.push(existing.clone());
         } else {
             let mut rx_hist = VecDeque::with_capacity(HISTORY_LEN);
@@ -57,6 +75,9 @@ pub fn refresh_network(
                 tx_speed_bps,
                 rx_history: rx_hist,
                 tx_history: tx_hist,
+                total_rx_bytes: delta_rx,
+                total_tx_bytes: delta_tx,
+                local_ip: local_ip.clone(),
             });
         }
 

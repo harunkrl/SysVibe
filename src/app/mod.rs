@@ -80,10 +80,13 @@ pub struct App {
     // Timing
     last_tick: Instant,
     last_refresh: Instant,
-
     last_sensor_refresh: Instant,
     last_log_refresh: Instant,
+    last_partition_refresh: Instant,
     pub tick_count: u64,
+
+    // Cached data (refreshed at lower rate)
+    cached_partitions: Vec<DiskPartitionInfo>,
 }
 
 impl App {
@@ -154,7 +157,9 @@ impl App {
 
             last_sensor_refresh: now,
             last_log_refresh: now,
+            last_partition_refresh: now,
             tick_count: 0,
+            cached_partitions: Vec::new(),
         };
 
         app.refresh_data();
@@ -162,6 +167,12 @@ impl App {
         app.components.refresh(false);
         app.temperatures = collectors::sensors::refresh_temperatures(&app.components);
         app.battery = collectors::sensors::read_battery();
+
+        // Initial disk partition cache
+        {
+            let disks = sysinfo::Disks::new_with_refreshed_list();
+            app.cached_partitions = collectors::disk::enumerate_partitions(&app.sys, &disks);
+        }
         app
     }
 
@@ -302,6 +313,30 @@ impl App {
             product_name,
             bios_version,
         }
+    }
+
+    /// Memory usage breakdown: (used, buffers, cached, free, total) in bytes.
+    pub fn memory_breakdown(&self) -> MemoryBreakdown {
+        MemoryBreakdown {
+            used_bytes: self.sys.used_memory(),
+            buffers_bytes: 0, // sysinfo doesn't expose buffers separately
+            cached_bytes: { // approximate cached from available vs free
+                let total = self.sys.total_memory();
+                let used = self.sys.used_memory();
+                let free = self.sys.free_memory();
+                // Linux: cached ≡ total - used - free (rough heuristic)
+                total.saturating_sub(used).saturating_sub(free)
+            },
+            free_bytes: self.sys.free_memory(),
+            total_bytes: self.sys.total_memory(),
+            swap_used_bytes: self.sys.used_swap(),
+            swap_total_bytes: self.sys.total_swap(),
+        }
+    }
+
+    /// Enumerate disk partitions with usage info (cached, refreshed every 5s).
+    pub fn disk_partitions(&self) -> &[DiskPartitionInfo] {
+        &self.cached_partitions
     }
 
     pub fn log_entries(&self) -> &std::collections::VecDeque<LogEntry> {
@@ -588,6 +623,13 @@ impl App {
         if self.last_log_refresh.elapsed().as_millis() >= 5000 {
             self.log_collector.refresh();
             self.last_log_refresh = now;
+        }
+
+        // Disk partitions: every 10 seconds
+        if self.last_partition_refresh.elapsed().as_millis() >= 10000 {
+            let disks = sysinfo::Disks::new_with_refreshed_list();
+            self.cached_partitions = collectors::disk::enumerate_partitions(&self.sys, &disks);
+            self.last_partition_refresh = now;
         }
     }
 

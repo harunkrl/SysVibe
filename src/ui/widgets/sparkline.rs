@@ -69,13 +69,13 @@ pub fn braille_mini(data: &[u64], max_val: u64) -> String {
     out
 }
 
-/// Render a multi-line braille area graph with Y-axis scale labels.
+/// Render a multi-line braille **line** graph with Y-axis scale labels.
 ///
-/// This creates a proper time-series graph:
+/// This creates a proper time-series line chart:
 /// - Y-axis (vertical): auto-scaled in 5W steps (0-20W, then 0-25W, etc.)
 /// - X-axis (horizontal): time, data points spread across available width
 /// - Uses braille characters for 4-pixel vertical resolution per row
-/// - Optionally shows a filled area below the line
+/// - Draws only the **line** itself (not a filled area)
 ///
 /// Returns lines ready for `Paragraph`, with Y-axis labels on the left.
 pub fn braille_line_graph(
@@ -92,12 +92,9 @@ pub fn braille_line_graph(
 
     let data_vec: Vec<u64> = data.iter().copied().collect();
     let peak = data_vec.iter().copied().max().unwrap_or(1) as f64;
-
-    // Dynamic Y-axis ceiling: round up to next 5
     let y_max = dynamic_ceiling(peak);
 
-    // Reserve left margin for Y-axis labels (e.g. "20W ")
-    let label_w = format!("{:.0}{}", y_max, scale_unit).len() + 1; // "20W "
+    let label_w = format!("{:.0}{}", y_max, scale_unit).len() + 1;
     let graph_w = (area_width as usize).saturating_sub(label_w);
     let graph_h = area_height as usize;
 
@@ -105,99 +102,63 @@ pub fn braille_line_graph(
         return Vec::new();
     }
 
-    // Sample data points to fit graph width
     let samples = resample(&data_vec, graph_w);
 
-    // Each text row represents some vertical band of the Y range.
-    // With braille, each row has 4 vertical sub-pixels.
-    // Total vertical resolution = graph_h * 4
+    // Total vertical resolution: each row = 4 braille sub-pixels
     let total_v = graph_h * 4;
 
-    // For each row (top to bottom), compute which braille sub-pixels are filled
+    // ── Compute per-column line position in sub-pixel units ──────
+    // line_v[col] = vertical sub-pixel index (0 = bottom, total_v = top)
+    let line_v: Vec<usize> = samples
+        .iter()
+        .map(|&val| {
+            let v = ((val as f64 / y_max) * total_v as f64).round() as usize;
+            v.min(total_v)
+        })
+        .collect();
+
+    // Braille single-column dot mapping (bottom to top within a cell):
+    //   subpixel 0 (bottom) → dot7 = 0x40
+    //   subpixel 1          → dot6 = 0x20
+    //   subpixel 2          → dot5 = 0x10
+    //   subpixel 3 (top)    → dot4 = 0x08
+    const DOT_MAP: [u8; 4] = [0x40, 0x20, 0x10, 0x08];
+
     let mut rows: Vec<Line<'static>> = Vec::new();
 
     for row in 0..graph_h {
-        let row_top_v = total_v - row * 4;       // top of this row in sub-pixel units
-        let row_bot_v = total_v - (row + 1) * 4;  // bottom of this row
+        let row_top_v = total_v - row * 4;
+        let row_bot_v = total_v - (row + 1) * 4; // inclusive bottom
 
-        let mut braille_cols: Vec<(u8, bool)> = Vec::with_capacity(graph_w); // (braille_bits, has_data)
+        let mut spans: Vec<Span<'static>> = Vec::with_capacity(label_w + graph_w);
 
-        for &val in &samples {
-            let val_v = ((val as f64 / y_max) * total_v as f64).round() as usize;
-            let val_v = val_v.min(total_v);
-
-            let mut bits: u8 = 0;
-            let mut hit = false;
-
-            // Braille dot positions (4 dots per character, bottom-up):
-            // bit 0 = row bottom, bit 1 = row mid-bottom, bit 2 = row mid-top, bit 3 = row top
-            // We map sub-pixel positions within this row to braille dots
-            // Sub-pixel positions within row: bottom=0, 1, 2, 3=top
-            // Braille: dot0=offset(bit6=0x40), dot1=offset(bit2=0x04), dot2=offset(bit1=0x02), dot3=offset(bit0=0x01)
-            // Standard braille 4-high bottom-up: bits = [0x40, 0x04, 0x02, 0x01]
-            // But we need to match the visual: bottom row maps to low bits
-            // Let's use: subpixel 0 (bottom) → 0x40, 1 → 0x04, 2 → 0x02, 3 (top) → 0x01
-            // Actually, braille column 1 (right): dots 7,6,5 → bits 0x80,0x40,0x20 (not standard 4-high)
-            // Standard: column 1 bottom-up = dots 4,5,6,7 → bits 0x08,0x10,0x20,0x80
-            // Wait, let me use a simpler mapping. For 4-high dots in one column:
-            // braille dot rows: row0=bottom → bit 0x40 (dot7), row1 → 0x04 (dot6), 
-            //                    row2 → 0x02 (dot5), row3=top → 0x01 (dot4)
-            // But these map to different columns... Let me use single-column braille:
-
-            // Single column braille dots (4 rows, bottom to top):
-            // dot7 = 0x40 (bottom)
-            // dot6 = 0x04
-            // dot5 = 0x02  
-            // dot4 = 0x01 (top)
-            // Combined: bottom-up mapping
-            // Actually wait, standard braille encoding for column 1:
-            // Row 0 (top):    dot1=0x01, dot4=0x08
-            // Row 1:          dot2=0x02, dot5=0x10  
-            // Row 2:          dot3=0x04, dot6=0x20
-            // Row 3 (bottom): dot7=0x40, dot8=0x80
-
-            // For a single-column 4-high graph, use dots 4,5,6,7:
-            // dot4=0x08 (top), dot5=0x10, dot6=0x20, dot7=0x40 (bottom)
-
-            // Map: subpixel 0 (closest to row_bot_v) → dot7=0x40 (bottom of braille cell)
-            //       subpixel 3 (closest to row_top_v) → dot4=0x08 (top of braille cell)
-            const DOT_MAP: [u8; 4] = [0x40, 0x20, 0x10, 0x08];
-            // subpixel 0 (bottom) → 0x40, 1 → 0x20, 2 → 0x10, 3 (top) → 0x08
-
-            for sp in 0..4u8 {
-                let sp_v = row_bot_v + sp as usize + 1; // sub-pixel position
-                if val_v >= sp_v {
-                    bits |= DOT_MAP[sp as usize];
-                    hit = true;
-                }
-            }
-
-            braille_cols.push((bits, hit));
-        }
-
-        // Build the line: Y-axis label + braille characters
-        let label_val = (y_max * (row_top_v as f64 / total_v as f64)).round() as u64;
+        // Y-axis label
         let label_text = if row == 0 {
-            format!("{:>width$} ", format!("{}{}", label_val, scale_unit), width = label_w)
+            let v = (y_max * (row_top_v as f64 / total_v as f64)).round() as u64;
+            format!("{:>width$} ", format!("{}{}", v, scale_unit), width = label_w)
         } else if row == graph_h / 2 {
-            let mid_val = (y_max * 0.5).round() as u64;
-            format!("{:>width$} ", format!("{}{}", mid_val, scale_unit), width = label_w)
+            let v = (y_max * 0.5).round() as u64;
+            format!("{:>width$} ", format!("{}{}", v, scale_unit), width = label_w)
         } else if row == graph_h - 1 {
             format!("{:>width$} ", format!("0{}", scale_unit), width = label_w)
         } else {
             " ".repeat(label_w)
         };
+        spans.push(Span::styled(label_text, Style::default().fg(Color::DarkGray)));
 
-        let mut spans: Vec<Span<'static>> = vec![
-            Span::styled(label_text, Style::default().fg(Color::DarkGray)),
-        ];
+        // For each column, check if the line passes through this row
+        for col in 0..graph_w {
+            let lv = line_v[col];
 
-        for (bits, _hit) in &braille_cols {
-            if *bits == 0 {
-                spans.push(Span::raw(" "));
-            } else {
-                let ch = char::from_u32(BRAILLE_OFFSET + *bits as u32).unwrap_or(' ');
+            // Does the line land within this row's sub-pixel range?
+            if lv > row_bot_v && lv <= row_top_v {
+                // Which sub-pixel within this row? (0=bottom, 3=top)
+                let sp = (lv as isize - row_bot_v as isize - 1).max(0) as usize;
+                let bits = DOT_MAP[sp.min(3)];
+                let ch = char::from_u32(BRAILLE_OFFSET + bits as u32).unwrap_or(' ');
                 spans.push(Span::styled(ch.to_string(), Style::default().fg(color)));
+            } else {
+                spans.push(Span::raw(" "));
             }
         }
 

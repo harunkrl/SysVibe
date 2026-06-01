@@ -42,6 +42,8 @@ pub struct App {
 
     // Network
     prev_network_bytes: HashMap<String, (u64, u64)>,
+    /// Cached local IP address (resolved once at startup).
+    local_ip: Option<String>,
     network_stats: Vec<NetworkStats>,
 
     // Disk I/O
@@ -88,6 +90,9 @@ pub struct App {
 
     // Cached data (refreshed at lower rate)
     cached_partitions: Vec<DiskPartitionInfo>,
+
+    // Static hardware data (fetched once on startup)
+    hardware_data: collectors::hardware::HardwareData,
 }
 
 impl App {
@@ -133,6 +138,7 @@ impl App {
             cpu_history: VecDeque::with_capacity(HISTORY_LEN),
             per_core_history: vec![VecDeque::with_capacity(HISTORY_LEN); num_cores],
             prev_network_bytes,
+            local_ip: collectors::network::resolve_local_ip(),
             network_stats: Vec::new(),
             disk_io: DiskIoStats::default(),
             prev_disk_bytes: (init_read, init_write),
@@ -162,6 +168,7 @@ impl App {
             last_partition_refresh: now,
             tick_count: 0,
             cached_partitions: Vec::new(),
+            hardware_data: collectors::hardware::fetch_hardware_data(),
         };
 
         app.refresh_data();
@@ -284,9 +291,8 @@ impl App {
             .or_else(|_| std::env::var("DISPLAY").map(|_| "X11".to_string()))
             .unwrap_or_else(|_| "Unknown/TTY".to_string());
 
-        let sys_vendor = std::fs::read_to_string("/sys/class/dmi/id/sys_vendor").ok().map(|s| s.trim().to_string());
-        let product_name = std::fs::read_to_string("/sys/class/dmi/id/product_name").ok().map(|s| s.trim().to_string());
-        let bios_version = std::fs::read_to_string("/sys/class/dmi/id/bios_version").ok().map(|s| s.trim().to_string());
+        // Use cached static hardware data instead of re-reading SysFS each frame
+        let hw = &self.hardware_data.motherboard;
 
         SystemInfo {
             os_name: System::long_os_version().unwrap_or_else(|| System::name().unwrap_or_else(|| "Unknown".into())),
@@ -312,9 +318,9 @@ impl App {
             desktop_env,
             display_server,
             architecture: System::cpu_arch(),
-            sys_vendor,
-            product_name,
-            bios_version,
+            sys_vendor: hw.sys_vendor.clone(),
+            product_name: hw.product_name.clone(),
+            bios_version: hw.bios_version.clone(),
         }
     }
 
@@ -340,6 +346,11 @@ impl App {
     /// Enumerate disk partitions with usage info (cached, refreshed every 5s).
     pub fn disk_partitions(&self) -> &[DiskPartitionInfo] {
         &self.cached_partitions
+    }
+
+    /// Static hardware data (motherboard, GPU, RAM details) — fetched once.
+    pub fn hardware_data(&self) -> &collectors::hardware::HardwareData {
+        &self.hardware_data
     }
 
     pub fn log_entries(&self) -> &std::collections::VecDeque<LogEntry> {
@@ -585,25 +596,23 @@ impl App {
         let elapsed = if elapsed > 0.0 { elapsed } else { TICK_SECS };
         self.last_refresh = now;
 
-        // CPU + Memory: every tick (fast & lightweight)
+        // ══ Tier 1: Every tick — lightweight CPU & memory ══════════
         self.sys.refresh_cpu_all();
         collectors::cpu::refresh_cpu(&self.sys, &mut self.cpu_history, &mut self.per_core_history);
         self.sys.refresh_memory();
 
-        // Network + Disk: every tick
+        // ══ Tier 2: Network + Disk I/O (every tick, cheap deltas) ═
         self.networks.refresh(false);
         collectors::network::refresh_network(
             &self.networks,
             &mut self.prev_network_bytes,
             &mut self.network_stats,
             elapsed,
+            &self.local_ip,
         );
         collectors::disk::refresh_disk(&mut self.disk_io, &mut self.prev_disk_bytes, elapsed);
 
-        // Processes: No longer auto-refreshed here. Manual refresh via 'r' key.
-        // We only initialize it once on startup, which is handled in App::new().
-
-        // Sensors: every sensor_refresh_rate ms (default 5s)
+        // ══ Tier 3: Sensors (default 5s) ═══════════════════════════
         let sensor_interval = self.config.sensor_refresh_rate;
         if self.last_sensor_refresh.elapsed().as_millis() >= sensor_interval as u128 {
             self.components.refresh(false);
@@ -626,13 +635,13 @@ impl App {
             self.last_sensor_refresh = now;
         }
 
-        // Logs: every 5 seconds
+        // ══ Tier 4: Logs (5s) ════════════════════════════════════
         if self.last_log_refresh.elapsed().as_millis() >= 5000 {
             self.log_collector.refresh();
             self.last_log_refresh = now;
         }
 
-        // Disk partitions: every 10 seconds
+        // ══ Tier 5: Disk partitions (10s) ═════════════════════════
         if self.last_partition_refresh.elapsed().as_millis() >= 10000 {
             let disks = sysinfo::Disks::new_with_refreshed_list();
             self.cached_partitions = collectors::disk::enumerate_partitions(&self.sys, &disks);
@@ -649,8 +658,12 @@ impl App {
     // ═════════════════════════════════════════════════════════════════
 
     pub fn refresh_top_processes(&mut self) {
+        // Two-phase refresh for accurate CPU%:
+        // sysinfo's cpu_usage() returns the delta since the PREVIOUS refresh.
+        // Phase 1: refresh processes to snapshot current state.
         self.sys.refresh_processes(ProcessesToUpdate::All, true);
-        
+        // Phase 2: build the list from the delta computed between now and
+        // whenever processes were last refreshed.
         let selected_pid: Option<u32> = self
             .proc_table_state
             .selected()

@@ -5,6 +5,34 @@ All notable changes to SysVibe are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-06-01
+
+### Added
+- **Deep Hardware Integration**: New `HardwareData` collector fetches static hardware details once at startup
+  - Motherboard: vendor, model, revision, BIOS vendor/version/date via `/sys/class/dmi/id/`
+  - GPU(s): model, PCI slot, driver via `lspci -nn` + SysFS driver symlink
+  - RAM: DDR type, speed (MT/s), DIMM count, form factor via `lshw` → `dmidecode` → SysFS → CPU heuristic fallback
+- **CPU Micro-Sparklines**: Per-core 4-char braille sparklines in Hardware tab (btop-style)
+- **Network Heartbeat Graph**: Mirrored braille graph (RX ▲ SKY / TX ▼ MAUVE) with center axis
+- **Embedded Border Titles**: Interior sub-headers removed; titles break the top border line natively
+
+### Changed
+- **Performance overhaul**: Reduced CPU overhead from ~15% to ~1-3%
+  - Removed `refresh_processes(All, true)` from every tick — now manual-only via `r` key
+  - Cached `local_ip` at startup instead of opening UDP socket every tick
+  - Merged dual `/proc/diskstats` reads into single `read_diskstats()` call
+  - Eliminated `NetworkStats` clone on every refresh via `swap_remove()`
+- **Process CPU% normalization**: Divided by core count to show 0-100% range (matching htop/btop)
+- **Temperature bars**: Color-coded `[████░░░░]` bars with temperature scaling
+- **Power draw graph**: Braille line graph showing 0 → max W with Y-axis labels
+- **README**: Complete rewrite with architecture diagram, feature table, and configuration reference
+
+### Fixed
+- Process CPU percentages exceeding 100% on multi-core systems (e.g. Brave showing 300%)
+- SysVibe consuming 11-15% CPU due to per-tick `refresh_processes`
+- RAM details missing when `lshw` not installed — now falls back through 4 detection tiers
+- No `/proc/diskstats` double-read per tick
+
 ## [0.3.0] - 2026-06-01
 
 ### Added

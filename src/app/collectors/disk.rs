@@ -10,6 +10,7 @@ use super::super::helpers::push_history;
 use super::super::state::{DiskIoStats, DiskPartitionInfo};
 
 /// Read aggregate disk bytes from `/proc/diskstats`.
+#[allow(dead_code)]
 pub fn read_disk_bytes() -> (u64, u64) {
     let content = match fs::read_to_string("/proc/diskstats") {
         Ok(c) => c,
@@ -40,19 +41,23 @@ pub fn read_disk_bytes() -> (u64, u64) {
     (total_read, total_write)
 }
 
-/// Read aggregate disk IOPS from `/proc/diskstats`.
-fn read_disk_ops_totals() -> (Option<u64>, Option<u64>) {
+/// Read disk stats from `/proc/diskstats` in a single pass.
+/// Returns (read_bytes, write_bytes, read_ops, write_ops).
+fn read_diskstats() -> (u64, u64, Option<u64>, Option<u64>) {
     let content = match fs::read_to_string("/proc/diskstats") {
         Ok(c) => c,
-        Err(_) => return (None, None),
+        Err(_) => return (0, 0, None, None),
     };
+
+    let mut total_read_bytes: u64 = 0;
+    let mut total_write_bytes: u64 = 0;
     let mut total_reads: u64 = 0;
     let mut total_writes: u64 = 0;
-    let mut found = false;
+    let mut found_ops = false;
 
     for line in content.lines() {
         let fields: Vec<&str> = line.split_whitespace().collect();
-        if fields.len() < 8 {
+        if fields.len() < 10 {
             continue;
         }
         let major = fields[0].parse::<u64>().unwrap_or(0);
@@ -63,20 +68,28 @@ fn read_disk_ops_totals() -> (Option<u64>, Option<u64>) {
         if name.contains('p') && name.chars().last().is_some_and(|c| c.is_ascii_digit()) {
             continue;
         }
+        // Bytes from sectors
+        let sectors_read: u64 = fields.get(5).and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
+        let sectors_written: u64 = fields.get(9).and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
+        total_read_bytes += sectors_read * 512;
+        total_write_bytes += sectors_written * 512;
+        // IOPS
         if let Some(r) = fields.get(3).and_then(|v| v.parse::<u64>().ok()) {
             total_reads += r;
-            found = true;
+            found_ops = true;
         }
         if let Some(w) = fields.get(7).and_then(|v| v.parse::<u64>().ok()) {
             total_writes += w;
-            found = true;
+            found_ops = true;
         }
     }
-    if found {
-        (Some(total_reads), Some(total_writes))
-    } else {
-        (None, None)
-    }
+
+    (
+        total_read_bytes,
+        total_write_bytes,
+        if found_ops { Some(total_reads) } else { None },
+        if found_ops { Some(total_writes) } else { None },
+    )
 }
 
 /// Refresh disk I/O stats: speed, IOPS, and history.
@@ -85,7 +98,7 @@ pub fn refresh_disk(
     prev_disk_bytes: &mut (u64, u64),
     elapsed: f64,
 ) {
-    let (cur_read_bytes, cur_write_bytes) = read_disk_bytes();
+    let (cur_read_bytes, cur_write_bytes, cur_reads, cur_writes) = read_diskstats();
 
     let read_delta = cur_read_bytes.saturating_sub(prev_disk_bytes.0);
     let write_delta = cur_write_bytes.saturating_sub(prev_disk_bytes.1);
@@ -101,7 +114,6 @@ pub fn refresh_disk(
 
     *prev_disk_bytes = (cur_read_bytes, cur_write_bytes);
 
-    let (cur_reads, cur_writes) = read_disk_ops_totals();
     let (read_iops, write_iops) = match (cur_reads, cur_writes, disk_stats.prev_read_ops, disk_stats.prev_write_ops) {
         (Some(cr), Some(cw), Some(pr), Some(pw)) => {
             let dr = cr.saturating_sub(pr);

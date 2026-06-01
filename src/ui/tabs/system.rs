@@ -15,7 +15,7 @@ use ratatui::{
 use crate::app::App;
 use crate::ui::helpers::*;
 use crate::ui::palette::*;
-use crate::ui::widgets::sparkline::{braille_mini, braille_mirrored_graph};
+use crate::ui::widgets::sparkline::braille_line_graph;
 
 // ═══════════════════════════════════════════════════════════════════════
 // Public entry point
@@ -69,15 +69,38 @@ fn render_system_info(f: &mut Frame, area: Rect, app: &App) {
 
     lines.push(Line::raw("")); // spacing
 
-    // Hardware
+    // Motherboard & Platform (from cached HardwareData)
+    let hw = app.hardware_data();
+    let mb = &hw.motherboard;
+    if mb.vendor.is_some() || mb.name.is_some() {
+        if let Some(ref v) = mb.vendor {
+            lines.push(kv_line("Board", v, MAUVE));
+        }
+        if let Some(ref n) = mb.name {
+            lines.push(kv_line("Model", n, MAUVE));
+        }
+        if let Some(ref ver) = mb.version {
+            lines.push(kv_line("Revision", ver, OVERLAY));
+        }
+    }
+    // System vendor/product (may differ on laptops)
     if let Some(ref vendor) = info.sys_vendor {
-        lines.push(kv_line("Vendor", vendor, MAUVE));
+        if mb.vendor.as_deref() != Some(vendor.as_str()) {
+            lines.push(kv_line("Vendor", vendor, MAUVE));
+        }
     }
     if let Some(ref product) = info.product_name {
-        lines.push(kv_line("Product", product, MAUVE));
+        if mb.name.as_deref() != Some(product.as_str()) {
+            lines.push(kv_line("Product", product, MAUVE));
+        }
     }
-    if let Some(ref bios) = info.bios_version {
+    if let Some(ref bv) = mb.bios_vendor {
+        lines.push(kv_line("BIOS", &format!("{} {}", bv, mb.bios_version.as_deref().unwrap_or("")), MAUVE));
+    } else if let Some(ref bios) = info.bios_version {
         lines.push(kv_line("BIOS", bios, MAUVE));
+    }
+    if let Some(ref bd) = mb.bios_date {
+        lines.push(kv_line("Date", bd, OVERLAY));
     }
 
     // CPU — truncate to panel width
@@ -86,19 +109,74 @@ fn render_system_info(f: &mut Frame, area: Rect, app: &App) {
     let cpu_brand = fit_str(&info.cpu_brand, cpu_max_val_w);
     lines.push(kv_line("CPU", &cpu_brand, BLUE));
 
-    // Cores / RAM / Swap on one line
+    // RAM details from HardwareData
+    let ram = &hw.ram;
+    let mut ram_parts = vec![
+        Span::styled(" RAM:", Style::default().fg(SUBTEXT).add_modifier(Modifier::BOLD)),
+        Span::styled(format!(" {:.1}GiB", info.total_ram_gb), Style::default().fg(TEXT)),
+    ];
+    if let Some(ref mt) = ram.mem_type {
+        ram_parts.push(Span::styled(format!(" {}", mt), Style::default().fg(SKY)));
+    }
+    if let Some(speed) = ram.speed_mt {
+        ram_parts.push(Span::styled(format!(" @{}MT/s", speed), Style::default().fg(YELLOW)));
+    }
+    if let Some(dimm) = ram.dimm_count {
+        ram_parts.push(Span::styled(format!(" ({}x", dimm), Style::default().fg(OVERLAY)));
+        if let Some(ref ff) = ram.form_factor {
+            ram_parts.push(Span::styled(ff.clone(), Style::default().fg(OVERLAY)));
+        } else {
+            ram_parts.push(Span::styled("DIMM".to_string(), Style::default().fg(OVERLAY)));
+        }
+        ram_parts.push(Span::styled(")", Style::default().fg(OVERLAY)));
+    }
+    lines.push(Line::from(ram_parts));
+
+    // Cores / Swap
     lines.push(Line::from(vec![
         Span::styled(" Cores:", Style::default().fg(SUBTEXT).add_modifier(Modifier::BOLD)),
         Span::styled(format!(" {}", info.cpu_cores), Style::default().fg(TEXT)),
-        Span::styled("  RAM:", Style::default().fg(SUBTEXT).add_modifier(Modifier::BOLD)),
-        Span::styled(format!(" {:.1}G", info.total_ram_gb), Style::default().fg(TEXT)),
         Span::styled("  Swap:", Style::default().fg(SUBTEXT).add_modifier(Modifier::BOLD)),
         Span::styled(format!(" {:.1}G", info.total_swap_gb), Style::default().fg(TEXT)),
     ]));
 
     lines.push(Line::raw("")); // spacing
 
-    // Display/Compositor
+    // GPU(s) — from cached HardwareData (no per-frame lspci calls!)
+    if hw.gpus.is_empty() {
+        lines.push(Line::from(vec![
+            Span::styled(" GPU:", Style::default().fg(TEAL).add_modifier(Modifier::BOLD)),
+            Span::styled(" None detected", Style::default().fg(OVERLAY)),
+        ]));
+    } else {
+        for (i, gpu) in hw.gpus.iter().enumerate() {
+            let prefix = if hw.gpus.len() == 1 {
+                "GPU".to_string()
+            } else {
+                format!("GPU{}", i)
+            };
+            let gpu_max_w = max_w.saturating_sub(prefix.len() + 4);
+            let gpu_text = fit_str(&gpu.model, gpu_max_w);
+            let mut gpu_spans = vec![
+                Span::styled(
+                    format!(" {}:", prefix),
+                    Style::default().fg(TEAL).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(format!(" {}", gpu_text), Style::default().fg(TEXT)),
+            ];
+            if let Some(ref drv) = gpu.driver {
+                gpu_spans.push(Span::styled(
+                    format!(" [{}]", drv),
+                    Style::default().fg(OVERLAY),
+                ));
+            }
+            lines.push(Line::from(gpu_spans));
+        }
+    }
+
+    lines.push(Line::raw("")); // spacing
+
+    // Display / Compositor
     lines.push(kv_line("Desktop", &info.desktop_env, MAUVE));
     lines.push(kv_line("Display", &info.display_server, MAUVE));
 
@@ -124,66 +202,11 @@ fn render_system_info(f: &mut Frame, area: Rect, app: &App) {
         Span::styled(" (1/5/15m)", Style::default().fg(OVERLAY)),
     ]));
 
-    // GPU info — parse lspci and format smartly (not truncated)
-    append_gpu_info(&mut lines, max_w);
-
     let para = Paragraph::new(lines);
     f.render_widget(para, inner);
 }
 
-/// Extract GPU info from `lspci`, formatting to fit panel width.
-fn append_gpu_info(lines: &mut Vec<Line<'static>>, max_w: usize) {
-    let Ok(output) = std::process::Command::new("lspci")
-        .arg("-nn")
-        .output()
-    else {
-        return;
-    };
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    for line in stdout.lines() {
-        let lower = line.to_lowercase();
-        if !lower.contains("vga") && !lower.contains("3d") && !lower.contains("display") {
-            continue;
-        }
-
-        // Parse: "01:00.0 VGA compatible controller [0300]: NVIDIA Corporation GP107 [GeForce GTX 1050 Ti] [10de:1c82]"
-        // We want just the descriptive part after the colon(s)
-        let parts: Vec<&str> = line.splitn(2, ':').collect();
-        if parts.len() < 2 {
-            continue;
-        }
-
-        // Get everything after the first colon (device type + vendor info)
-        let raw_desc = parts[1].trim();
-        // Remove the PCI ID bracket at the end like [10de:1c82]
-        let desc = raw_desc
-            .rsplit_once('[')
-            .map(|(before, _)| before.trim())
-            .unwrap_or(raw_desc);
-
-        // Further clean: remove "VGA compatible controller" prefix
-        let clean = desc
-            .trim_start_matches("VGA compatible controller")
-            .trim_start_matches("3D controller")
-            .trim_start_matches("Display controller")
-            .trim()
-            .trim_start_matches(':')
-            .trim();
-
-        let gpu_label = "GPU:";
-        let max_val_w = max_w.saturating_sub(gpu_label.len() + 3);
-        let gpu_text = fit_str(clean, max_val_w);
-
-        lines.push(Line::from(vec![
-            Span::styled(
-                format!(" {} ", gpu_label),
-                Style::default().fg(TEAL).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(gpu_text, Style::default().fg(TEXT)),
-        ]));
-    }
-}
 
 // ═══════════════════════════════════════════════════════════════════════
 // Disk Partitions Panel (with SSD/HDD details + mini-gauges)
@@ -351,6 +374,15 @@ fn render_sensors_panel(f: &mut Frame, area: Rect, app: &App) {
     render_power(f, split[1], app);
 }
 
+/// Build a tiny temperature bar (scaled to 105°C max).
+fn build_temp_bar(temp: f32) -> String {
+    let ratio = (temp / 105.0).min(1.0).max(0.0);
+    let width = 8;
+    let filled = (ratio * width as f32).round() as usize;
+    let empty = width - filled;
+    format!("[{}{}]", "█".repeat(filled), "░".repeat(empty))
+}
+
 fn render_temperatures(f: &mut Frame, area: Rect, app: &App) {
     let temps = app.temperatures();
     let mut lines: Vec<Line<'static>> = Vec::new();
@@ -359,16 +391,6 @@ fn render_temperatures(f: &mut Frame, area: Rect, app: &App) {
         let color = temp_color(sensor.temp_c);
         let label = truncate_str(&sensor.label, 14);
 
-        // Braille sparkline from per-sensor rolling history
-        let hist_len = sensor.history.len();
-        let spark_data: Vec<u64> = if hist_len >= 8 {
-            sensor.history.range(hist_len - 8..).copied().collect()
-        } else {
-            sensor.history.iter().copied().collect()
-        };
-        let spark_max = spark_data.iter().copied().max().unwrap_or(100).max(1);
-        let sparkline = braille_mini(&spark_data, spark_max);
-
         lines.push(Line::from(vec![
             Span::styled(format!(" {:<14}", label), Style::default().fg(SUBTEXT)),
             Span::styled(
@@ -376,7 +398,7 @@ fn render_temperatures(f: &mut Frame, area: Rect, app: &App) {
                 Style::default().fg(color).add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                format!(" {}", sparkline),
+                format!(" {}", build_temp_bar(sensor.temp_c)),
                 Style::default().fg(color),
             ),
         ]));
@@ -458,17 +480,13 @@ fn render_power(f: &mut Frame, area: Rect, app: &App) {
     };
     f.render_widget(Paragraph::new(lines), text_area);
 
-    // ── Mirrored Power Draw Heartbeat Graph ─────────────────
-    let has_data = !app.battery_charge_history.is_empty()
-        || !app.battery_power_history.is_empty();
-
-    if has_data {
+    // ── Power Draw Line Graph ────────────────────────────────────
+    if !app.battery_power_history.is_empty() {
         let graph_h = area.height.saturating_sub(text_h);
         if graph_h >= 5 {
-            let charge_peak = app.battery_charge_history.iter().copied().max().unwrap_or(0);
-            let discharge_peak = app.battery_power_history.iter().copied().max().unwrap_or(0);
+            let peak = app.battery_power_history.iter().copied().max().unwrap_or(1);
 
-            // Compact header
+            // Header
             let header_area = Rect {
                 x: area.x,
                 y: area.y + text_h,
@@ -477,21 +495,16 @@ fn render_power(f: &mut Frame, area: Rect, app: &App) {
             };
             f.render_widget(
                 Paragraph::new(Line::from(vec![
-                    Span::styled(" ▲ Charge", Style::default().fg(GREEN)),
+                    Span::styled(" Power Draw", Style::default().fg(SUBTEXT)),
                     Span::styled(
-                        format!(" {:.1}W", charge_peak as f64),
-                        Style::default().fg(GREEN),
-                    ),
-                    Span::styled("  ▼ Discharge", Style::default().fg(PEACH)),
-                    Span::styled(
-                        format!(" {:.1}W", discharge_peak as f64),
-                        Style::default().fg(PEACH),
+                        format!("  peak {:.1} W", peak as f64),
+                        Style::default().fg(YELLOW),
                     ),
                 ])),
                 header_area,
             );
 
-            // Mirrored graph
+            // Graph area
             let graph_area = Rect {
                 x: area.x,
                 y: area.y + text_h + 1,
@@ -499,14 +512,14 @@ fn render_power(f: &mut Frame, area: Rect, app: &App) {
                 height: graph_h.saturating_sub(1),
             };
 
-            if graph_area.height >= 3 && graph_area.width > 4 {
-                let rows = braille_mirrored_graph(
-                    &app.battery_charge_history,
+            if graph_area.height >= 3 && graph_area.width > 12 {
+                let rows = braille_line_graph(
                     &app.battery_power_history,
                     graph_area.width,
                     graph_area.height,
-                    GREEN,  // charge = up
-                    PEACH,  // discharge = down
+                    YELLOW,
+                    YELLOW,
+                    "W",
                 );
                 f.render_widget(Paragraph::new(rows), graph_area);
             }

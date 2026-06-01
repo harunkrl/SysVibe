@@ -12,7 +12,7 @@ use super::super::helpers::push_history;
 use super::super::state::{NetworkStats, HISTORY_LEN};
 
 /// Resolve the local IPv4 address by briefly opening a UDP socket.
-fn resolve_local_ip() -> Option<String> {
+pub fn resolve_local_ip() -> Option<String> {
     let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
     socket.connect("8.8.8.8:80").ok()?;
     Some(socket.local_addr().ok()?.ip().to_string())
@@ -22,16 +22,15 @@ fn resolve_local_ip() -> Option<String> {
 ///
 /// For every non-loopback interface, computes the byte-rate delta since the
 /// previous sample, converts to KB/s, and appends to the per-interface
-/// history ring buffer. Also tracks cumulative session totals and resolves
-/// the local IP address.
+/// history ring buffer. Also tracks cumulative session totals.
 pub fn refresh_network(
     networks: &Networks,
     prev_bytes: &mut HashMap<String, (u64, u64)>,
     stats: &mut Vec<NetworkStats>,
     elapsed: f64,
+    local_ip: &Option<String>,
 ) {
-    let mut new_stats = Vec::new();
-    let local_ip = resolve_local_ip();
+    let mut new_stats = Vec::with_capacity(stats.len());
 
     for (name, nd) in networks.list() {
         if name == "lo" {
@@ -54,8 +53,10 @@ pub fn refresh_network(
         let delta_rx = cur_rx.saturating_sub(prev_rx);
         let delta_tx = cur_tx.saturating_sub(prev_tx);
 
-        let existing = stats.iter_mut().find(|s| s.interface == *name);
-        if let Some(existing) = existing {
+        // Remove matching entry from stats to update it in-place
+        let idx = stats.iter().position(|s| s.interface == *name);
+        if let Some(idx) = idx {
+            let mut existing = stats.swap_remove(idx);
             existing.rx_speed_bps = rx_speed_bps;
             existing.tx_speed_bps = tx_speed_bps;
             push_history(&mut existing.rx_history, rx_kbs);
@@ -63,7 +64,7 @@ pub fn refresh_network(
             existing.total_rx_bytes += delta_rx;
             existing.total_tx_bytes += delta_tx;
             existing.local_ip = local_ip.clone();
-            new_stats.push(existing.clone());
+            new_stats.push(existing);
         } else {
             let mut rx_hist = VecDeque::with_capacity(HISTORY_LEN);
             let mut tx_hist = VecDeque::with_capacity(HISTORY_LEN);

@@ -31,13 +31,15 @@ pub fn build_process_list(
         primary.then_with(|| a.0.cmp(b.0))
     });
 
+    let num_cores = sys.cpus().len().max(1) as f32;
+
     procs
         .iter()
         .take(max_procs.max(1))
         .map(|(pid, p)| ProcessEntry {
             pid: pid.as_u32(),
             name: p.name().to_string_lossy().to_string(),
-            cpu_pct: p.cpu_usage(),
+            cpu_pct: p.cpu_usage() / num_cores,
             mem_pct: if total_mem > 0.0 {
                 (p.memory() as f64 / total_mem * 100.0) as f32
             } else {

@@ -15,6 +15,7 @@ use ratatui::{
 use crate::app::App;
 use crate::ui::helpers::*;
 use crate::ui::palette::*;
+use crate::ui::widgets::sparkline::braille_line_graph;
 
 // ═══════════════════════════════════════════════════════════════════════
 // Public entry point
@@ -215,6 +216,8 @@ fn render_disk_partitions(f: &mut Frame, area: Rect, app: &App) {
         let model = part.model.clone();
         let vendor = part.vendor.clone();
         let serial = part.serial.clone();
+        let dev_name = part.device.clone();
+        let avail_str = format_bytes(part.available_bytes);
 
         lines.push(Line::from(vec![
             Span::styled(
@@ -264,6 +267,16 @@ fn render_disk_partitions(f: &mut Frame, area: Rect, app: &App) {
 
         detail_spans.push(Span::styled(
             format!(" [{}]", fs_type),
+            Style::default().fg(OVERLAY),
+        ));
+
+        // Show device name and available space
+        detail_spans.push(Span::styled(
+            format!(" {}", dev_name),
+            Style::default().fg(SUBTEXT),
+        ));
+        detail_spans.push(Span::styled(
+            format!(" ({} free)", avail_str),
             Style::default().fg(OVERLAY),
         ));
 
@@ -454,11 +467,11 @@ fn render_power(f: &mut Frame, area: Rect, app: &App) {
     };
     f.render_widget(Paragraph::new(lines), text_area);
 
-    // ── Power Draw Bar Graph (professional style) ──────────────
+    // ── Power Draw Graph (braille line graph with Y-axis) ────
     if !app.battery_power_history.is_empty() {
         let graph_h = area.height.saturating_sub(text_h);
-        if graph_h >= 4 {
-            let max_w = app.battery_power_history.iter().copied().max().unwrap_or(1);
+        if graph_h >= 5 {
+            let peak = app.battery_power_history.iter().copied().max().unwrap_or(1);
 
             // Header
             let header_area = Rect {
@@ -471,80 +484,33 @@ fn render_power(f: &mut Frame, area: Rect, app: &App) {
                 Paragraph::new(Line::from(vec![
                     Span::styled(" Power Draw History", Style::default().fg(SUBTEXT)),
                     Span::styled(
-                        format!("  peak {:.1} W", max_w as f64),
+                        format!("  peak {:.1} W", peak as f64),
                         Style::default().fg(YELLOW),
                     ),
                 ])),
                 header_area,
             );
 
-            // Bar graph area
-            let bar_area = Rect {
-                x: area.x + 1,
+            // Graph area
+            let graph_area = Rect {
+                x: area.x,
                 y: area.y + text_h + 1,
-                width: area.width.saturating_sub(2),
+                width: area.width,
                 height: graph_h.saturating_sub(1),
             };
 
-            if bar_area.height >= 2 && bar_area.width > 8 {
-                render_power_bars(f, bar_area, &app.battery_power_history, max_w);
+            if graph_area.height >= 3 && graph_area.width > 12 {
+                let rows = braille_line_graph(
+                    &app.battery_power_history,
+                    graph_area.width,
+                    graph_area.height,
+                    YELLOW,
+                    YELLOW,
+                    "W",
+                );
+                let para = Paragraph::new(rows);
+                f.render_widget(para, graph_area);
             }
         }
     }
-}
-
-/// Render a professional vertical bar graph for power draw history.
-fn render_power_bars(
-    f: &mut Frame,
-    area: Rect,
-    history: &std::collections::VecDeque<u64>,
-    max_val: u64,
-) {
-    let data: Vec<u64> = history.iter().copied().collect();
-    let bar_count = area.width as usize;
-
-    if bar_count == 0 || data.is_empty() {
-        return;
-    }
-
-    // Sample data points evenly across available width
-    let step = data.len() as f64 / bar_count as f64;
-    let samples: Vec<u64> = (0..bar_count)
-        .map(|i| {
-            let idx = ((i as f64 + 0.5) * step) as usize;
-            data.get(idx.min(data.len() - 1)).copied().unwrap_or(0)
-        })
-        .collect();
-
-    let max_f = max_val.max(1) as f64;
-    let height = area.height as usize;
-
-    // Build rows from top to bottom
-    let mut rows: Vec<Line<'static>> = Vec::new();
-    for row in (0..height).rev() {
-        let threshold = (row as f64 / height as f64) * max_f;
-        let mut spans: Vec<Span<'static>> = Vec::new();
-
-        for &val in &samples {
-            let filled = val as f64 >= threshold;
-            if filled {
-                let ratio = val as f64 / max_f;
-                let color = if ratio > 0.8 { RED } else if ratio > 0.5 { YELLOW } else { GREEN };
-                spans.push(Span::styled("█".to_string(), Style::default().fg(color)));
-            } else {
-                spans.push(Span::raw(" "));
-            }
-        }
-
-        rows.push(Line::from(spans));
-    }
-
-    // Y-axis scale markers on the right edge (inside the block)
-    // We overlay the max value on the first line
-    if !rows.is_empty() {
-        // Scale labels could be overlaid on first row
-    }
-
-    let para = Paragraph::new(rows);
-    f.render_widget(para, area);
 }

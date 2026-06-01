@@ -175,6 +175,7 @@ pub fn format_bytes(bytes: u64) -> String {
 }
 
 /// Create a compact key-value span pair for inline use.
+#[allow(dead_code)]
 pub fn kv_span(key: &str, val: &str, key_color: Color) -> Span<'static> {
     Span::styled(
         format!("{}:{}", key, val),
@@ -183,6 +184,7 @@ pub fn kv_span(key: &str, val: &str, key_color: Color) -> Span<'static> {
 }
 
 /// Create a styled value span.
+#[allow(dead_code)]
 pub fn val_span(val: &str, color: Color) -> Span<'static> {
     Span::styled(val.to_string(), Style::default().fg(color))
 }

@@ -228,6 +228,7 @@ impl App {
             .collect()
     }
 
+    #[allow(dead_code)]
     pub fn per_core_history(&self, idx: usize) -> Option<&VecDeque<u64>> {
         self.per_core_history.get(idx)
     }

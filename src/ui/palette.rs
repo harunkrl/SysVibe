@@ -6,7 +6,9 @@
 use ratatui::style::Color;
 
 pub const ROSEWATER: Color = Color::Rgb(244, 194, 219);
+#[allow(dead_code)]
 pub const FLAMINGO: Color = Color::Rgb(242, 205, 205);
+#[allow(dead_code)]
 pub const PINK: Color = Color::Rgb(245, 189, 230);
 pub const MAUVE: Color = Color::Rgb(198, 160, 246);
 pub const RED: Color = Color::Rgb(237, 135, 150);
@@ -15,7 +17,9 @@ pub const PEACH: Color = Color::Rgb(245, 164, 136);
 pub const YELLOW: Color = Color::Rgb(238, 212, 159);
 pub const GREEN: Color = Color::Rgb(166, 227, 149);
 pub const TEAL: Color = Color::Rgb(139, 213, 202);
+#[allow(dead_code)]
 pub const SKY: Color = Color::Rgb(137, 220, 235);
+#[allow(dead_code)]
 pub const SAPPHIRE: Color = Color::Rgb(125, 196, 228);
 pub const BLUE: Color = Color::Rgb(138, 173, 244);
 pub const LAVENDER: Color = Color::Rgb(183, 223, 249);

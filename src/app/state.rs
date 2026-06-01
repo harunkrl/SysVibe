@@ -84,6 +84,7 @@ pub struct SensorReading {
 
 /// Battery charge and state information.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct BatteryStatus {
     pub percentage: f64,
     pub state: String,
@@ -154,6 +155,7 @@ pub struct GpuStats {
 
 /// Disk partition usage information with hardware details.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct DiskPartitionInfo {
     pub mount_point: String,
     pub device: String,
@@ -175,6 +177,7 @@ pub struct DiskPartitionInfo {
 
 /// Memory usage breakdown (used / buffers / cached / free).
 #[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
 pub struct MemoryBreakdown {
     pub used_bytes: u64,
     pub buffers_bytes: u64,

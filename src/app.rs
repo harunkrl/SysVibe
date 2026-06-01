@@ -27,6 +27,15 @@ pub enum AppMode {
     Filter,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AppTab {
+    #[default]
+    System,
+    Hardware,
+    Processes,
+    Logs,
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum SortBy {
     #[default]
@@ -132,7 +141,10 @@ pub struct App {
     // Processes
     top_processes: Vec<ProcessEntry>,
     pub proc_table_state: TableState,
+    pub tab: AppTab,
     pub sort_by: SortBy,
+    pub temp_celsius: bool,
+    pub selected_pids: Vec<(u32, String)>,
 
     // Filter state
     filter_input: String,
@@ -191,6 +203,9 @@ impl App {
             top_processes: Vec::new(),
             proc_table_state: TableState::default(),
             sort_by: SortBy::default(),
+            temp_celsius: true,
+            selected_pids: Vec::new(),
+            tab: AppTab::default(),
             filter_input: String::new(),
             filter_active: false,
             kill_target_pid: None,
@@ -234,6 +249,10 @@ impl App {
     }
 
     /// Returns filtered process list based on active filter.
+    pub fn total_process_count(&self) -> usize {
+        self.sys.processes().len()
+    }
+
     pub fn filtered_processes(&self) -> Vec<&ProcessEntry> {
         if !self.filter_active || self.filter_input.is_empty() {
             self.top_processes.iter().collect()
@@ -369,7 +388,7 @@ impl App {
         self.sys.refresh_memory();
 
         self.sys.refresh_processes(ProcessesToUpdate::All, true);
-        self.refresh_top_processes();
+        // Process list refreshed manually via [r] key
 
         self.networks.refresh(false);
         self.refresh_network_stats(elapsed);
@@ -405,12 +424,27 @@ impl App {
     // ── Normal mode ─────────────────────────────────────────────────
 
     fn handle_normal_key(&mut self, code: KeyCode, _mods: KeyModifiers) {
-        let _ = _mods;
         match code {
+            KeyCode::Tab => {
+                self.tab = match self.tab {
+                    AppTab::System => AppTab::Hardware,
+                    AppTab::Hardware => AppTab::Processes,
+                    AppTab::Processes => AppTab::Logs,
+                    AppTab::Logs => AppTab::System,
+                };
+            }
+            KeyCode::BackTab => {
+                self.tab = match self.tab {
+                    AppTab::System => AppTab::Logs,
+                    AppTab::Hardware => AppTab::System,
+                    AppTab::Processes => AppTab::Hardware,
+                    AppTab::Logs => AppTab::Processes,
+                };
+            }
             KeyCode::Char('q') | KeyCode::Esc => {
                 self.should_quit = true;
             }
-            KeyCode::Char('h') => {
+            KeyCode::Char('h') | KeyCode::Char('?') => {
                 self.mode = AppMode::Help;
             }
             KeyCode::Char('/') => {
@@ -435,6 +469,36 @@ impl App {
                 };
                 self.refresh_top_processes();
             }
+            KeyCode::Char('r') => {
+                self.refresh_top_processes();
+                self.set_status(format!("Refreshed — {} processes", self.top_processes.len()));
+            }
+            KeyCode::Char('t') => {
+                self.temp_celsius = !self.temp_celsius;
+                let unit = if self.temp_celsius { "Celsius" } else { "Fahrenheit" };
+                self.set_status(format!("Temperature: {}", unit));
+            }
+            KeyCode::Char(' ') => {
+                if let Some(idx) = self.proc_table_state.selected() {
+                    if let Some(p) = self.filtered_processes().get(idx) {
+                        let pid = p.pid;
+                        let name = p.name.clone();
+                        if let Some(pos) = self.selected_pids.iter().position(|(p, _)| *p == pid) {
+                            self.selected_pids.remove(pos);
+                        } else {
+                            self.selected_pids.push((pid, name));
+                        }
+                    }
+                }
+                self.navigate_down();
+            }
+            KeyCode::Char('c') => {
+                if !self.selected_pids.is_empty() {
+                    let count = self.selected_pids.len();
+                    self.selected_pids.clear();
+                    self.set_status(format!("Cleared {} selection(s)", count));
+                }
+            }
             _ => {}
         }
     }
@@ -458,9 +522,14 @@ impl App {
                 self.confirm_kill();
                 self.mode = AppMode::Normal;
             }
+            KeyCode::Char('k') | KeyCode::Char('K') => {
+                self.confirm_kill_force();
+                self.mode = AppMode::Normal;
+            }
             KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
                 self.kill_target_pid = None;
                 self.kill_target_name = None;
+                self.selected_pids.clear();
                 self.mode = AppMode::Normal;
             }
             _ => {}
@@ -470,7 +539,6 @@ impl App {
     // ── Filter mode ─────────────────────────────────────────────────
 
     fn handle_filter_key(&mut self, code: KeyCode, _mods: KeyModifiers) {
-        let _ = _mods;
         match code {
             KeyCode::Esc | KeyCode::Enter => {
                 self.filter_active = !self.filter_input.is_empty();
@@ -536,12 +604,14 @@ impl App {
     // ═════════════════════════════════════════════════════════════════
 
     fn request_kill(&mut self) {
+        if !self.selected_pids.is_empty() {
+            self.mode = AppMode::KillConfirm;
+            return;
+        }
         let Some(idx) = self.proc_table_state.selected() else {
             self.set_error("No process selected".into());
             return;
         };
-
-        // Find the process from filtered list without holding a borrow
         let target = {
             let filtered = self.filtered_processes();
             let Some(proc_entry) = filtered.get(idx) else {
@@ -550,42 +620,53 @@ impl App {
             };
             (proc_entry.pid, proc_entry.name.clone())
         };
-
         self.kill_target_pid = Some(target.0);
         self.kill_target_name = Some(target.1);
         self.mode = AppMode::KillConfirm;
     }
 
     fn confirm_kill(&mut self) {
-        let pid = match self.kill_target_pid {
-            Some(p) => p,
-            None => {
-                self.set_error("No target".into());
-                return;
+        if !self.selected_pids.is_empty() {
+            let mut killed = 0;
+            for (pid, _) in self.selected_pids.drain(..) {
+                if std::process::Command::new("kill").arg(format!("{}", pid)).output().map(|o| o.status.success()).unwrap_or(false) {
+                    killed += 1;
+                }
             }
-        };
-        let name = self
-            .kill_target_name
-            .clone()
-            .unwrap_or_else(|| "?".into());
-
-        let result = std::process::Command::new("kill")
-            .arg(format!("{}", pid))
-            .output();
-
-        match result {
-            Ok(output) if output.status.success() => {
-                self.set_status(format!("Sent SIGTERM → PID {} ({})", pid, name));
-            }
-            Ok(output) => {
-                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                self.set_error(format!("Kill {} failed: {}", pid, stderr));
-            }
-            Err(e) => {
-                self.set_error(format!("Kill {} error: {}", pid, e));
-            }
+            self.set_status(format!("Sent SIGTERM to {} processes", killed));
+            return;
         }
+        let pid = match self.kill_target_pid { Some(p) => p, None => { self.set_error("No target".into()); return; } };
+        let name = self.kill_target_name.clone().unwrap_or_else(|| "?".into());
+        let result = std::process::Command::new("kill").arg(format!("{}", pid)).output();
+        match result {
+            Ok(output) if output.status.success() => { self.set_status(format!("Sent SIGTERM → PID {} ({})", pid, name)); }
+            Ok(output) => { self.set_error(format!("Kill {} failed: {}", pid, String::from_utf8_lossy(&output.stderr).trim())); }
+            Err(e) => { self.set_error(format!("Kill {} error: {}", pid, e)); }
+        }
+        self.kill_target_pid = None;
+        self.kill_target_name = None;
+    }
 
+    fn confirm_kill_force(&mut self) {
+        if !self.selected_pids.is_empty() {
+            let mut killed = 0;
+            for (pid, _) in self.selected_pids.drain(..) {
+                if std::process::Command::new("kill").arg("-9").arg(format!("{}", pid)).output().map(|o| o.status.success()).unwrap_or(false) {
+                    killed += 1;
+                }
+            }
+            self.set_status(format!("Sent SIGKILL to {} processes", killed));
+            return;
+        }
+        let pid = match self.kill_target_pid { Some(p) => p, None => { self.set_error("No target".into()); return; } };
+        let name = self.kill_target_name.clone().unwrap_or_else(|| "?".into());
+        let result = std::process::Command::new("kill").arg("-9").arg(format!("{}", pid)).output();
+        match result {
+            Ok(output) if output.status.success() => { self.set_status(format!("Sent SIGKILL → PID {} ({})", pid, name)); }
+            Ok(output) => { self.set_error(format!("Kill -9 {} failed: {}", pid, String::from_utf8_lossy(&output.stderr).trim())); }
+            Err(e) => { self.set_error(format!("Kill -9 {} error: {}", pid, e)); }
+        }
         self.kill_target_pid = None;
         self.kill_target_name = None;
     }
@@ -765,8 +846,12 @@ impl App {
     // Private helpers — processes
     // ═════════════════════════════════════════════════════════════════
 
-    fn refresh_top_processes(&mut self) {
+    pub fn refresh_top_processes(&mut self) {
         let total_mem = self.sys.total_memory() as f64;
+
+        let selected_pid: Option<u32> = self.proc_table_state.selected()
+            .and_then(|idx| self.top_processes.get(idx).map(|p| p.pid));
+
         let mut procs: Vec<_> = self
             .sys
             .processes()
@@ -774,12 +859,13 @@ impl App {
             .filter(|(_, p)| !p.name().is_empty())
             .collect();
         procs.sort_by(|a, b| {
-            match self.sort_by {
+            let primary = match self.sort_by {
                 SortBy::Cpu => b.1.cpu_usage().partial_cmp(&a.1.cpu_usage()).unwrap_or(std::cmp::Ordering::Equal),
                 SortBy::Mem => b.1.memory().cmp(&a.1.memory()),
-                SortBy::Pid => a.0.cmp(b.0),
+                SortBy::Pid => return a.0.cmp(b.0),
                 SortBy::Name => a.1.name().cmp(b.1.name()),
-            }
+            };
+            primary.then_with(|| a.0.cmp(b.0))
         });
 
         let max_procs = self.config.max_processes.max(1);
@@ -801,7 +887,14 @@ impl App {
 
         let len = self.top_processes.len();
         if len > 0 {
-            if self.proc_table_state.selected().is_none() {
+            if let Some(target_pid) = selected_pid {
+                if let Some(new_idx) = self.top_processes.iter().position(|p| p.pid == target_pid) {
+                    self.proc_table_state.select(Some(new_idx));
+                } else {
+                    let clamped = self.proc_table_state.selected().unwrap_or(0).min(len - 1);
+                    self.proc_table_state.select(Some(clamped));
+                }
+            } else if self.proc_table_state.selected().is_none() {
                 self.proc_table_state.select(Some(0));
             } else if let Some(i) = self.proc_table_state.selected()
             && i >= len

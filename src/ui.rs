@@ -17,7 +17,7 @@ use ratatui::{
 };
 use std::collections::VecDeque;
 
-use crate::app::{App, AppMode, BatteryStatus, NetworkStats};
+use crate::app::{App, AppMode, AppTab, BatteryStatus, NetworkStats};
 
 // ═══════════════════════════════════════════════════════════════════════
 // Catppuccin Macchiato palette
@@ -71,8 +71,8 @@ fn braille_graph(data: &VecDeque<u64>, max_val: Option<u64>, color: Color) -> Ve
         .unwrap_or_else(|| data.iter().copied().max().unwrap_or(1))
         .max(1);
 
-    let mut top = String::with_capacity(data.len());
-    let mut bot = String::with_capacity(data.len());
+    let mut top = String::with_capacity(data.len() * 3);
+    let mut bot = String::with_capacity(data.len() * 3);
 
     for &v in data {
         let lv = ((v as f64 / max as f64) * 8.0).round() as usize;
@@ -90,7 +90,7 @@ fn braille_graph(data: &VecDeque<u64>, max_val: Option<u64>, color: Color) -> Ve
 /// Single-line mini braille (4 vertical levels) for the per-core grid.
 fn braille_mini(data: &[u64], max_val: u64) -> String {
     let max = max_val.max(1);
-    let mut out = String::with_capacity(data.len());
+    let mut out = String::with_capacity(data.len() * 3);
     for &v in data {
         let lv = ((v as f64 / max as f64) * 4.0).round() as u32;
         let bits: u32 = match lv {
@@ -196,10 +196,14 @@ fn format_speed(bps: f64) -> String {
 }
 
 fn truncate_str(s: &str, max: usize) -> String {
-    if s.len() <= max {
+    if s.chars().count() <= max {
         s.to_string()
     } else {
-        format!("{}…", &s[..max - 1])
+        let boundary = s.char_indices()
+            .nth(max.saturating_sub(1))
+            .map(|(i, _)| i)
+            .unwrap_or(s.len());
+        format!("{}…", &s[..boundary])
     }
 }
 
@@ -229,61 +233,96 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
 // ═══════════════════════════════════════════════════════════════════════
 
 pub fn draw(f: &mut Frame, app: &mut App) {
-    let show_disk = app.config().show_disk_io;
+    match app.tab {
+        AppTab::System => {
+            let outer = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(3),
+                    Constraint::Min(0),
+                    Constraint::Length(1),
+                ])
+                .split(f.area());
 
-    let outer = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3),   // header
-            Constraint::Percentage(48), // charts
-            Constraint::Length(6),   // sensors + sysinfo
-            Constraint::Percentage(36), // processes
-            Constraint::Length(1),   // footer
-        ])
-        .split(f.area());
+            render_header(f, app, outer[0]);
+            let inner = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(45), Constraint::Percentage(55)])
+                .split(outer[1]);
+            render_sysinfo_block(f, app, inner[0]);
+            render_sensors_block(f, app, inner[1]);
+            render_footer(f, app, outer[2]);
+        }
+        AppTab::Hardware => {
+            let show_disk = app.config().show_disk_io;
+            let outer = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(3),
+                    Constraint::Min(0),
+                    Constraint::Length(1),
+                ])
+                .split(f.area());
 
-    render_header(f, outer[0]);
+            render_header(f, app, outer[0]);
 
-    let chart_cols = if show_disk {
-        Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Percentage(30),
-                Constraint::Percentage(25),
-                Constraint::Percentage(25),
-                Constraint::Percentage(20),
-            ])
-            .split(outer[1])
-    } else {
-        Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Percentage(35),
-                Constraint::Percentage(30),
-                Constraint::Percentage(35),
-            ])
-            .split(outer[1])
-    };
+            let rows = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(outer[1]);
 
-    render_cpu_block(f, app, chart_cols[0]);
-    render_memory_block(f, app, chart_cols[1]);
-    render_network_block(f, app, chart_cols[2]);
-    if show_disk {
-        render_disk_block(f, app, chart_cols[3]);
+            let r1 = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(34), Constraint::Percentage(33), Constraint::Percentage(33)])
+                .split(rows[0]);
+            let r2 = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints(if show_disk {
+                    vec![Constraint::Percentage(33), Constraint::Percentage(33), Constraint::Percentage(34)]
+                } else {
+                    vec![Constraint::Percentage(50), Constraint::Percentage(50)]
+                })
+                .split(rows[1]);
+
+            render_cpu_block(f, app, r1[0]);
+            render_memory_block(f, app, r1[1]);
+            render_network_block(f, app, r1[2]);
+            if show_disk {
+                render_disk_block(f, app, r2[0]);
+            }
+            render_sensors_block(f, app, if show_disk { r2[1] } else { r2[0] });
+            render_sysinfo_block(f, app, if show_disk { r2[2] } else { r2[1] });
+            render_footer(f, app, outer[2]);
+        }
+        AppTab::Processes => {
+            let outer = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(3),
+                    Constraint::Min(0),
+                    Constraint::Length(1),
+                ])
+                .split(f.area());
+
+            render_header(f, app, outer[0]);
+            render_process_area(f, app, outer[1]);
+            render_footer(f, app, outer[2]);
+        }
+        AppTab::Logs => {
+            let outer = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(3),
+                    Constraint::Min(0),
+                    Constraint::Length(1),
+                ])
+                .split(f.area());
+
+            render_header(f, app, outer[0]);
+            render_logs_placeholder(f, outer[1]);
+            render_footer(f, app, outer[2]);
+        }
     }
-
-    let info_cols = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(30), Constraint::Percentage(70)])
-        .split(outer[2]);
-
-    render_sensors_block(f, app, info_cols[0]);
-    render_sysinfo_block(f, app, info_cols[1]);
-
-    // Process area: include filter bar if active
-    render_process_area(f, app, outer[3]);
-
-    render_footer(f, app, outer[4]);
 
     // ── Modal overlays ─────────────────────────────────────────────
     match app.mode() {
@@ -297,25 +336,32 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 // Header — NO forced background (transparency preserved)
 // ═══════════════════════════════════════════════════════════════════════
 
-fn render_header(f: &mut Frame, area: Rect) {
-    let title = Line::from(vec![
-        Span::styled("SysVibe", Style::default().fg(MAUVE).add_modifier(Modifier::BOLD)),
-        Span::styled(" — System Monitor ", Style::default().fg(SUBTEXT)),
-        Span::styled("v0.1.0", Style::default().fg(OVERLAY).add_modifier(Modifier::ITALIC)),
-        Span::raw(" "),
-    ]);
+fn render_header(f: &mut Frame, app: &App, area: Rect) {
+    let tabs = [("System", AppTab::System), ("Hardware", AppTab::Hardware), ("Processes", AppTab::Processes), ("Logs", AppTab::Logs)];
+    let mut tab_spans: Vec<Span<'_>> = Vec::new();
+    for (i, (name, tab)) in tabs.iter().enumerate() {
+        if i > 0 { tab_spans.push(Span::styled(" \u{2502} ", Style::default().fg(SURFACE2))); }
+        let is_active = app.tab == *tab;
+        if is_active {
+            tab_spans.push(Span::styled(format!("\u{25C9} {} ", name), Style::default().fg(MAUVE).add_modifier(Modifier::BOLD)));
+        } else {
+            tab_spans.push(Span::styled(format!("\u{25CC} {} ", name), Style::default().fg(OVERLAY)));
+        }
+    }
 
-    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
-    let hours = (secs / 3600) % 24;
-    let minutes = (secs / 60) % 60;
-    let seconds = secs % 60;
-    let time_str = format!("{:02}:{:02}:{:02} UTC", hours, minutes, seconds);
+    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let time_str = format!("{:02}:{:02}:{:02} UTC", (secs / 3600) % 24, (secs / 60) % 60, secs % 60);
 
     let block = header_block()
-        .title_top(title.alignment(Alignment::Center))
+        .title_top(Line::from(vec![
+            Span::styled("  SysVibe", Style::default().fg(MAUVE).add_modifier(Modifier::BOLD)),
+            Span::styled(format!(" v{} ", env!("CARGO_PKG_VERSION")), Style::default().fg(OVERLAY).add_modifier(Modifier::ITALIC)),
+        ]))
         .title_top(Line::from(time_str).alignment(Alignment::Right));
-        
-    f.render_widget(Paragraph::new("").block(block), area);
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    f.render_widget(Paragraph::new(Line::from(tab_spans)).alignment(Alignment::Center), inner);
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -942,6 +988,15 @@ fn render_kill_confirm_modal(f: &mut Frame, area: Rect, app: &App) {
 // Footer — mode-aware keybindings + status messages
 // ═══════════════════════════════════════════════════════════════════════
 
+fn render_logs_placeholder(f: &mut Frame, area: Rect) {
+    let block = panel_block("Kernel Logs");
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    f.render_widget(Paragraph::new(Line::from(vec![
+        Span::styled("  Kernel log viewer — coming soon", Style::default().fg(OVERLAY)),
+    ])), inner);
+}
+
 fn render_footer(f: &mut Frame, app: &App, area: Rect) {
     // Status message takes priority
     if let Some(ref msg) = app.status_message {
@@ -972,7 +1027,7 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
             Span::styled(" │ ", Style::default().fg(SURFACE2)),
             Span::styled(format!("[s] Sort: {:?}", app.sort_by), Style::default().fg(OVERLAY)),
             Span::styled("   ", Style::default()),
-            Span::styled("SysVibe v0.1.0", Style::default().fg(SURFACE2)),
+            Span::styled(format!("SysVibe v{}", env!("CARGO_PKG_VERSION")), Style::default().fg(SURFACE2)),
         ],
         AppMode::Help => vec![
             Span::styled(" [Esc/h] Close Help", Style::default().fg(OVERLAY)),

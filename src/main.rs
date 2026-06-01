@@ -40,6 +40,7 @@ fn main() -> app::AppResult<()> {
 
     // ── Application state ──────────────────────────────────────────
     let mut app = app::App::new(cfg);
+    app.refresh_top_processes();
 
     let tick_rate = Duration::from_millis(app.config().ui_tick_rate);
     let refresh_interval_ms = app.config().data_refresh_rate;

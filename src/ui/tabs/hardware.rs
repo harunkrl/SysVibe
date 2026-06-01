@@ -4,17 +4,20 @@
 //! asymmetric layout: CPU + Memory occupy the top 60%, while Network,
 //! Disk I/O, and System Load share the bottom 40% in three columns.
 
+use std::collections::VecDeque;
+
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Gauge, Paragraph, Wrap},
+    widgets::{Paragraph, Wrap},
 };
 
 use crate::app::App;
 use crate::ui::helpers::*;
 use crate::ui::palette::*;
+use crate::ui::widgets::sparkline::{braille_mini, braille_mirrored_graph};
 use ratatui::style::Color;
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -64,14 +67,11 @@ fn render_cpu_panel(f: &mut Frame, area: Rect, app: &App) {
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    let _gauge_rows = app.num_cores().min(16) as u16;
-    let _available = inner.height;
-
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(2), // info + spacing
-            Constraint::Min(0),    // gauges
+            Constraint::Length(1), // summary line
+            Constraint::Min(0),    // per-core grid
         ])
         .split(inner);
 
@@ -86,48 +86,48 @@ fn render_cpu_panel(f: &mut Frame, area: Rect, app: &App) {
         Span::styled("  Cores:", Style::default().fg(SUBTEXT).add_modifier(Modifier::BOLD)),
         Span::styled(format!(" {}", app.num_cores()), Style::default().fg(TEXT)),
     ]);
-    f.render_widget(Paragraph::new(info), Rect {
-        x: layout[0].x,
-        y: layout[0].y,
-        width: layout[0].width,
-        height: 1,
-    });
+    f.render_widget(Paragraph::new(info), layout[0]);
 
-    // Per-core gauges with spacing
+    // Per-core lines with 4-char braille micro-sparklines
     let cores = app.per_core_usage();
     let gauge_area = layout[1];
-    let cols: u16 = if cores.len() <= 4 { 1 } else { 2 };
-    let rows_per_col = ((cores.len() as u16 + cols - 1) / cols).max(1);
-    let half_w = gauge_area.width / cols;
+    let cols: usize = if cores.len() <= 4 { 1 } else { 2 };
+    let rows_per_col = (cores.len() + cols - 1) / cols;
+    let half_w = gauge_area.width / cols as u16;
 
     for (i, usage) in cores.iter().enumerate() {
-        let col = i as u16 / rows_per_col;
-        let row = i as u16 % rows_per_col;
-        let gauge_y = gauge_area.y + row * 2; // spacing between gauges
-        if gauge_y >= gauge_area.y + gauge_area.height {
-            break;
-        }
-        let gauge_x = gauge_area.x + col * half_w;
-        let gauge_w = half_w.saturating_sub(1);
+        let col = i / rows_per_col;
+        let row = i % rows_per_col;
+        let x = gauge_area.x + col as u16 * half_w;
+        let y = gauge_area.y + row as u16;
+        let w = half_w.saturating_sub(1);
 
-        if gauge_w < 6 {
+        if y >= gauge_area.y + gauge_area.height || w < 10 {
             continue;
         }
 
-        let pct = *usage as f64 / 100.0;
         let color = usage_color(*usage);
-        let label = format!("C{:>2} {:5.1}%", i, usage);
 
-        let gauge = Gauge::default()
-            .gauge_style(Style::default().fg(color))
-            .ratio(pct.min(1.0))
-            .label(Span::styled(label, Style::default().fg(TEXT)));
-        f.render_widget(gauge, Rect {
-            x: gauge_x,
-            y: gauge_y,
-            width: gauge_w,
-            height: 1,
-        });
+        // 4-char braille micro-sparkline from per-core history
+        let spark_data: Vec<u64> = if let Some(h) = app.per_core_history(i) {
+            let len = h.len();
+            let start = len.saturating_sub(4);
+            h.range(start..).copied().collect()
+        } else {
+            vec![0; 4]
+        };
+        let spark = braille_mini(&spark_data, 100);
+
+        let line = Line::from(vec![
+            Span::styled(format!("C{:>2}", i), Style::default().fg(SUBTEXT)),
+            Span::styled(format!(" {:5.1}%", usage), Style::default().fg(color)),
+            Span::styled(format!(" {}", spark), Style::default().fg(color)),
+        ]);
+
+        f.render_widget(
+            Paragraph::new(line),
+            Rect { x, y, width: w, height: 1 },
+        );
     }
 }
 
@@ -242,59 +242,85 @@ fn render_network_panel(f: &mut Frame, area: Rect, app: &App) {
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    let mut lines: Vec<Line<'static>> = Vec::new();
+    let stats = app.network_stats();
 
-    for ns in app.network_stats() {
-        // Interface name
+    if stats.is_empty() {
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                "  No interfaces found",
+                Style::default().fg(OVERLAY),
+            ))),
+            inner,
+        );
+        return;
+    }
+
+    // ── Compact speed summary per interface ────────────────────
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    for ns in stats {
         lines.push(Line::from(vec![
             Span::styled(
                 format!(" {} ", ns.interface),
                 Style::default().fg(BLUE).add_modifier(Modifier::BOLD),
             ),
+            Span::styled("▲", Style::default().fg(SKY).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                format!(" {:>10}", format_speed(ns.rx_speed_bps)),
+                Style::default().fg(TEXT),
+            ),
+            Span::styled(" ▼", Style::default().fg(MAUVE).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                format!(" {:>10}", format_speed(ns.tx_speed_bps)),
+                Style::default().fg(TEXT),
+            ),
         ]));
+    }
 
-        lines.push(Line::raw("")); // spacing
+    let text_h = lines.len() as u16;
+    let text_area = Rect {
+        x: inner.x,
+        y: inner.y,
+        width: inner.width,
+        height: text_h.min(inner.height),
+    };
+    f.render_widget(Paragraph::new(lines), text_area);
 
-        // Current speeds
-        lines.push(Line::from(vec![
-            Span::styled("  RX:", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
-            Span::styled(format!(" {:>12}", format_speed(ns.rx_speed_bps)), Style::default().fg(TEXT)),
-        ]));
-        lines.push(Line::from(vec![
-            Span::styled("  TX:", Style::default().fg(PEACH).add_modifier(Modifier::BOLD)),
-            Span::styled(format!(" {:>12}", format_speed(ns.tx_speed_bps)), Style::default().fg(TEXT)),
-        ]));
+    // ── Mirrored heartbeat graph (RX ▲ / TX ▼) ────────────────
+    let graph_h = inner.height.saturating_sub(text_h);
+    if graph_h >= 5 && inner.width > 4 {
+        // Aggregate histories across all interfaces
+        let max_len = stats
+            .iter()
+            .map(|ns| ns.rx_history.len().max(ns.tx_history.len()))
+            .max()
+            .unwrap_or(0);
 
-        lines.push(Line::raw("")); // spacing
+        if max_len > 0 {
+            let total_rx: VecDeque<u64> = (0..max_len)
+                .map(|i| stats.iter().map(|ns| ns.rx_history.get(i).copied().unwrap_or(0)).sum())
+                .collect();
+            let total_tx: VecDeque<u64> = (0..max_len)
+                .map(|i| stats.iter().map(|ns| ns.tx_history.get(i).copied().unwrap_or(0)).sum())
+                .collect();
 
-        // Session totals
-        lines.push(Line::from(vec![
-            Span::styled("  Total RX:", Style::default().fg(GREEN)),
-            Span::styled(format!(" {}", format_bytes(ns.total_rx_bytes)), Style::default().fg(TEXT)),
-        ]));
-        lines.push(Line::from(vec![
-            Span::styled("  Total TX:", Style::default().fg(PEACH)),
-            Span::styled(format!(" {}", format_bytes(ns.total_tx_bytes)), Style::default().fg(TEXT)),
-        ]));
+            let graph_area = Rect {
+                x: inner.x,
+                y: inner.y + text_h,
+                width: inner.width,
+                height: graph_h,
+            };
 
-        // Local IP
-        if let Some(ref ip) = ns.local_ip {
-            lines.push(Line::from(vec![
-                Span::styled("  Local IP:", Style::default().fg(MAUVE)),
-                Span::styled(format!(" {}", ip), Style::default().fg(TEXT)),
-            ]));
+            let rows = braille_mirrored_graph(
+                &total_rx,
+                &total_tx,
+                graph_area.width,
+                graph_area.height,
+                SKY,   // RX (download) ▲ cyan
+                MAUVE, // TX (upload) ▼ magenta
+            );
+            f.render_widget(Paragraph::new(rows), graph_area);
         }
     }
-
-    if app.network_stats().is_empty() {
-        lines.push(Line::from(Span::styled(
-            "  No interfaces found",
-            Style::default().fg(OVERLAY),
-        )));
-    }
-
-    let para = Paragraph::new(lines);
-    f.render_widget(para, inner);
 }
 
 // ═══════════════════════════════════════════════════════════════════════

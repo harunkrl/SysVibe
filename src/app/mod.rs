@@ -52,6 +52,7 @@ pub struct App {
     temperatures: Vec<SensorReading>,
     battery: Option<BatteryStatus>,
     pub battery_power_history: VecDeque<u64>,
+    pub battery_charge_history: VecDeque<u64>,
 
     // Processes
     top_processes: Vec<ProcessEntry>,
@@ -138,6 +139,7 @@ impl App {
             temperatures: Vec::new(),
             battery: None,
             battery_power_history: VecDeque::with_capacity(HISTORY_LEN),
+            battery_charge_history: VecDeque::with_capacity(HISTORY_LEN),
             top_processes: Vec::new(),
             proc_table_state: TableState::default(),
             sort_by: SortBy::default(),
@@ -165,7 +167,7 @@ impl App {
         app.refresh_data();
         app.refresh_top_processes();
         app.components.refresh(false);
-        app.temperatures = collectors::sensors::refresh_temperatures(&app.components);
+        collectors::sensors::refresh_temperatures(&app.components, &mut app.temperatures);
         app.battery = collectors::sensors::read_battery();
 
         // Initial disk partition cache
@@ -605,14 +607,18 @@ impl App {
         let sensor_interval = self.config.sensor_refresh_rate;
         if self.last_sensor_refresh.elapsed().as_millis() >= sensor_interval as u128 {
             self.components.refresh(false);
-            self.temperatures = collectors::sensors::refresh_temperatures(&self.components);
+            collectors::sensors::refresh_temperatures(&self.components, &mut self.temperatures);
             self.battery = collectors::sensors::read_battery();
             
             if let Some(ref bat) = self.battery {
                 if let Some(w) = bat.power_w {
-                    self.battery_power_history.push_back(w.round() as u64);
-                    if self.battery_power_history.len() > HISTORY_LEN {
-                        self.battery_power_history.pop_front();
+                    let power_val = w.round() as u64;
+                    if bat.state == "Charging" {
+                        helpers::push_history(&mut self.battery_charge_history, power_val);
+                        helpers::push_history(&mut self.battery_power_history, 0);
+                    } else {
+                        helpers::push_history(&mut self.battery_power_history, power_val);
+                        helpers::push_history(&mut self.battery_charge_history, 0);
                     }
                 }
             }

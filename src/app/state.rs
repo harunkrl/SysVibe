@@ -75,11 +75,13 @@ pub struct NetworkStats {
     pub local_ip: Option<String>,
 }
 
-/// A single temperature sensor reading.
+/// A single temperature sensor reading with rolling history for sparklines.
 #[derive(Debug, Clone)]
 pub struct SensorReading {
     pub label: String,
     pub temp_c: f32,
+    /// Rolling history of temperature values (°C, rounded to u64) for braille sparklines.
+    pub history: std::collections::VecDeque<u64>,
 }
 
 /// Battery charge and state information.

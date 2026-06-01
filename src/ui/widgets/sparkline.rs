@@ -15,6 +15,8 @@ const BRAILLE_OFFSET: u32 = 0x2800;
 
 /// Braille dot patterns for 0-8 fill levels (bottom-up).
 /// Each pair is (top_row_bits, bottom_row_bits).
+/// Legacy braille fill patterns (2-line rendering). Kept for future use.
+#[allow(dead_code)]
 const BRAILLE_FILL: [(u8, u8); 9] = [
     (0x00, 0x00), // 0/8 empty
     (0x00, 0xC0), // 1/8
@@ -51,7 +53,6 @@ pub fn braille_graph(data: &VecDeque<u64>, max_val: Option<u64>, color: Color) -
 }
 
 /// Single-line mini braille (4 vertical levels) for the per-core grid.
-#[allow(dead_code)]
 pub fn braille_mini(data: &[u64], max_val: u64) -> String {
     let max = max_val.max(1);
     let mut out = String::with_capacity(data.len() * 3);
@@ -78,6 +79,7 @@ pub fn braille_mini(data: &[u64], max_val: u64) -> String {
 /// - Draws only the **line** itself (not a filled area)
 ///
 /// Returns lines ready for `Paragraph`, with Y-axis labels on the left.
+#[allow(dead_code)]
 pub fn braille_line_graph(
     data: &VecDeque<u64>,
     area_width: u16,
@@ -168,8 +170,123 @@ pub fn braille_line_graph(
     rows
 }
 
+/// Render a mirrored braille "heartbeat" graph with data going **up** and **down** from
+/// a central zero-axis.
+///
+/// • `up_data` renders upward from center (e.g., RX download, charging power).
+/// • `down_data` renders downward from center (e.g., TX upload, discharging power).
+///
+/// Each cell uses the left column of braille dots for 4 vertical sub-pixels per row.
+/// If `area_height` is odd, a `─` center separator line is inserted between the halves.
+pub fn braille_mirrored_graph(
+    up_data: &VecDeque<u64>,
+    down_data: &VecDeque<u64>,
+    area_width: u16,
+    area_height: u16,
+    up_color: Color,
+    down_color: Color,
+) -> Vec<Line<'static>> {
+    if area_width < 4 || area_height < 4 {
+        return Vec::new();
+    }
+
+    let w = area_width as usize;
+    let h = area_height as usize;
+    let has_center = h % 2 == 1;
+    let half_h = h / 2;
+    let down_h = h - half_h - if has_center { 1 } else { 0 };
+
+    let up_vec: Vec<u64> = up_data.iter().copied().collect();
+    let down_vec: Vec<u64> = down_data.iter().copied().collect();
+
+    let up_max = up_vec.iter().copied().max().unwrap_or(1).max(1) as f64;
+    let down_max = down_vec.iter().copied().max().unwrap_or(1).max(1) as f64;
+
+    let up_samples = resample(&up_vec, w);
+    let down_samples = resample(&down_vec, w);
+
+    // Sub-pixel fill levels per column for each direction
+    let up_total = half_h * 4;
+    let down_total = down_h * 4;
+
+    let up_fill: Vec<usize> = up_samples
+        .iter()
+        .map(|&v| ((v as f64 / up_max) * up_total as f64).round() as usize)
+        .collect();
+    let down_fill: Vec<usize> = down_samples
+        .iter()
+        .map(|&v| ((v as f64 / down_max) * down_total as f64).round() as usize)
+        .collect();
+
+    // Pre-computed braille fill patterns (left-column dots only)
+    // UP fill: bottom→top within cell (dot7 → dot3 → dot2 → dot1)
+    const UP_FILL: [u32; 5] = [0x00, 0x40, 0x44, 0x46, 0x47];
+    // DOWN fill: top→bottom within cell (dot1 → dot2 → dot3 → dot7)
+    const DOWN_FILL: [u32; 5] = [0x00, 0x01, 0x03, 0x07, 0x47];
+
+    let mut rows: Vec<Line<'static>> = Vec::with_capacity(h);
+
+    // ── Up section (top half, row 0 = topmost) ─────────────────
+    for row in 0..half_h {
+        // Sub-pixel range from center: [sp_low, sp_high)
+        let sp_low = (half_h - 1 - row) * 4;
+        let sp_high = (half_h - row) * 4;
+
+        let mut spans: Vec<Span<'static>> = Vec::with_capacity(w);
+        for col in 0..w {
+            let fill = up_fill[col];
+            let level = if fill >= sp_high {
+                4
+            } else if fill <= sp_low {
+                0
+            } else {
+                fill - sp_low
+            };
+            let ch = char::from_u32(BRAILLE_OFFSET + UP_FILL[level]).unwrap_or(' ');
+            spans.push(Span::styled(ch.to_string(), Style::default().fg(up_color)));
+        }
+        rows.push(Line::from(spans));
+    }
+
+    // ── Center separator (odd height) ───────────────────────────
+    if has_center {
+        let mut spans: Vec<Span<'static>> = Vec::with_capacity(w);
+        for _ in 0..w {
+            spans.push(Span::styled(
+                "─".to_string(),
+                Style::default().fg(Color::DarkGray),
+            ));
+        }
+        rows.push(Line::from(spans));
+    }
+
+    // ── Down section (bottom half, row 0 = closest to center) ──
+    for row in 0..down_h {
+        let sp_low = row * 4;
+        let sp_high = (row + 1) * 4;
+
+        let mut spans: Vec<Span<'static>> = Vec::with_capacity(w);
+        for col in 0..w {
+            let fill = down_fill[col];
+            let level = if fill >= sp_high {
+                4
+            } else if fill <= sp_low {
+                0
+            } else {
+                fill - sp_low
+            };
+            let ch = char::from_u32(BRAILLE_OFFSET + DOWN_FILL[level]).unwrap_or(' ');
+            spans.push(Span::styled(ch.to_string(), Style::default().fg(down_color)));
+        }
+        rows.push(Line::from(spans));
+    }
+
+    rows
+}
+
 /// Compute dynamic Y-axis ceiling: round `peak` up to the next multiple of 5.
 /// Minimum ceiling is 5. Steps: 5, 10, 15, 20, 25, 30, ...
+#[allow(dead_code)]
 fn dynamic_ceiling(peak: f64) -> f64 {
     let step = 5.0;
     let min = 5.0;

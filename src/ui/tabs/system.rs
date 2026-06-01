@@ -15,7 +15,7 @@ use ratatui::{
 use crate::app::App;
 use crate::ui::helpers::*;
 use crate::ui::palette::*;
-use crate::ui::widgets::sparkline::braille_line_graph;
+use crate::ui::widgets::sparkline::{braille_mini, braille_mirrored_graph};
 
 // ═══════════════════════════════════════════════════════════════════════
 // Public entry point
@@ -355,15 +355,20 @@ fn render_temperatures(f: &mut Frame, area: Rect, app: &App) {
     let temps = app.temperatures();
     let mut lines: Vec<Line<'static>> = Vec::new();
 
-    lines.push(Line::from(vec![
-        Span::styled(" TEMPERATURES", Style::default().fg(BLUE).add_modifier(Modifier::BOLD)),
-    ]));
-
-    lines.push(Line::raw("")); // spacing
-
     for sensor in temps.iter().take(10) {
         let color = temp_color(sensor.temp_c);
         let label = truncate_str(&sensor.label, 14);
+
+        // Braille sparkline from per-sensor rolling history
+        let hist_len = sensor.history.len();
+        let spark_data: Vec<u64> = if hist_len >= 8 {
+            sensor.history.range(hist_len - 8..).copied().collect()
+        } else {
+            sensor.history.iter().copied().collect()
+        };
+        let spark_max = spark_data.iter().copied().max().unwrap_or(100).max(1);
+        let sparkline = braille_mini(&spark_data, spark_max);
+
         lines.push(Line::from(vec![
             Span::styled(format!(" {:<14}", label), Style::default().fg(SUBTEXT)),
             Span::styled(
@@ -371,7 +376,7 @@ fn render_temperatures(f: &mut Frame, area: Rect, app: &App) {
                 Style::default().fg(color).add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                format!(" {}", build_temp_bar(sensor.temp_c)),
+                format!(" {}", sparkline),
                 Style::default().fg(color),
             ),
         ]));
@@ -388,23 +393,9 @@ fn render_temperatures(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(para, area);
 }
 
-/// Build a tiny temperature bar.
-fn build_temp_bar(temp: f32) -> String {
-    let ratio = (temp / 105.0).min(1.0).max(0.0);
-    let width = 8;
-    let filled = (ratio * width as f32).round() as usize;
-    let empty = width - filled;
-    format!("[{}{}]", "█".repeat(filled), "░".repeat(empty))
-}
 
 fn render_power(f: &mut Frame, area: Rect, app: &App) {
     let mut lines: Vec<Line<'static>> = Vec::new();
-
-    lines.push(Line::from(vec![
-        Span::styled(" BATTERY & POWER", Style::default().fg(BLUE).add_modifier(Modifier::BOLD)),
-    ]));
-
-    lines.push(Line::raw("")); // spacing
 
     if let Some(bat) = app.battery() {
         let pct = bat.percentage;
@@ -420,11 +411,9 @@ fn render_power(f: &mut Frame, area: Rect, app: &App) {
             Span::styled(format!("  {}", bat.state), Style::default().fg(TEXT)),
         ]));
 
-        lines.push(Line::raw("")); // spacing
-
         if let Some(power) = bat.power_w {
             lines.push(Line::from(vec![
-                Span::styled(" Power Draw:", Style::default().fg(SUBTEXT).add_modifier(Modifier::BOLD)),
+                Span::styled(" Power:", Style::default().fg(SUBTEXT).add_modifier(Modifier::BOLD)),
                 Span::styled(
                     format!(" {:.2} W", power),
                     Style::default().fg(YELLOW),
@@ -432,24 +421,26 @@ fn render_power(f: &mut Frame, area: Rect, app: &App) {
             ]));
         }
 
+        // Compact hardware info on one line
+        let mut hw_spans: Vec<Span<'static>> = vec![Span::raw(" ")];
         if let Some(ref tech) = bat.technology {
-            lines.push(Line::from(vec![
-                Span::styled(" Technology:", Style::default().fg(SUBTEXT)),
-                Span::styled(format!(" {}", tech), Style::default().fg(TEXT)),
-            ]));
+            hw_spans.push(Span::styled(format!("{}", tech), Style::default().fg(TEXT)));
         }
         if let Some(health) = bat.health_pct {
             let hcolor = if health > 80.0 { GREEN } else if health > 50.0 { YELLOW } else { RED };
-            lines.push(Line::from(vec![
-                Span::styled(" Health:", Style::default().fg(SUBTEXT)),
-                Span::styled(format!(" {:.1}%", health), Style::default().fg(hcolor)),
-            ]));
+            hw_spans.push(Span::styled(
+                format!("  Health: {:.1}%", health),
+                Style::default().fg(hcolor),
+            ));
         }
         if let Some(cycles) = bat.cycle_count {
-            lines.push(Line::from(vec![
-                Span::styled(" Cycles:", Style::default().fg(SUBTEXT)),
-                Span::styled(format!(" {}", cycles), Style::default().fg(TEXT)),
-            ]));
+            hw_spans.push(Span::styled(
+                format!("  Cycles: {}", cycles),
+                Style::default().fg(TEXT),
+            ));
+        }
+        if hw_spans.len() > 1 {
+            lines.push(Line::from(hw_spans));
         }
     } else {
         lines.push(Line::from(Span::styled(
@@ -467,13 +458,17 @@ fn render_power(f: &mut Frame, area: Rect, app: &App) {
     };
     f.render_widget(Paragraph::new(lines), text_area);
 
-    // ── Power Draw Graph (braille line graph with Y-axis) ────
-    if !app.battery_power_history.is_empty() {
+    // ── Mirrored Power Draw Heartbeat Graph ─────────────────
+    let has_data = !app.battery_charge_history.is_empty()
+        || !app.battery_power_history.is_empty();
+
+    if has_data {
         let graph_h = area.height.saturating_sub(text_h);
         if graph_h >= 5 {
-            let peak = app.battery_power_history.iter().copied().max().unwrap_or(1);
+            let charge_peak = app.battery_charge_history.iter().copied().max().unwrap_or(0);
+            let discharge_peak = app.battery_power_history.iter().copied().max().unwrap_or(0);
 
-            // Header
+            // Compact header
             let header_area = Rect {
                 x: area.x,
                 y: area.y + text_h,
@@ -482,16 +477,21 @@ fn render_power(f: &mut Frame, area: Rect, app: &App) {
             };
             f.render_widget(
                 Paragraph::new(Line::from(vec![
-                    Span::styled(" Power Draw History", Style::default().fg(SUBTEXT)),
+                    Span::styled(" ▲ Charge", Style::default().fg(GREEN)),
                     Span::styled(
-                        format!("  peak {:.1} W", peak as f64),
-                        Style::default().fg(YELLOW),
+                        format!(" {:.1}W", charge_peak as f64),
+                        Style::default().fg(GREEN),
+                    ),
+                    Span::styled("  ▼ Discharge", Style::default().fg(PEACH)),
+                    Span::styled(
+                        format!(" {:.1}W", discharge_peak as f64),
+                        Style::default().fg(PEACH),
                     ),
                 ])),
                 header_area,
             );
 
-            // Graph area
+            // Mirrored graph
             let graph_area = Rect {
                 x: area.x,
                 y: area.y + text_h + 1,
@@ -499,17 +499,16 @@ fn render_power(f: &mut Frame, area: Rect, app: &App) {
                 height: graph_h.saturating_sub(1),
             };
 
-            if graph_area.height >= 3 && graph_area.width > 12 {
-                let rows = braille_line_graph(
+            if graph_area.height >= 3 && graph_area.width > 4 {
+                let rows = braille_mirrored_graph(
+                    &app.battery_charge_history,
                     &app.battery_power_history,
                     graph_area.width,
                     graph_area.height,
-                    YELLOW,
-                    YELLOW,
-                    "W",
+                    GREEN,  // charge = up
+                    PEACH,  // discharge = down
                 );
-                let para = Paragraph::new(rows);
-                f.render_widget(para, graph_area);
+                f.render_widget(Paragraph::new(rows), graph_area);
             }
         }
     }

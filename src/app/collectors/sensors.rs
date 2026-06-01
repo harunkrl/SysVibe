@@ -2,19 +2,40 @@
 
 use std::fs;
 use sysinfo::Components;
-use super::super::state::{SensorReading, BatteryStatus};
+use super::super::helpers;
+use super::super::state::{SensorReading, BatteryStatus, HISTORY_LEN};
 
-/// Refresh temperature readings from system components.
-pub fn refresh_temperatures(components: &Components) -> Vec<SensorReading> {
-    components
+/// Refresh temperature readings from system components, maintaining per-sensor
+/// history for braille sparklines.
+pub fn refresh_temperatures(components: &Components, prev: &mut Vec<SensorReading>) {
+    let fresh: Vec<(String, f32)> = components
         .list()
         .iter()
         .filter_map(|c| {
             c.temperature().map(|t| (clean_sensor_label(c.label()), t))
         })
         .filter(|(label, t)| !label.is_empty() && *t > 0.0)
-        .map(|(label, temp_c)| SensorReading { label, temp_c })
-        .collect()
+        .collect();
+
+    let mut updated = Vec::with_capacity(fresh.len());
+
+    for (label, temp_c) in fresh {
+        let mut history = prev
+            .iter()
+            .find(|r| r.label == label)
+            .map(|r| r.history.clone())
+            .unwrap_or_else(|| std::collections::VecDeque::with_capacity(HISTORY_LEN));
+
+        helpers::push_history(&mut history, temp_c.round() as u64);
+
+        updated.push(SensorReading {
+            label,
+            temp_c,
+            history,
+        });
+    }
+
+    *prev = updated;
 }
 
 /// Read battery status from `/sys/class/power_supply/BAT*`.

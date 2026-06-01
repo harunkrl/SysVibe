@@ -1,0 +1,139 @@
+//! SysVibe — Temperature sensor and battery data collection.
+
+use std::fs;
+use sysinfo::Components;
+use super::super::state::{SensorReading, BatteryStatus};
+
+/// Refresh temperature readings from system components.
+pub fn refresh_temperatures(components: &Components) -> Vec<SensorReading> {
+    components
+        .list()
+        .iter()
+        .filter_map(|c| {
+            c.temperature().map(|t| (clean_sensor_label(c.label()), t))
+        })
+        .filter(|(_, t)| *t > 0.0)
+        .map(|(label, temp_c)| SensorReading { label, temp_c })
+        .collect()
+}
+
+/// Read battery status from `/sys/class/power_supply/BAT*`.
+pub fn read_battery() -> Option<BatteryStatus> {
+    let dir = fs::read_dir("/sys/class/power_supply").ok()?;
+    for entry in dir.flatten() {
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if !name_str.starts_with("BAT") {
+            continue;
+        }
+        let path = entry.path();
+        let cap = fs::read_to_string(path.join("capacity")).ok()?;
+        let pct = cap.trim().parse::<f64>().ok()?;
+        let status = fs::read_to_string(path.join("status"))
+            .ok()
+            .unwrap_or_else(|| "Unknown".into());
+            
+        let mut power_w: Option<f64> = None;
+        if let Ok(p_now) = fs::read_to_string(path.join("power_now")) {
+            if let Ok(mw) = p_now.trim().parse::<f64>() {
+                power_w = Some(mw / 1_000_000.0);
+            }
+        } else if let (Ok(c_now), Ok(v_now)) = (
+            fs::read_to_string(path.join("current_now")),
+            fs::read_to_string(path.join("voltage_now")),
+        ) {
+            if let (Ok(ua), Ok(uv)) = (c_now.trim().parse::<f64>(), v_now.trim().parse::<f64>()) {
+                power_w = Some((ua * uv) / 1_000_000_000_000.0);
+            }
+        }
+
+        let manufacturer = fs::read_to_string(path.join("manufacturer")).ok().map(|s| s.trim().to_string());
+        let model = fs::read_to_string(path.join("model_name")).ok().map(|s| s.trim().to_string());
+        let technology = fs::read_to_string(path.join("technology")).ok().map(|s| s.trim().to_string());
+        let cycle_count = fs::read_to_string(path.join("cycle_count")).ok().and_then(|s| s.trim().parse::<u32>().ok());
+        
+        let mut health_pct = None;
+        if let (Ok(full), Ok(design)) = (
+            fs::read_to_string(path.join("charge_full")).or_else(|_| fs::read_to_string(path.join("energy_full"))),
+            fs::read_to_string(path.join("charge_full_design")).or_else(|_| fs::read_to_string(path.join("energy_full_design")))
+        ) {
+            if let (Ok(f), Ok(d)) = (full.trim().parse::<f64>(), design.trim().parse::<f64>()) {
+                if d > 0.0 {
+                    health_pct = Some((f / d) * 100.0);
+                }
+            }
+        }
+
+        return Some(BatteryStatus {
+            percentage: pct,
+            state: status.trim().to_string(),
+            power_w,
+            manufacturer,
+            model,
+            technology,
+            cycle_count,
+            health_pct,
+        });
+    }
+    None
+}
+
+/// Clean raw sensor labels into human-readable names.
+fn clean_sensor_label(raw: &str) -> String {
+    let lower = raw.to_lowercase();
+
+    if lower.contains("tctl") || lower.contains("tdie") {
+        return "CPU".into();
+    }
+    if lower.contains("package") || lower.contains("pkg") {
+        return "CPU Package".into();
+    }
+    if lower.contains("core") && lower.contains("temp") {
+        return "CPU Cores".into();
+    }
+    if lower.starts_with("core") || lower.contains("core ") {
+        return "CPU Cores".into();
+    }
+    if lower.contains("sodimm") || lower.contains("dimm") {
+        return "RAM".into();
+    }
+    if lower.contains("nvme") || lower.contains("ssd") {
+        return "NVMe/SSD".into();
+    }
+    if lower.contains("gpu") || lower.contains("edge") {
+        return "GPU".into();
+    }
+    if lower.contains("junction") {
+        return "SoC Junction".into();
+    }
+    if lower.contains("wifi")
+        || lower.contains("wlan")
+        || lower.contains("mt7921")
+        || lower.contains("iwlwifi")
+        || lower.contains("ath")
+    {
+        return "WiFi".into();
+    }
+    if lower.contains("bat") {
+        return "Battery".into();
+    }
+    if lower.contains("acpi") || lower.contains("tz") {
+        return "Thermal Zone".into();
+    }
+    if lower.contains("pch") {
+        return "Chipset".into();
+    }
+    if lower.contains("board") || lower.contains("motherboard") {
+        return "Board".into();
+    }
+    if lower.contains("fan") {
+        return "Fan".into();
+    }
+
+    let cleaned = raw.replace(['_', '-'], " ");
+    let mut chars = cleaned.chars();
+    match chars.next() {
+        None => raw.into(),
+        Some(f) => f.to_uppercase().collect::<String>() + chars.as_str(),
+    }
+}

@@ -1,0 +1,651 @@
+//! SysVibe — Application state management and data orchestration.
+//!
+//! The `App` struct owns all runtime state and coordinates data collection
+//! from the various collector modules.
+
+pub mod state;
+pub mod helpers;
+pub mod collectors;
+pub mod events;
+pub mod processes;
+
+use std::collections::{HashMap, VecDeque};
+use std::time::Instant;
+
+use crossterm::event::Event;
+use ratatui::widgets::TableState;
+use sysinfo::{Components, Networks, ProcessesToUpdate, System};
+
+use crate::config::Config;
+use state::*;
+
+// ═══════════════════════════════════════════════════════════════════════
+// App struct
+// ═══════════════════════════════════════════════════════════════════════
+
+pub struct App {
+    // sysinfo handles
+    sys: System,
+    networks: Networks,
+    components: Components,
+
+    // Configuration
+    config: Config,
+
+    // Application state machine
+    mode: AppMode,
+    should_quit: bool,
+
+    // CPU
+    pub cpu_history: VecDeque<u64>,
+    per_core_history: Vec<VecDeque<u64>>,
+
+    // Network
+    prev_network_bytes: HashMap<String, (u64, u64)>,
+    network_stats: Vec<NetworkStats>,
+
+    // Disk I/O
+    disk_io: DiskIoStats,
+    prev_disk_bytes: (u64, u64),
+
+    // Sensors & Battery
+    temperatures: Vec<SensorReading>,
+    battery: Option<BatteryStatus>,
+    pub battery_power_history: VecDeque<u64>,
+
+    // Processes
+    top_processes: Vec<ProcessEntry>,
+    pub proc_table_state: TableState,
+    pub tab: AppTab,
+    pub sort_by: SortBy,
+    pub temp_celsius: bool,
+    pub selected_pids: Vec<(u32, String)>,
+
+    // Filter state
+    filter_input: String,
+    filter_active: bool,
+
+    // Kill confirmation target
+    kill_target_pid: Option<u32>,
+    kill_target_name: Option<String>,
+
+    // Transient UI feedback
+    pub status_message: Option<StatusMessage>,
+
+    // Logs
+    log_collector: collectors::logs::LogCollector,
+    log_follow: bool,
+    log_scroll_offset: usize,
+
+    // Timing
+    last_tick: Instant,
+    last_refresh: Instant,
+
+    last_sensor_refresh: Instant,
+    last_log_refresh: Instant,
+    pub tick_count: u64,
+}
+
+impl App {
+    // ── Construction ────────────────────────────────────────────────
+
+    pub fn new(config: Config) -> Self {
+        let mut sys = System::new_all();
+        sys.refresh_cpu_all();
+        sys.refresh_memory();
+
+        let num_cores = sys.cpus().len().max(1);
+
+        let networks = Networks::new_with_refreshed_list();
+        let prev_network_bytes: HashMap<String, (u64, u64)> = networks
+            .list()
+            .iter()
+            .map(|(name, nd)| (name.clone(), (nd.received(), nd.transmitted())))
+            .collect();
+
+        let components = Components::new_with_refreshed_list();
+
+        let (init_read, init_write) = collectors::disk::read_disk_bytes();
+
+        let default_tab = match config.default_tab.to_lowercase().as_str() {
+            "hardware" => AppTab::Hardware,
+            "processes" => AppTab::Processes,
+            "logs" => AppTab::Logs,
+            _ => AppTab::System,
+        };
+
+        let mut log_collector = collectors::logs::LogCollector::new();
+        log_collector.refresh();
+
+        let now = Instant::now();
+
+        let mut app = Self {
+            sys,
+            networks,
+            components,
+            config,
+            mode: AppMode::Normal,
+            should_quit: false,
+            cpu_history: VecDeque::with_capacity(HISTORY_LEN),
+            per_core_history: vec![VecDeque::with_capacity(HISTORY_LEN); num_cores],
+            prev_network_bytes,
+            network_stats: Vec::new(),
+            disk_io: DiskIoStats::default(),
+            prev_disk_bytes: (init_read, init_write),
+            temperatures: Vec::new(),
+            battery: None,
+            battery_power_history: VecDeque::with_capacity(HISTORY_LEN),
+            top_processes: Vec::new(),
+            proc_table_state: TableState::default(),
+            sort_by: SortBy::default(),
+            temp_celsius: true,
+            selected_pids: Vec::new(),
+            tab: default_tab,
+            filter_input: String::new(),
+            filter_active: false,
+            kill_target_pid: None,
+            kill_target_name: None,
+            status_message: None,
+            log_collector,
+            log_follow: true,
+            log_scroll_offset: 0,
+            last_tick: now,
+            last_refresh: now,
+
+            last_sensor_refresh: now,
+            last_log_refresh: now,
+            tick_count: 0,
+        };
+
+        app.refresh_data();
+        app.refresh_top_processes();
+        app.components.refresh(false);
+        app.temperatures = collectors::sensors::refresh_temperatures(&app.components);
+        app.battery = collectors::sensors::read_battery();
+        app
+    }
+
+    // ═════════════════════════════════════════════════════════════════
+    // Public accessors
+    // ═════════════════════════════════════════════════════════════════
+
+    pub fn mode(&self) -> &AppMode {
+        &self.mode
+    }
+
+    pub fn config(&self) -> &Config {
+        &self.config
+    }
+
+    pub fn filter_input(&self) -> &str {
+        &self.filter_input
+    }
+
+    pub fn disk_io(&self) -> &DiskIoStats {
+        &self.disk_io
+    }
+
+    pub fn should_quit(&self) -> bool {
+        self.should_quit
+    }
+
+    pub fn total_process_count(&self) -> usize {
+        self.sys.processes().len()
+    }
+
+    pub fn filtered_processes(&self) -> Vec<&ProcessEntry> {
+        if !self.filter_active || self.filter_input.is_empty() {
+            self.top_processes.iter().collect()
+        } else {
+            let query = self.filter_input.to_lowercase();
+            self.top_processes
+                .iter()
+                .filter(|p| p.name.to_lowercase().contains(&query))
+                .collect()
+        }
+    }
+
+    pub fn kill_target(&self) -> Option<(u32, &str)> {
+        self.kill_target_pid
+            .map(|pid| (pid, self.kill_target_name.as_deref().unwrap_or("?")))
+    }
+
+    pub fn per_core_usage(&self) -> Vec<f32> {
+        self.per_core_history
+            .iter()
+            .map(|h| h.back().copied().unwrap_or(0) as f32)
+            .collect()
+    }
+
+    pub fn per_core_history(&self, idx: usize) -> Option<&VecDeque<u64>> {
+        self.per_core_history.get(idx)
+    }
+
+    pub fn num_cores(&self) -> usize {
+        self.per_core_history.len()
+    }
+
+    pub fn ram_usage(&self) -> (f64, f64) {
+        const GIB: f64 = 1_073_741_824.0;
+        (
+            self.sys.used_memory() as f64 / GIB,
+            self.sys.total_memory() as f64 / GIB,
+        )
+    }
+
+    pub fn swap_usage(&self) -> (f64, f64) {
+        const GIB: f64 = 1_073_741_824.0;
+        (
+            self.sys.used_swap() as f64 / GIB,
+            self.sys.total_swap() as f64 / GIB,
+        )
+    }
+
+    pub fn network_stats(&self) -> &[NetworkStats] {
+        &self.network_stats
+    }
+
+    pub fn temperatures(&self) -> &[SensorReading] {
+        &self.temperatures
+    }
+
+    pub fn battery(&self) -> Option<&BatteryStatus> {
+        self.battery.as_ref()
+    }
+
+    pub fn system_info(&self) -> SystemInfo {
+        let secs = System::uptime();
+        let days = secs / 86400;
+        let hours = (secs % 86400) / 3600;
+        let mins = (secs % 3600) / 60;
+        
+        let load = System::load_average();
+        
+        let desktop_env = std::env::var("XDG_CURRENT_DESKTOP")
+            .or_else(|_| std::env::var("DESKTOP_SESSION"))
+            .unwrap_or_else(|_| "Unknown".to_string());
+            
+        let display_server = std::env::var("WAYLAND_DISPLAY")
+            .map(|_| "Wayland".to_string())
+            .or_else(|_| std::env::var("DISPLAY").map(|_| "X11".to_string()))
+            .unwrap_or_else(|_| "Unknown/TTY".to_string());
+
+        let sys_vendor = std::fs::read_to_string("/sys/class/dmi/id/sys_vendor").ok().map(|s| s.trim().to_string());
+        let product_name = std::fs::read_to_string("/sys/class/dmi/id/product_name").ok().map(|s| s.trim().to_string());
+        let bios_version = std::fs::read_to_string("/sys/class/dmi/id/bios_version").ok().map(|s| s.trim().to_string());
+
+        SystemInfo {
+            os_name: System::long_os_version().unwrap_or_else(|| System::name().unwrap_or_else(|| "Unknown".into())),
+            kernel_version: System::kernel_version().unwrap_or_else(|| "Unknown".into()),
+            hostname: System::host_name().unwrap_or_else(|| "Unknown".into()),
+            uptime: if days > 0 {
+                format!("{}d {}h {}m", days, hours, mins)
+            } else if hours > 0 {
+                format!("{}h {}m", hours, mins)
+            } else {
+                format!("{}m", mins)
+            },
+            cpu_brand: self
+                .sys
+                .cpus()
+                .first()
+                .map(|c| c.brand().trim().to_string())
+                .unwrap_or_else(|| "Unknown".into()),
+            cpu_cores: self.sys.cpus().len(),
+            total_ram_gb: self.sys.total_memory() as f64 / 1_073_741_824.0,
+            total_swap_gb: self.sys.total_swap() as f64 / 1_073_741_824.0,
+            load_average: (load.one, load.five, load.fifteen),
+            desktop_env,
+            display_server,
+            architecture: System::cpu_arch(),
+            sys_vendor,
+            product_name,
+            bios_version,
+        }
+    }
+
+    pub fn log_entries(&self) -> &std::collections::VecDeque<LogEntry> {
+        self.log_collector.entries()
+    }
+
+    pub fn log_follow(&self) -> bool {
+        self.log_follow
+    }
+
+    pub fn log_scroll_offset(&self) -> usize {
+        self.log_scroll_offset
+    }
+
+    // ═════════════════════════════════════════════════════════════════
+    // State mutation methods (called by events module)
+    // ═════════════════════════════════════════════════════════════════
+
+    pub fn quit(&mut self) {
+        self.should_quit = true;
+    }
+
+    pub fn set_mode(&mut self, mode: AppMode) {
+        self.mode = mode;
+    }
+
+    pub fn set_tab(&mut self, tab: AppTab) {
+        self.tab = tab;
+    }
+
+    pub fn next_tab(&mut self) {
+        self.tab = match self.tab {
+            AppTab::System => AppTab::Hardware,
+            AppTab::Hardware => AppTab::Processes,
+            AppTab::Processes => AppTab::Logs,
+            AppTab::Logs => AppTab::System,
+        };
+    }
+
+    pub fn prev_tab(&mut self) {
+        self.tab = match self.tab {
+            AppTab::System => AppTab::Logs,
+            AppTab::Hardware => AppTab::System,
+            AppTab::Processes => AppTab::Hardware,
+            AppTab::Logs => AppTab::Processes,
+        };
+    }
+
+    pub fn toggle_log_follow(&mut self) {
+        self.log_follow = !self.log_follow;
+        let state = if self.log_follow { "ON" } else { "OFF" };
+        self.set_status(format!("Log follow: {}", state));
+    }
+
+    pub fn set_status(&mut self, text: String) {
+        self.status_message = Some(StatusMessage {
+            text,
+            is_error: false,
+            expires: Instant::now() + STATUS_TTL,
+        });
+    }
+
+    pub fn set_error(&mut self, text: String) {
+        self.status_message = Some(StatusMessage {
+            text,
+            is_error: true,
+            expires: Instant::now() + STATUS_TTL,
+        });
+    }
+
+    // ── Filter ──────────────────────────────────────────────────
+
+    pub fn apply_filter(&mut self) {
+        self.filter_active = !self.filter_input.is_empty();
+        self.clamp_selection();
+    }
+
+    pub fn filter_backspace(&mut self) {
+        self.filter_input.pop();
+    }
+
+    pub fn filter_push(&mut self, c: char) {
+        self.filter_input.push(c);
+    }
+
+    // ── Navigation ──────────────────────────────────────────────
+
+    pub fn navigate_down(&mut self) {
+        let len = self.filtered_processes().len();
+        if len == 0 { return; }
+        let i = self.proc_table_state.selected()
+            .map_or(0, |i| if i + 1 < len { i + 1 } else { 0 });
+        self.proc_table_state.select(Some(i));
+    }
+
+    pub fn navigate_up(&mut self) {
+        let len = self.filtered_processes().len();
+        if len == 0 { return; }
+        let i = self.proc_table_state.selected()
+            .map_or(0, |i| if i > 0 { i - 1 } else { len - 1 });
+        self.proc_table_state.select(Some(i));
+    }
+
+    pub fn navigate_page_down(&mut self) {
+        let len = self.filtered_processes().len();
+        if len == 0 { return; }
+        let current = self.proc_table_state.selected().unwrap_or(0);
+        let target = (current + 20).min(len - 1);
+        self.proc_table_state.select(Some(target));
+    }
+
+    pub fn navigate_page_up(&mut self) {
+        let len = self.filtered_processes().len();
+        if len == 0 { return; }
+        let current = self.proc_table_state.selected().unwrap_or(0);
+        let target = current.saturating_sub(20);
+        self.proc_table_state.select(Some(target));
+    }
+
+    pub fn navigate_home(&mut self) {
+        let len = self.filtered_processes().len();
+        if len > 0 {
+            self.proc_table_state.select(Some(0));
+        }
+    }
+
+    pub fn navigate_end(&mut self) {
+        let len = self.filtered_processes().len();
+        if len > 0 {
+            self.proc_table_state.select(Some(len - 1));
+        }
+    }
+
+    fn clamp_selection(&mut self) {
+        let len = self.filtered_processes().len();
+        if len == 0 {
+            self.proc_table_state.select(None);
+            return;
+        }
+        if let Some(i) = self.proc_table_state.selected() {
+            if i >= len {
+                self.proc_table_state.select(Some(len - 1));
+            }
+        } else {
+            self.proc_table_state.select(Some(0));
+        }
+    }
+
+    // ── Kill ────────────────────────────────────────────────────
+
+    pub fn request_kill(&mut self) {
+        if !self.selected_pids.is_empty() {
+            self.mode = AppMode::KillConfirm;
+            return;
+        }
+        let Some(idx) = self.proc_table_state.selected() else {
+            self.set_error("No process selected".into());
+            return;
+        };
+        let target = {
+            let filtered = self.filtered_processes();
+            let Some(proc_entry) = filtered.get(idx) else {
+                self.set_error("Invalid selection".into());
+                return;
+            };
+            (proc_entry.pid, proc_entry.name.clone())
+        };
+        self.kill_target_pid = Some(target.0);
+        self.kill_target_name = Some(target.1);
+        self.mode = AppMode::KillConfirm;
+    }
+
+    pub fn confirm_kill(&mut self, force: bool) {
+        if !self.selected_pids.is_empty() {
+            let mut killed = 0;
+            let kill_fn = if force {
+                processes::kill_process_force
+            } else {
+                processes::kill_process
+            };
+            for (pid, _) in self.selected_pids.drain(..) {
+                if kill_fn(pid).is_ok() {
+                    killed += 1;
+                }
+            }
+            let signal = if force { "SIGKILL" } else { "SIGTERM" };
+            self.set_status(format!("Sent {} to {} processes", signal, killed));
+            return;
+        }
+
+        let pid = match self.kill_target_pid {
+            Some(p) => p,
+            None => {
+                self.set_error("No target".into());
+                return;
+            }
+        };
+        let name = self.kill_target_name.clone().unwrap_or_else(|| "?".into());
+
+        let result = if force {
+            processes::kill_process_force(pid)
+        } else {
+            processes::kill_process(pid)
+        };
+
+        let signal = if force { "SIGKILL" } else { "SIGTERM" };
+        match result {
+            Ok(()) => self.set_status(format!("Sent {} → PID {} ({})", signal, pid, name)),
+            Err(e) => self.set_error(e),
+        }
+
+        self.kill_target_pid = None;
+        self.kill_target_name = None;
+    }
+
+    pub fn cancel_kill(&mut self) {
+        self.kill_target_pid = None;
+        self.kill_target_name = None;
+        self.selected_pids.clear();
+    }
+
+    // ═════════════════════════════════════════════════════════════════
+    // Lightweight tick
+    // ═════════════════════════════════════════════════════════════════
+
+    pub fn on_tick(&mut self) {
+        self.tick_count += 1;
+        if let Some(ref msg) = self.status_message {
+            if Instant::now() >= msg.expires {
+                self.status_message = None;
+            }
+        }
+    }
+
+    // ═════════════════════════════════════════════════════════════════
+    // Heavy refresh — tiered rates for performance
+    // ═════════════════════════════════════════════════════════════════
+
+    pub fn refresh_data(&mut self) {
+        let now = Instant::now();
+        let elapsed = (now - self.last_tick).as_secs_f64();
+        self.last_tick = now;
+        let elapsed = if elapsed > 0.0 { elapsed } else { TICK_SECS };
+        self.last_refresh = now;
+
+        // CPU + Memory: every tick (fast & lightweight)
+        self.sys.refresh_cpu_all();
+        collectors::cpu::refresh_cpu(&self.sys, &mut self.cpu_history, &mut self.per_core_history);
+        self.sys.refresh_memory();
+
+        // Network + Disk: every tick
+        self.networks.refresh(false);
+        collectors::network::refresh_network(
+            &self.networks,
+            &mut self.prev_network_bytes,
+            &mut self.network_stats,
+            elapsed,
+        );
+        collectors::disk::refresh_disk(&mut self.disk_io, &mut self.prev_disk_bytes, elapsed);
+
+        // Processes: No longer auto-refreshed here. Manual refresh via 'r' key.
+        // We only initialize it once on startup, which is handled in App::new().
+
+        // Sensors: every sensor_refresh_rate ms (default 5s)
+        let sensor_interval = self.config.sensor_refresh_rate;
+        if self.last_sensor_refresh.elapsed().as_millis() >= sensor_interval as u128 {
+            self.components.refresh(false);
+            self.temperatures = collectors::sensors::refresh_temperatures(&self.components);
+            self.battery = collectors::sensors::read_battery();
+            
+            if let Some(ref bat) = self.battery {
+                if let Some(w) = bat.power_w {
+                    self.battery_power_history.push_back(w.round() as u64);
+                    if self.battery_power_history.len() > HISTORY_LEN {
+                        self.battery_power_history.pop_front();
+                    }
+                }
+            }
+            
+            self.last_sensor_refresh = now;
+        }
+
+        // Logs: every 5 seconds
+        if self.last_log_refresh.elapsed().as_millis() >= 5000 {
+            self.log_collector.refresh();
+            self.last_log_refresh = now;
+        }
+    }
+
+    pub fn needs_refresh(&self, interval_ms: u64) -> bool {
+        self.last_refresh.elapsed().as_millis() >= interval_ms as u128
+    }
+
+    // ═════════════════════════════════════════════════════════════════
+    // Process list
+    // ═════════════════════════════════════════════════════════════════
+
+    pub fn refresh_top_processes(&mut self) {
+        self.sys.refresh_processes(ProcessesToUpdate::All, true);
+        
+        let selected_pid: Option<u32> = self
+            .proc_table_state
+            .selected()
+            .and_then(|idx| self.top_processes.get(idx).map(|p| p.pid));
+
+        self.top_processes = processes::build_process_list(
+            &self.sys,
+            &self.sort_by,
+            self.config.max_processes,
+        );
+
+        let len = self.top_processes.len();
+        if len > 0 {
+            if let Some(target_pid) = selected_pid {
+                if let Some(new_idx) = self.top_processes.iter().position(|p| p.pid == target_pid) {
+                    self.proc_table_state.select(Some(new_idx));
+                } else {
+                    let clamped = self
+                        .proc_table_state
+                        .selected()
+                        .unwrap_or(0)
+                        .min(len - 1);
+                    self.proc_table_state.select(Some(clamped));
+                }
+            } else if self.proc_table_state.selected().is_none() {
+                self.proc_table_state.select(Some(0));
+            } else if let Some(i) = self.proc_table_state.selected() {
+                if i >= len {
+                    self.proc_table_state.select(Some(len - 1));
+                }
+            }
+        }
+    }
+
+    // ═════════════════════════════════════════════════════════════════
+    // Event dispatching
+    // ═════════════════════════════════════════════════════════════════
+
+    pub fn handle_event(&mut self, event: Event) -> AppResult<()> {
+        events::handle_event(self, event)
+    }
+
+    pub fn refresh_logs(&mut self) {
+        self.log_collector.refresh();
+        self.last_log_refresh = std::time::Instant::now();
+    }
+}

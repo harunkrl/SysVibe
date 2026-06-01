@@ -55,13 +55,19 @@ Or by searching for **"SysVibe"** in your Desktop Environment's application laun
 | Key | Action |
 | --- | --- |
 | `q` / `Esc` | Quit SysVibe |
-| `h` | Toggle the Help panel |
+| `h` / `?` | Toggle the Help panel |
+| `Tab` / `Shift+Tab` | Cycle through tabs (System, Hardware, Processes, Logs) |
 | `↑` / `k` | Move process selection up |
 | `↓` / `j` | Move process selection down |
 | `s` | Cycle process sorting mode (CPU > Mem > PID > Name) |
 | `/` | Search / Filter processes by name |
 | `Enter` | Apply the active filter |
-| `x` | Kill the selected process (opens a safe `[Y/N]` confirmation modal) |
+| `Space` | Select multiple processes for batch operations |
+| `c` | Clear process selection |
+| `x` | Kill the selected process(es) (opens a safe `[Y/N]` confirmation modal) |
+| `r` | Manually refresh processes or logs (depending on active tab) |
+| `t` | Toggle temperature units (Celsius / Fahrenheit) |
+| `f` | Toggle auto-scrolling for kernel logs (Follow mode) |
 
 ## Configuration
 SysVibe supports a configuration file located at `~/.config/sysvibe/config.toml` (XDG Base Directory standard). 

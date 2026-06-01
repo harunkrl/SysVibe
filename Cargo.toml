@@ -1,9 +1,13 @@
 [package]
 name = "sysvibe"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "A visually striking, zero-flicker system monitor TUI for Linux"
 authors = ["SysVibe Team"]
+license = "MIT"
+repository = "https://github.com/harunkrl/SysVibe"
+keywords = ["system-monitor", "tui", "linux", "terminal"]
+categories = ["command-line-utilities"]
 
 [dependencies]
 ratatui = "0.29"
@@ -12,3 +16,4 @@ sysinfo = "0.34"
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 dirs = "6"
+chrono = "0.4"

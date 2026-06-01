@@ -152,7 +152,7 @@ pub struct GpuStats {
     pub temperature: f32,
 }
 
-/// Disk partition usage information.
+/// Disk partition usage information with hardware details.
 #[derive(Debug, Clone)]
 pub struct DiskPartitionInfo {
     pub mount_point: String,
@@ -161,6 +161,16 @@ pub struct DiskPartitionInfo {
     pub total_bytes: u64,
     pub used_bytes: u64,
     pub available_bytes: u64,
+    /// Human-readable disk model (e.g. "Samsung SSD 970 EVO Plus 500GB").
+    pub model: Option<String>,
+    /// Disk type: "SSD", "HDD", or "Unknown".
+    pub disk_type: String,
+    /// Storage vendor (e.g. "Samsung", "WDC", "Kingston").
+    pub vendor: Option<String>,
+    /// Serial number if available.
+    pub serial: Option<String>,
+    /// Rotation rate in RPM (0 for SSD).
+    pub rpm: Option<u32>,
 }
 
 /// Memory usage breakdown (used / buffers / cached / free).

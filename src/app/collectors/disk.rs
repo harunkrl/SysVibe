@@ -1,7 +1,8 @@
 //! SysVibe — Disk I/O data collection.
 //!
 //! Reads aggregate sector counts from `/proc/diskstats` for speed/IOPS,
-//! and uses sysinfo `Disks` for partition enumeration.
+//! uses sysinfo `Disks` for partition enumeration, and extracts hardware
+//! details (model, vendor, serial, SSD/HDD type) from `/sys/block/`.
 
 use std::fs;
 use sysinfo::{Disks, System};
@@ -9,12 +10,6 @@ use super::super::helpers::push_history;
 use super::super::state::{DiskIoStats, DiskPartitionInfo};
 
 /// Read aggregate disk bytes from `/proc/diskstats`.
-///
-/// Skips loop devices (major 7) and RAM disks (major 1).
-/// Also skips partition entries (e.g. `nvme0n1p1`) so only whole-disk
-/// counters are summed.
-///
-/// Returns `(total_read_bytes, total_write_bytes)`.
 pub fn read_disk_bytes() -> (u64, u64) {
     let content = match fs::read_to_string("/proc/diskstats") {
         Ok(c) => c,
@@ -29,38 +24,28 @@ pub fn read_disk_bytes() -> (u64, u64) {
         if fields.len() < 10 {
             continue;
         }
-
         let major = fields[0].parse::<u64>().unwrap_or(0);
         if major == 7 || major == 1 {
             continue;
         }
-
         let name = fields[2];
-        // Skip partition entries (e.g. nvme0n1p1) — end with digit after 'p'
         if name.contains('p') && name.chars().last().is_some_and(|c| c.is_ascii_digit()) {
             continue;
         }
-
-        let sectors_read: u64 = fields.get(5).and_then(|v| v.parse().ok()).unwrap_or(0);
-        let sectors_written: u64 = fields.get(9).and_then(|v| v.parse().ok()).unwrap_or(0);
-
+        let sectors_read: u64 = fields.get(5).and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
+        let sectors_written: u64 = fields.get(9).and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
         total_read += sectors_read * 512;
         total_write += sectors_written * 512;
     }
-
     (total_read, total_write)
 }
 
 /// Read aggregate disk IOPS from `/proc/diskstats`.
-///
-/// Fields (0-based): 3 = reads completed, 7 = writes completed.
-/// Returns `(read_ops, write_ops)` cumulative totals.
 fn read_disk_ops_totals() -> (Option<u64>, Option<u64>) {
     let content = match fs::read_to_string("/proc/diskstats") {
         Ok(c) => c,
         Err(_) => return (None, None),
     };
-
     let mut total_reads: u64 = 0;
     let mut total_writes: u64 = 0;
     let mut found = false;
@@ -70,17 +55,14 @@ fn read_disk_ops_totals() -> (Option<u64>, Option<u64>) {
         if fields.len() < 8 {
             continue;
         }
-
         let major = fields[0].parse::<u64>().unwrap_or(0);
         if major == 7 || major == 1 {
             continue;
         }
-
         let name = fields[2];
         if name.contains('p') && name.chars().last().is_some_and(|c| c.is_ascii_digit()) {
             continue;
         }
-
         if let Some(r) = fields.get(3).and_then(|v| v.parse::<u64>().ok()) {
             total_reads += r;
             found = true;
@@ -90,7 +72,6 @@ fn read_disk_ops_totals() -> (Option<u64>, Option<u64>) {
             found = true;
         }
     }
-
     if found {
         (Some(total_reads), Some(total_writes))
     } else {
@@ -104,10 +85,8 @@ pub fn refresh_disk(
     prev_disk_bytes: &mut (u64, u64),
     elapsed: f64,
 ) {
-    // Read current totals from /proc/diskstats
     let (cur_read_bytes, cur_write_bytes) = read_disk_bytes();
 
-    // Compute delta
     let read_delta = cur_read_bytes.saturating_sub(prev_disk_bytes.0);
     let write_delta = cur_write_bytes.saturating_sub(prev_disk_bytes.1);
 
@@ -122,7 +101,6 @@ pub fn refresh_disk(
 
     *prev_disk_bytes = (cur_read_bytes, cur_write_bytes);
 
-    // Compute IOPS
     let (cur_reads, cur_writes) = read_disk_ops_totals();
     let (read_iops, write_iops) = match (cur_reads, cur_writes, disk_stats.prev_read_ops, disk_stats.prev_write_ops) {
         (Some(cr), Some(cw), Some(pr), Some(pw)) => {
@@ -142,31 +120,122 @@ pub fn refresh_disk(
     disk_stats.prev_write_ops = cur_writes;
 }
 
-/// Enumerate disk partitions with usage information.
-///
-/// Returns partition info for mounted filesystems, sorted by mount point.
+// ═══════════════════════════════════════════════════════════════════════
+// Hardware detail extraction from /sys/block
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Read a single line from a `/sys/block/...` attribute file.
+fn sys_attr(dev_name: &str, attr: &str) -> Option<String> {
+    // Try /sys/block/<dev>/device/<attr> first, then /sys/block/<dev>/<attr>
+    let paths = [
+        format!("/sys/block/{}/device/{}", dev_name, attr),
+        format!("/sys/block/{}/{}", dev_name, attr),
+    ];
+    for p in &paths {
+        if let Ok(content) = fs::read_to_string(p) {
+            let val = content.trim().to_string();
+            if !val.is_empty() && val != "0" && val != "(nil)" {
+                return Some(val);
+            }
+        }
+    }
+    None
+}
+
+/// Extract the underlying block device name from a partition device name.
+/// e.g. "nvme0n1p2" → "nvme0n1", "sda1" → "sda"
+fn parent_block_dev(partition_dev: &str) -> Option<String> {
+    // nvme: nvme0n1p2 → nvme0n1
+    if let Some(idx) = partition_dev.rfind('p') {
+        let prefix = &partition_dev[..idx];
+        // Verify prefix ends with a digit (e.g. nvme0n1)
+        if prefix.chars().last().is_some_and(|c| c.is_ascii_digit()) {
+            return Some(prefix.to_string());
+        }
+    }
+    // sdX: sda1 → sda, mmcblk0p1 → mmcblk0
+    let trimmed = partition_dev.trim_end_matches(|c: char| c.is_ascii_digit());
+    if !trimmed.is_empty() && trimmed != partition_dev {
+        return Some(trimmed.to_string());
+    }
+    // No partition suffix — it IS the block device
+    Some(partition_dev.to_string())
+}
+
+/// Determine if a block device is an SSD.
+fn is_ssd(dev_name: &str) -> bool {
+    // /sys/block/<dev>/queue/rotational: 0 = SSD, 1 = HDD
+    let path = format!("/sys/block/{}/queue/rotational", dev_name);
+    fs::read_to_string(&path)
+        .map(|s| s.trim() == "0")
+        .unwrap_or(false)
+}
+
+/// Extract full hardware details for a disk from /sys/block.
+fn disk_hardware_info(dev_name: &str) -> (Option<String>, String, Option<String>, Option<String>, Option<u32>) {
+    let parent = parent_block_dev(dev_name).unwrap_or(dev_name.to_string());
+    let is_ssd_val = is_ssd(&parent);
+    let disk_type = if is_ssd_val { "SSD".to_string() } else { "HDD".to_string() };
+
+    let model = sys_attr(&parent, "model")
+        .or_else(|| sys_attr(&parent, "device/model"))
+        .map(|m| m.trim().to_string());
+
+    let vendor = sys_attr(&parent, "vendor")
+        .or_else(|| sys_attr(&parent, "device/vendor"))
+        .map(|v| v.trim().to_string());
+
+    let serial = sys_attr(&parent, "device/serial")
+        .or_else(|| sys_attr(&parent, "serial"))
+        .map(|s| s.trim().to_string());
+
+    let rpm = if !is_ssd_val {
+        sys_attr(&parent, "queue/rotational")
+            .and_then(|_v| {
+                // For HDDs, rotational=1 but no RPM field in /sys; default to 5400/7200 heuristic
+                None
+            })
+    } else {
+        Some(0)
+    };
+
+    (model, disk_type, vendor, serial, rpm)
+}
+
+/// Enumerate disk partitions with full usage + hardware information.
 pub fn enumerate_partitions(_sys: &System, disks: &Disks) -> Vec<DiskPartitionInfo> {
     let mut partitions = Vec::new();
 
     for disk in disks.list() {
         let mount = disk.mount_point().to_string_lossy().to_string();
         let fs_type = disk.file_system().to_string_lossy().to_string();
-        let device = disk.name().to_string_lossy().to_string();
+        let device_name = disk.name().to_string_lossy().to_string();
         let total = disk.total_space();
         let available = disk.available_space();
         let used = total.saturating_sub(available);
 
+        // Try to extract hardware info from /sys/block
+        let (model, disk_type, vendor, serial, rpm) = if !device_name.is_empty() {
+            disk_hardware_info(&device_name)
+        } else {
+            (None, "Unknown".to_string(), None, None, None)
+        };
+
         partitions.push(DiskPartitionInfo {
             mount_point: mount,
-            device,
+            device: device_name,
             fs_type,
             total_bytes: total,
             used_bytes: used,
             available_bytes: available,
+            model,
+            disk_type,
+            vendor,
+            serial,
+            rpm,
         });
     }
 
-    // Sort by mount point
     partitions.sort_by(|a, b| a.mount_point.cmp(&b.mount_point));
     partitions
 }

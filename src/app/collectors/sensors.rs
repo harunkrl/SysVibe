@@ -12,7 +12,7 @@ pub fn refresh_temperatures(components: &Components) -> Vec<SensorReading> {
         .filter_map(|c| {
             c.temperature().map(|t| (clean_sensor_label(c.label()), t))
         })
-        .filter(|(_, t)| *t > 0.0)
+        .filter(|(label, t)| !label.is_empty() && *t > 0.0)
         .map(|(label, temp_c)| SensorReading { label, temp_c })
         .collect()
 }
@@ -81,12 +81,23 @@ pub fn read_battery() -> Option<BatteryStatus> {
 /// Clean raw sensor labels into human-readable names.
 fn clean_sensor_label(raw: &str) -> String {
     let lower = raw.to_lowercase();
+    let trimmed = raw.trim();
 
+    // ── Specific chip/device mappings ────────────────────────
     if lower.contains("tctl") || lower.contains("tdie") {
         return "CPU".into();
     }
     if lower.contains("package") || lower.contains("pkg") {
         return "CPU Package".into();
+    }
+    if lower.contains("composite") {
+        return "NVMe Composite".into();
+    }
+    if lower.contains("sensor 1") || lower.contains("temp1") {
+        return "CPU Temp 1".into();
+    }
+    if lower.contains("sensor 2") || lower.contains("temp2") {
+        return "CPU Temp 2".into();
     }
     if lower.contains("core") && lower.contains("temp") {
         return "CPU Cores".into();
@@ -97,8 +108,14 @@ fn clean_sensor_label(raw: &str) -> String {
     if lower.contains("sodimm") || lower.contains("dimm") {
         return "RAM".into();
     }
-    if lower.contains("nvme") || lower.contains("ssd") {
-        return "NVMe/SSD".into();
+    if lower.contains("nvme") {
+        return "NVMe".into();
+    }
+    if lower.contains("ssd") {
+        return "SSD".into();
+    }
+    if lower.contains("hdd") {
+        return "HDD".into();
     }
     if lower.contains("gpu") || lower.contains("edge") {
         return "GPU".into();
@@ -117,8 +134,11 @@ fn clean_sensor_label(raw: &str) -> String {
     if lower.contains("bat") {
         return "Battery".into();
     }
-    if lower.contains("acpi") || lower.contains("tz") {
-        return "Thermal Zone".into();
+    if lower.contains("acpi") {
+        return "ACPI".into();
+    }
+    if lower.contains("thermal") || lower.contains("tz") || trimmed.starts_with('x') {
+        return "Thermal".into();
     }
     if lower.contains("pch") {
         return "Chipset".into();
@@ -129,8 +149,13 @@ fn clean_sensor_label(raw: &str) -> String {
     if lower.contains("fan") {
         return "Fan".into();
     }
+    // Generic "Sensor N" / "tempN" → skip (not useful)
+    if lower.starts_with("sensor") || lower.starts_with("temp") && lower.len() <= 5 {
+        return String::new(); // will be filtered out
+    }
 
-    let cleaned = raw.replace(['_', '-'], " ");
+    // ── Default: clean up underscores/dashes, title-case ─────
+    let cleaned = trimmed.replace(['_', '-'], " ");
     let mut chars = cleaned.chars();
     match chars.next() {
         None => raw.into(),

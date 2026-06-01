@@ -1,28 +1,26 @@
 //! SysVibe — System tab rendering.
 //!
 //! Displays static system info, sensor temperatures, battery/power status,
-//! disk partition usage with mini-gauges, GPU information, and a rich
-//! power-draw sparkline graph.
+//! disk partition usage with hardware details, GPU information, and a
+//! professional power-draw bar graph.
 
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Paragraph, Wrap},
+    widgets::Paragraph,
 };
 
 use crate::app::App;
 use crate::ui::helpers::*;
 use crate::ui::palette::*;
-use crate::ui::widgets::sparkline::braille_graph;
 
 // ═══════════════════════════════════════════════════════════════════════
 // Public entry point
 // ═══════════════════════════════════════════════════════════════════════
 
 pub fn render_system_tab(f: &mut Frame, app: &App, area: Rect) {
-    // Two main columns: System Info (left 50%) | Sensors & Power (right 50%)
     let columns = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
@@ -40,7 +38,6 @@ pub fn render_system_tab(f: &mut Frame, app: &App, area: Rect) {
 // ═══════════════════════════════════════════════════════════════════════
 
 fn render_info_panel(f: &mut Frame, area: Rect, app: &App) {
-    // Split into: System Info (top) + Disk Partitions (bottom)
     let split = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -59,6 +56,7 @@ fn render_system_info(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(block, area);
 
     let info = app.system_info();
+    let max_w = inner.width as usize;
     let mut lines: Vec<Line<'static>> = Vec::new();
 
     // OS & Kernel
@@ -67,6 +65,8 @@ fn render_system_info(f: &mut Frame, area: Rect, app: &App) {
     lines.push(kv_line("Hostname", &info.hostname, SUBTEXT));
     lines.push(kv_line("Arch", &info.architecture, SUBTEXT));
     lines.push(kv_line("Uptime", &info.uptime, GREEN));
+
+    lines.push(Line::raw("")); // spacing
 
     // Hardware
     if let Some(ref vendor) = info.sys_vendor {
@@ -79,70 +79,113 @@ fn render_system_info(f: &mut Frame, area: Rect, app: &App) {
         lines.push(kv_line("BIOS", bios, MAUVE));
     }
 
-    // CPU
-    let cpu_brand = truncate_str(&info.cpu_brand, 45);
+    // CPU — truncate to panel width
+    let cpu_label = "CPU:";
+    let cpu_max_val_w = max_w.saturating_sub(cpu_label.len() + 2);
+    let cpu_brand = fit_str(&info.cpu_brand, cpu_max_val_w);
     lines.push(kv_line("CPU", &cpu_brand, BLUE));
+
+    // Cores / RAM / Swap on one line
     lines.push(Line::from(vec![
         Span::styled(" Cores:", Style::default().fg(SUBTEXT).add_modifier(Modifier::BOLD)),
         Span::styled(format!(" {}", info.cpu_cores), Style::default().fg(TEXT)),
         Span::styled("  RAM:", Style::default().fg(SUBTEXT).add_modifier(Modifier::BOLD)),
-        Span::styled(format!(" {:.1} GiB", info.total_ram_gb), Style::default().fg(TEXT)),
+        Span::styled(format!(" {:.1}G", info.total_ram_gb), Style::default().fg(TEXT)),
         Span::styled("  Swap:", Style::default().fg(SUBTEXT).add_modifier(Modifier::BOLD)),
-        Span::styled(format!(" {:.1} GiB", info.total_swap_gb), Style::default().fg(TEXT)),
+        Span::styled(format!(" {:.1}G", info.total_swap_gb), Style::default().fg(TEXT)),
     ]));
+
+    lines.push(Line::raw("")); // spacing
 
     // Display/Compositor
     lines.push(kv_line("Desktop", &info.desktop_env, MAUVE));
     lines.push(kv_line("Display", &info.display_server, MAUVE));
 
-    // Wayland compositor details
     if info.display_server == "Wayland" {
-        if let Ok(wl_comp) = std::env::var("XDG_SESSION_DESKTOP") {
-            lines.push(kv_line("Compositor", &wl_comp, MAUVE));
+        if let Ok(wl) = std::env::var("XDG_SESSION_DESKTOP") {
+            lines.push(kv_line("Compositor", &wl, MAUVE));
+        }
+    } else if info.display_server == "X11" {
+        if let Ok(xs) = std::env::var("XDG_SESSION_TYPE") {
+            lines.push(kv_line("Session", &xs, MAUVE));
         }
     }
-    if info.display_server == "X11" {
-        if let Ok(x_session) = std::env::var("XDG_SESSION_TYPE") {
-            lines.push(kv_line("Session", &x_session, MAUVE));
-        }
-    }
+
+    lines.push(Line::raw("")); // spacing
 
     // Load averages
     let load = info.load_average;
     lines.push(Line::from(vec![
         Span::styled(" Load:", Style::default().fg(SUBTEXT).add_modifier(Modifier::BOLD)),
         Span::styled(format!(" {:.2}", load.0), Style::default().fg(GREEN)),
-        Span::styled(format!(" {:.2}", load.1), Style::default().fg(YELLOW)),
+        Span::styled(" {:.2}".to_string(), Style::default().fg(YELLOW)),
         Span::styled(format!(" {:.2}", load.2), Style::default().fg(PEACH)),
         Span::styled(" (1/5/15m)", Style::default().fg(OVERLAY)),
     ]));
 
-    // GPU information from lspci
-    append_gpu_info(&mut lines);
+    // GPU info — parse lspci and format smartly (not truncated)
+    append_gpu_info(&mut lines, max_w);
 
-    let para = Paragraph::new(lines).wrap(Wrap { trim: true });
+    let para = Paragraph::new(lines);
     f.render_widget(para, inner);
 }
 
-/// Extract GPU information from lspci.
-fn append_gpu_info(lines: &mut Vec<Line<'static>>) {
-    if let Ok(output) = std::process::Command::new("lspci")
+/// Extract GPU info from `lspci`, formatting to fit panel width.
+fn append_gpu_info(lines: &mut Vec<Line<'static>>, max_w: usize) {
+    let Ok(output) = std::process::Command::new("lspci")
         .arg("-nn")
         .output()
-    {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        for line in stdout.lines() {
-            let lower = line.to_lowercase();
-            if lower.contains("vga") || lower.contains("3d") || lower.contains("display") {
-                let gpu_name = truncate_str(line.trim(), 50);
-                lines.push(kv_line("GPU", &gpu_name, TEAL));
-            }
+    else {
+        return;
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines() {
+        let lower = line.to_lowercase();
+        if !lower.contains("vga") && !lower.contains("3d") && !lower.contains("display") {
+            continue;
         }
+
+        // Parse: "01:00.0 VGA compatible controller [0300]: NVIDIA Corporation GP107 [GeForce GTX 1050 Ti] [10de:1c82]"
+        // We want just the descriptive part after the colon(s)
+        let parts: Vec<&str> = line.splitn(2, ':').collect();
+        if parts.len() < 2 {
+            continue;
+        }
+
+        // Get everything after the first colon (device type + vendor info)
+        let raw_desc = parts[1].trim();
+        // Remove the PCI ID bracket at the end like [10de:1c82]
+        let desc = raw_desc
+            .rsplit_once('[')
+            .map(|(before, _)| before.trim())
+            .unwrap_or(raw_desc);
+
+        // Further clean: remove "VGA compatible controller" prefix
+        let clean = desc
+            .trim_start_matches("VGA compatible controller")
+            .trim_start_matches("3D controller")
+            .trim_start_matches("Display controller")
+            .trim()
+            .trim_start_matches(':')
+            .trim();
+
+        let gpu_label = "GPU:";
+        let max_val_w = max_w.saturating_sub(gpu_label.len() + 3);
+        let gpu_text = fit_str(clean, max_val_w);
+
+        lines.push(Line::from(vec![
+            Span::styled(
+                format!(" {} ", gpu_label),
+                Style::default().fg(TEAL).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(gpu_text, Style::default().fg(TEXT)),
+        ]));
     }
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// Disk Partitions Panel (with mini-gauges)
+// Disk Partitions Panel (with SSD/HDD details + mini-gauges)
 // ═══════════════════════════════════════════════════════════════════════
 
 fn render_disk_partitions(f: &mut Frame, area: Rect, app: &App) {
@@ -150,71 +193,120 @@ fn render_disk_partitions(f: &mut Frame, area: Rect, app: &App) {
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    let partitions = app.disk_partitions();
     let mut lines: Vec<Line<'static>> = Vec::new();
+    let max_w = inner.width as usize;
+    let partitions_empty = app.disk_partitions().is_empty();
 
-    for part in partitions.iter() {
+    for part in app.disk_partitions().iter() {
         let ratio = if part.total_bytes > 0 {
             part.used_bytes as f64 / part.total_bytes as f64
         } else {
             0.0
         };
         let color = gauge_color(ratio);
+        let pct_str = format!("{:.1}%", ratio * 100.0);
+
+        // Line 1: Mount point + usage stats
+        let used_str = format_bytes(part.used_bytes);
+        let total_str = format_bytes(part.total_bytes);
+        let mount = part.mount_point.clone();
+        let fs_type = part.fs_type.clone();
+        let disk_type = part.disk_type.clone();
+        let model = part.model.clone();
+        let vendor = part.vendor.clone();
+        let serial = part.serial.clone();
 
         lines.push(Line::from(vec![
             Span::styled(
-                format!(" {:<6}", part.mount_point),
+                format!(" {:<5}", mount),
                 Style::default().fg(BLUE).add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                format!("{:>5} ", format_bytes(part.used_bytes)),
+                format!("{:>6}", used_str),
                 Style::default().fg(color),
             ),
-            Span::styled("/", Style::default().fg(OVERLAY)),
+            Span::styled(" / ", Style::default().fg(OVERLAY)),
             Span::styled(
-                format!(" {:>5}", format_bytes(part.total_bytes)),
+                format!("{:>6}", total_str),
                 Style::default().fg(TEXT),
             ),
             Span::styled(
-                format!(" ({:>5.1}%)", ratio * 100.0),
-                Style::default().fg(color),
+                format!(" {:>6}", pct_str),
+                Style::default().fg(color).add_modifier(Modifier::BOLD),
             ),
         ]));
 
-        // Mini gauge bar
-        if inner.width > 12 {
-            let bar_w = inner.width as usize - 4;
+        // Line 2: Mini gauge bar
+        if max_w > 10 {
+            let bar_w = max_w.saturating_sub(4);
             lines.push(Line::from(vec![
                 Span::raw("  "),
                 Span::styled(build_bar(ratio, bar_w), Style::default().fg(color)),
             ]));
         }
 
-        // FS type and device
-        lines.push(Line::from(vec![
-            Span::styled(
-                format!("   {} ", part.fs_type),
+        // Line 3: Device details — disk type, model, FS
+        let type_tag = match disk_type.as_str() {
+            "SSD" => Span::styled("SSD", Style::default().fg(GREEN)),
+            "HDD" => Span::styled("HDD", Style::default().fg(PEACH)),
+            other => Span::styled(other.to_string(), Style::default().fg(OVERLAY)),
+        };
+
+        let mut detail_spans = vec![Span::raw("  "), type_tag];
+
+        if let Some(model_val) = model {
+            let model_w = max_w.saturating_sub(20);
+            detail_spans.push(Span::styled(
+                format!(" {}", fit_str(&model_val, model_w)),
+                Style::default().fg(SUBTEXT),
+            ));
+        }
+
+        detail_spans.push(Span::styled(
+            format!(" [{}]", fs_type),
+            Style::default().fg(OVERLAY),
+        ));
+
+        lines.push(Line::from(detail_spans));
+
+        // Line 4: Vendor / Serial
+        let mut hw_spans: Vec<Span<'static>> = vec![];
+        if let Some(vendor_val) = vendor {
+            hw_spans.push(Span::styled(
+                format!("   Vendor: {}", vendor_val.trim()),
                 Style::default().fg(OVERLAY),
-            ),
-            Span::styled(
-                truncate_str(&part.device, 20),
+            ));
+        }
+        if let Some(serial_val) = serial {
+            if !hw_spans.is_empty() {
+                hw_spans.push(Span::raw("  "));
+            } else {
+                hw_spans.push(Span::raw("   "));
+            }
+            hw_spans.push(Span::styled(
+                format!("S/N: {}", serial_val),
                 Style::default().fg(OVERLAY),
-            ),
-        ]));
+            ));
+        }
+        if !hw_spans.is_empty() {
+            lines.push(Line::from(hw_spans));
+        }
+
+        lines.push(Line::raw("")); // spacing between partitions
     }
 
-    if partitions.is_empty() {
+    if partitions_empty {
         lines.push(Line::from(Span::styled(
-            " No partitions found",
+            "  No partitions found",
             Style::default().fg(OVERLAY),
         )));
     }
 
-    let para = Paragraph::new(lines).wrap(Wrap { trim: true });
+    let para = Paragraph::new(lines);
     f.render_widget(para, inner);
 }
 
-/// Build a text-based bar like [████░░░░░░]
+/// Build a text-based bar like [████████░░░░░░]
 fn build_bar(ratio: f64, width: usize) -> String {
     if width < 4 {
         return String::new();
@@ -234,7 +326,6 @@ fn render_sensors_panel(f: &mut Frame, area: Rect, app: &App) {
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    // Split into: temperatures (top) + battery/power (bottom)
     let split = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -255,6 +346,8 @@ fn render_temperatures(f: &mut Frame, area: Rect, app: &App) {
         Span::styled(" TEMPERATURES", Style::default().fg(BLUE).add_modifier(Modifier::BOLD)),
     ]));
 
+    lines.push(Line::raw("")); // spacing
+
     for sensor in temps.iter().take(10) {
         let color = temp_color(sensor.temp_c);
         let label = truncate_str(&sensor.label, 14);
@@ -262,7 +355,7 @@ fn render_temperatures(f: &mut Frame, area: Rect, app: &App) {
             Span::styled(format!(" {:<14}", label), Style::default().fg(SUBTEXT)),
             Span::styled(
                 format!("{:>6.1}°C", sensor.temp_c),
-                Style::default().fg(color),
+                Style::default().fg(color).add_modifier(Modifier::BOLD),
             ),
             Span::styled(
                 format!(" {}", build_temp_bar(sensor.temp_c)),
@@ -273,7 +366,7 @@ fn render_temperatures(f: &mut Frame, area: Rect, app: &App) {
 
     if temps.is_empty() {
         lines.push(Line::from(Span::styled(
-            " No sensors found",
+            "  No sensors found",
             Style::default().fg(OVERLAY),
         )));
     }
@@ -288,7 +381,7 @@ fn build_temp_bar(temp: f32) -> String {
     let width = 8;
     let filled = (ratio * width as f32).round() as usize;
     let empty = width - filled;
-    format!("{}{}", "█".repeat(filled), "░".repeat(empty))
+    format!("[{}{}]", "█".repeat(filled), "░".repeat(empty))
 }
 
 fn render_power(f: &mut Frame, area: Rect, app: &App) {
@@ -298,23 +391,27 @@ fn render_power(f: &mut Frame, area: Rect, app: &App) {
         Span::styled(" BATTERY & POWER", Style::default().fg(BLUE).add_modifier(Modifier::BOLD)),
     ]));
 
+    lines.push(Line::raw("")); // spacing
+
     if let Some(bat) = app.battery() {
         let pct = bat.percentage;
         let color = battery_color(pct);
 
+        // Battery percentage + bar
         lines.push(Line::from(vec![
             Span::styled(
-                format!(" {:>5.1}%", pct),
+                format!(" {:>5.1}% ", pct),
                 Style::default().fg(color).add_modifier(Modifier::BOLD),
             ),
-            Span::raw(" "),
             Span::styled(build_bar(pct / 100.0, 16), Style::default().fg(color)),
             Span::styled(format!("  {}", bat.state), Style::default().fg(TEXT)),
         ]));
 
+        lines.push(Line::raw("")); // spacing
+
         if let Some(power) = bat.power_w {
             lines.push(Line::from(vec![
-                Span::styled(" Power:", Style::default().fg(SUBTEXT).add_modifier(Modifier::BOLD)),
+                Span::styled(" Power Draw:", Style::default().fg(SUBTEXT).add_modifier(Modifier::BOLD)),
                 Span::styled(
                     format!(" {:.2} W", power),
                     Style::default().fg(YELLOW),
@@ -324,7 +421,7 @@ fn render_power(f: &mut Frame, area: Rect, app: &App) {
 
         if let Some(ref tech) = bat.technology {
             lines.push(Line::from(vec![
-                Span::styled(" Tech:", Style::default().fg(SUBTEXT)),
+                Span::styled(" Technology:", Style::default().fg(SUBTEXT)),
                 Span::styled(format!(" {}", tech), Style::default().fg(TEXT)),
             ]));
         }
@@ -343,7 +440,7 @@ fn render_power(f: &mut Frame, area: Rect, app: &App) {
         }
     } else {
         lines.push(Line::from(Span::styled(
-            " No battery detected (AC power)",
+            "  No battery (AC power)",
             Style::default().fg(OVERLAY),
         )));
     }
@@ -355,41 +452,99 @@ fn render_power(f: &mut Frame, area: Rect, app: &App) {
         width: area.width,
         height: text_h.min(area.height),
     };
-    let para = Paragraph::new(lines);
-    f.render_widget(para, text_area);
+    f.render_widget(Paragraph::new(lines), text_area);
 
-    // ── Power Draw Sparkline Graph ──────────────────────────────
+    // ── Power Draw Bar Graph (professional style) ──────────────
     if !app.battery_power_history.is_empty() {
-        let spark_h = area.height.saturating_sub(text_h);
-        if spark_h >= 2 {
-            let label_area = Rect {
+        let graph_h = area.height.saturating_sub(text_h);
+        if graph_h >= 4 {
+            let max_w = app.battery_power_history.iter().copied().max().unwrap_or(1);
+
+            // Header
+            let header_area = Rect {
                 x: area.x,
                 y: area.y + text_h,
                 width: area.width,
                 height: 1,
             };
+            f.render_widget(
+                Paragraph::new(Line::from(vec![
+                    Span::styled(" Power Draw History", Style::default().fg(SUBTEXT)),
+                    Span::styled(
+                        format!("  peak {:.1} W", max_w as f64),
+                        Style::default().fg(YELLOW),
+                    ),
+                ])),
+                header_area,
+            );
 
-            let max_w = app.battery_power_history.iter().copied().max().unwrap_or(1);
-            let label = Line::from(vec![
-                Span::styled(
-                    format!(" ⚡Power Draw (max {:.1} W)", max_w as f64),
-                    Style::default().fg(OVERLAY),
-                ),
-            ]);
-            f.render_widget(Paragraph::new(label), label_area);
-
-            let graph_area = Rect {
+            // Bar graph area
+            let bar_area = Rect {
                 x: area.x + 1,
                 y: area.y + text_h + 1,
                 width: area.width.saturating_sub(2),
-                height: spark_h.saturating_sub(1),
+                height: graph_h.saturating_sub(1),
             };
-            if graph_area.height > 0 {
-                let spark = braille_graph(&app.battery_power_history, Some(max_w), YELLOW);
-                if let Some(line) = spark.get(0) {
-                    f.render_widget(Paragraph::new(line.clone()), graph_area);
-                }
+
+            if bar_area.height >= 2 && bar_area.width > 8 {
+                render_power_bars(f, bar_area, &app.battery_power_history, max_w);
             }
         }
     }
+}
+
+/// Render a professional vertical bar graph for power draw history.
+fn render_power_bars(
+    f: &mut Frame,
+    area: Rect,
+    history: &std::collections::VecDeque<u64>,
+    max_val: u64,
+) {
+    let data: Vec<u64> = history.iter().copied().collect();
+    let bar_count = area.width as usize;
+
+    if bar_count == 0 || data.is_empty() {
+        return;
+    }
+
+    // Sample data points evenly across available width
+    let step = data.len() as f64 / bar_count as f64;
+    let samples: Vec<u64> = (0..bar_count)
+        .map(|i| {
+            let idx = ((i as f64 + 0.5) * step) as usize;
+            data.get(idx.min(data.len() - 1)).copied().unwrap_or(0)
+        })
+        .collect();
+
+    let max_f = max_val.max(1) as f64;
+    let height = area.height as usize;
+
+    // Build rows from top to bottom
+    let mut rows: Vec<Line<'static>> = Vec::new();
+    for row in (0..height).rev() {
+        let threshold = (row as f64 / height as f64) * max_f;
+        let mut spans: Vec<Span<'static>> = Vec::new();
+
+        for &val in &samples {
+            let filled = val as f64 >= threshold;
+            if filled {
+                let ratio = val as f64 / max_f;
+                let color = if ratio > 0.8 { RED } else if ratio > 0.5 { YELLOW } else { GREEN };
+                spans.push(Span::styled("█".to_string(), Style::default().fg(color)));
+            } else {
+                spans.push(Span::raw(" "));
+            }
+        }
+
+        rows.push(Line::from(spans));
+    }
+
+    // Y-axis scale markers on the right edge (inside the block)
+    // We overlay the max value on the first line
+    if !rows.is_empty() {
+        // Scale labels could be overlaid on first row
+    }
+
+    let para = Paragraph::new(rows);
+    f.render_widget(para, area);
 }

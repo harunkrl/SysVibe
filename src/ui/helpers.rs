@@ -125,6 +125,24 @@ pub fn truncate_str(s: &str, max: usize) -> String {
     }
 }
 
+/// Fit a string to `max_chars` by smart truncation.
+/// Strips the middle of the string to keep both start and end visible,
+/// e.g. "Samsung SSD 970 EVO Plus 500GB" → "Samsung SSD..s 500GB".
+pub fn fit_str(s: &str, max_chars: usize) -> String {
+    if max_chars < 8 {
+        return truncate_str(s, max_chars);
+    }
+    let chars: Vec<char> = s.chars().collect();
+    if chars.len() <= max_chars {
+        return s.to_string();
+    }
+    let head_w = max_chars / 2 - 1;
+    let tail_w = max_chars - head_w - 2;
+    let head: String = chars.iter().take(head_w).collect();
+    let tail: String = chars.iter().rev().take(tail_w).collect::<String>().chars().rev().collect();
+    format!("{}..{}", head, tail)
+}
+
 /// Create a key-value info line used in System Information panels.
 pub fn kv_line(key: &str, val: &str, color: Color) -> Line<'static> {
     Line::from(vec![

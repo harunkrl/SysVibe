@@ -78,6 +78,10 @@ pub struct App {
     cached_filtered_processes: Vec<usize>, // indices into top_processes
     filtered_processes_dirty: bool,
 
+    // Cached process tree (rebuilt when process list changes)
+    cached_tree_rows: Vec<(u32, String, f32, f32, String, bool)>, // (pid, name, cpu, mem, indent, is_last)
+    tree_dirty: bool,
+
     // Kill confirmation target
     kill_target_pid: Option<u32>,
     kill_target_name: Option<String>,
@@ -195,6 +199,8 @@ impl App {
             filter_active: false,
             cached_filtered_processes: Vec::new(),
             filtered_processes_dirty: true,
+            cached_tree_rows: Vec::new(),
+            tree_dirty: true,
             kill_target_pid: None,
             kill_target_name: None,
             status_message: None,
@@ -472,8 +478,30 @@ impl App {
 
     pub fn toggle_tree_view(&mut self) {
         self.tree_view = !self.tree_view;
+        self.tree_dirty = true;
         let state = if self.tree_view { "Tree" } else { "Flat" };
         self.set_status(format!("Process view: {}", state));
+    }
+
+    /// Get the cached tree rows (rebuilt when dirty).
+    pub fn cached_tree_rows(&self) -> &Vec<(u32, String, f32, f32, String, bool)> {
+        &self.cached_tree_rows
+    }
+
+    /// Mark that tree cache needs rebuild.
+    #[allow(dead_code)]
+    pub fn set_tree_dirty(&mut self) {
+        self.tree_dirty = true;
+    }
+
+    /// Update the cached tree rows.
+    pub fn set_cached_tree_rows(&mut self, rows: Vec<(u32, String, f32, f32, String, bool)>) {
+        self.cached_tree_rows = rows;
+        self.tree_dirty = false;
+    }
+
+    pub fn is_tree_dirty(&self) -> bool {
+        self.tree_dirty
     }
 
     pub fn cpu_normalized(&self) -> bool {
@@ -599,6 +627,7 @@ impl App {
     pub fn set_top_processes(&mut self, processes: Vec<ProcessEntry>) {
         self.top_processes = processes;
         self.filtered_processes_dirty = true;
+        self.tree_dirty = true;
     }
 
     pub fn set_per_core_history(&mut self, history: Vec<VecDeque<u64>>) {

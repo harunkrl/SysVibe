@@ -306,9 +306,16 @@ fn render_tree_view(f: &mut Frame, app: &mut App, area: Rect) {
         return;
     }
 
-    // Build tree
-    let tree = build_tree(&procs, 10);
-    let tree_rows = flatten_tree(&tree, 0, "");
+    // Rebuild tree cache only when dirty
+    if app.is_tree_dirty() {
+        let tree = build_tree(&procs, 10);
+        let flat: Vec<(u32, String, f32, f32, String, bool)> = flatten_tree(&tree, 0, "")
+            .into_iter()
+            .map(|r| (r.pid, r.name, r.cpu_pct, r.mem_pct, r.indent, r.is_last))
+            .collect();
+        app.set_cached_tree_rows(flat);
+    }
+    let tree_rows = app.cached_tree_rows();
 
     let visible_height = inner.height as usize;
     let start = app.proc_table_state.selected()
@@ -333,12 +340,13 @@ fn render_tree_view(f: &mut Frame, app: &mut App, area: Rect) {
     let selected_idx = app.proc_table_state.selected().unwrap_or(0);
 
     for (idx, row) in tree_rows.iter().skip(start).take(visible_height.saturating_sub(2)).enumerate() {
+        let (pid, name, cpu_pct, mem_pct, indent, _is_last) = row;
         let actual_idx = start + idx;
         let is_selected = actual_idx == selected_idx ||
-            app.selected_pids.iter().any(|(pid, _)| *pid == row.pid);
+            app.selected_pids.iter().any(|(spid, _)| *spid == *pid);
 
-        let cpu_color = usage_color(row.cpu_pct);
-        let mem_color = usage_color(row.mem_pct);
+        let cpu_color = usage_color(*cpu_pct);
+        let mem_color = usage_color(*mem_pct);
 
         let bg = if actual_idx == selected_idx {
             surface0()
@@ -348,32 +356,32 @@ fn render_tree_view(f: &mut Frame, app: &mut App, area: Rect) {
         let name_fg = if is_selected { peach() } else { text() };
         let indent_fg = surface2();
 
-        let tree_prefix = if row.indent.is_empty() {
+        let tree_prefix = if indent.is_empty() {
             String::new()
         } else {
-            row.indent.clone()
+            indent.clone()
         };
 
         // Truncate name to fit
-        let name_display = if row.name.len() > 20 {
-            format!("{}...", &row.name[..17])
+        let name_display = if name.len() > 20 {
+            format!("{}...", &name[..17])
         } else {
-            row.name.clone()
+            name.clone()
         };
 
         lines.push(Line::from(vec![
-            Span::styled(format!("{:<8}", row.pid), Style::default().fg(overlay()).bg(bg)),
+            Span::styled(format!("{:<8}", *pid), Style::default().fg(overlay()).bg(bg)),
             Span::styled(tree_prefix, Style::default().fg(indent_fg).bg(bg)),
             Span::styled(
                 format!("{}{}", proc_icon, name_display),
                 Style::default().fg(name_fg).bg(bg),
             ),
             Span::styled(
-                format!(" {:>6.1}%", row.cpu_pct),
+                format!(" {:>6.1}%", *cpu_pct),
                 Style::default().fg(cpu_color).bg(bg),
             ),
             Span::styled(
-                format!(" {:>5.1}%", row.mem_pct),
+                format!(" {:>5.1}%", *mem_pct),
                 Style::default().fg(mem_color).bg(bg),
             ),
         ]));

@@ -40,6 +40,12 @@ pub struct App {
     pub cpu_history: VecDeque<u64>,
     per_core_history: Vec<VecDeque<u64>>,
 
+    // Cached memory values (updated by async collectors)
+    cached_ram_used: u64,
+    cached_ram_total: u64,
+    cached_swap_used: u64,
+    cached_swap_total: u64,
+
     // Network
     prev_network_bytes: HashMap<String, (u64, u64)>,
     /// Cached local IP address (resolved once at startup).
@@ -138,6 +144,12 @@ impl App {
             _ => AppTab::Dashboard,
         };
 
+        // Cache memory values before moving sys into Self
+        let init_ram_used = sys.used_memory();
+        let init_ram_total = sys.total_memory();
+        let init_swap_used = sys.used_swap();
+        let init_swap_total = sys.total_swap();
+
         let mut log_collector = collectors::logs::LogCollector::new();
         log_collector.refresh();
 
@@ -152,6 +164,10 @@ impl App {
             should_quit: false,
             cpu_history: VecDeque::with_capacity(HISTORY_LEN),
             per_core_history: vec![VecDeque::with_capacity(HISTORY_LEN); num_cores],
+            cached_ram_used: init_ram_used,
+            cached_ram_total: init_ram_total,
+            cached_swap_used: init_swap_used,
+            cached_swap_total: init_swap_total,
             prev_network_bytes,
             local_ip: collectors::network::resolve_local_ip(),
             network_stats: Vec::new(),
@@ -283,16 +299,16 @@ impl App {
     pub fn ram_usage(&self) -> (f64, f64) {
         const GIB: f64 = 1_073_741_824.0;
         (
-            self.sys.used_memory() as f64 / GIB,
-            self.sys.total_memory() as f64 / GIB,
+            self.cached_ram_used as f64 / GIB,
+            self.cached_ram_total as f64 / GIB,
         )
     }
 
     pub fn swap_usage(&self) -> (f64, f64) {
         const GIB: f64 = 1_073_741_824.0;
         (
-            self.sys.used_swap() as f64 / GIB,
-            self.sys.total_swap() as f64 / GIB,
+            self.cached_swap_used as f64 / GIB,
+            self.cached_swap_total as f64 / GIB,
         )
     }
 
@@ -532,6 +548,13 @@ impl App {
 
     pub fn set_per_core_history(&mut self, history: Vec<VecDeque<u64>>) {
         self.per_core_history = history;
+    }
+
+    pub fn set_ram_swap(&mut self, used: u64, total: u64, swap_used: u64, swap_total: u64) {
+        self.cached_ram_used = used;
+        self.cached_ram_total = total;
+        self.cached_swap_used = swap_used;
+        self.cached_swap_total = swap_total;
     }
 
     // ═════════════════════════════════════════════════════════════════
@@ -823,6 +846,7 @@ impl App {
         }
     }
 
+    #[allow(dead_code)]
     pub fn needs_refresh(&self, interval_ms: u64) -> bool {
         self.last_refresh.elapsed().as_millis() >= interval_ms as u128
     }

@@ -177,6 +177,7 @@ struct TreeNode {
 }
 
 impl TreeNode {
+    #[allow(dead_code)]
     fn depth(&self) -> usize {
         1 + self.children.iter().map(|c| c.depth()).max().unwrap_or(0)
     }
@@ -245,6 +246,7 @@ struct TreeRow {
     cpu_pct: f32,
     mem_pct: f32,
     indent: String,
+    #[allow(dead_code)]
     is_last: bool,
 }
 

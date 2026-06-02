@@ -6,7 +6,6 @@
 
 use ratatui::style::Color;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// Complete color theme for the UI.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,6 +56,7 @@ impl ColorDef {
         Self { r, g, b }
     }
 
+    #[allow(dead_code)]
     pub fn to_color(self) -> Color {
         Color::Rgb(self.r, self.g, self.b)
     }

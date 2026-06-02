@@ -65,7 +65,7 @@ pub fn render_dashboard_tab(f: &mut Frame, app: &mut App, area: Rect) {
     render_system_disk_panel(f, app, bot_cols[1], nf, focus);
 }
 
-fn render_cpu_graph(f: &mut Frame, app: &App, area: Rect, nf: bool, focus: PanelFocus) {
+fn render_cpu_graph(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: PanelFocus) {
     let title = icons::titled(app, icons::CPU, icons::fallback::CPU, "CPU");
     let block = panel_block_focused(&title, focus.is_focused(PanelFocus::Panel1));
     let inner = block.inner(area);
@@ -105,7 +105,7 @@ fn render_cpu_graph(f: &mut Frame, app: &App, area: Rect, nf: bool, focus: Panel
     f.render_widget(Paragraph::new(lines), inner);
 }
 
-fn render_memory_panel(f: &mut Frame, app: &App, area: Rect, nf: bool, focus: PanelFocus) {
+fn render_memory_panel(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: PanelFocus) {
     let title = icons::titled(app, icons::RAM, icons::fallback::RAM, "Memory");
     let block = panel_block_focused(&title, focus.is_focused(PanelFocus::Panel2));
     let inner = block.inner(area);

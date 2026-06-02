@@ -3,6 +3,8 @@
 //! All icons are defined here so they can be swapped for ASCII/emoji
 //! alternatives when a Nerd Font is not detected.
 
+#![allow(dead_code)]
+
 // ═══════════════════════════════════════════════════════════════════════
 // Nerd Font icon constants (Powerline Extra Symbols / Codicon sets)
 // ═══════════════════════════════════════════════════════════════════════

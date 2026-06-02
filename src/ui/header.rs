@@ -46,7 +46,7 @@ pub fn render_header(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
         } else {
             let icon_str = if nf { *nf_icon } else { *fb_icon };
             tab_spans.push(Span::styled(
-                format!(" {}{} ", icon_str, name),
+                format!(" {} {} ", icon_str, name),
                 Style::default().fg(SUBTEXT),
             ));
         }

@@ -10,7 +10,7 @@
 use ratatui::style::Color;
 use std::cell::RefCell;
 
-use super::theme::{ColorDef, Theme};
+use super::theme::Theme;
 
 // Thread-local theme storage
 thread_local! {
@@ -35,6 +35,7 @@ pub fn load_and_apply(name: &str) {
 
 macro_rules! theme_color {
     ($name:ident, $field:ident) => {
+        #[allow(dead_code)]
         pub fn $name() -> Color {
             CURRENT_THEME.with(|t| t.borrow().$field.to_color())
         }
@@ -73,6 +74,7 @@ theme_color!(focus_tab, focus_tab);
 // These are used at compile time. Runtime code should prefer the
 // function accessors above for theme-aware colors.
 
+#[allow(dead_code)]
 pub const ROSEWATER: Color = Color::Rgb(244, 194, 219);
 #[allow(dead_code)]
 pub const FLAMINGO: Color = Color::Rgb(242, 205, 205);
@@ -98,8 +100,11 @@ pub const SURFACE0: Color = Color::Rgb(54, 58, 79);
 pub const SURFACE1: Color = Color::Rgb(73, 77, 100);
 pub const SURFACE2: Color = Color::Rgb(91, 96, 120);
 pub const BASE: Color = Color::Rgb(30, 30, 46);
+#[allow(dead_code)]
 pub const MANTLE: Color = Color::Rgb(24, 24, 37);
+#[allow(dead_code)]
 pub const CRUST: Color = Color::Rgb(17, 17, 27);
 pub const FOCUS_BORDER: Color = LAVENDER;
+#[allow(dead_code)]
 pub const FOCUS_BORDER_ALT: Color = MAUVE;
 pub const FOCUS_TAB: Color = MAUVE;

@@ -86,7 +86,7 @@ impl PanelFocus {
 // ── Data-transfer types (consumed by ui) ───────────────────────────
 
 /// Static system information (OS, kernel, hostname, etc.).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SystemInfo {
     pub os_name: String,
     pub kernel_version: String,

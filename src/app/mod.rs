@@ -1,4 +1,4 @@
-//! SysVibe — Application state management and data orchestration.
+//! SysVibe - Application state management and data orchestration.
 //!
 //! The `App` struct owns all runtime state and coordinates data collection
 //! from the various collector modules.
@@ -112,6 +112,10 @@ pub struct App {
 
     // Static hardware data (fetched once on startup)
     hardware_data: collectors::hardware::HardwareData,
+
+    // Cached SystemInfo (rebuilt every ~10s; avoids 14+ String allocs per frame)
+    cached_system_info: SystemInfo,
+    last_system_info_refresh: Instant,
 }
 
 impl App {
@@ -207,7 +211,10 @@ impl App {
             cached_partitions: Vec::new(),
             gpu_stats: Vec::new(),
             hardware_data: collectors::hardware::fetch_hardware_data(),
+            cached_system_info: SystemInfo::default(),
+            last_system_info_refresh: Instant::now() - std::time::Duration::from_secs(60),
         };
+        app.cached_system_info = app.build_system_info();
 
         app.refresh_data();
         app.refresh_top_processes();
@@ -324,18 +331,26 @@ impl App {
         self.battery.as_ref()
     }
 
-    pub fn system_info(&self) -> SystemInfo {
+    /// Return cached SystemInfo, rebuilding every ~10 seconds.
+    /// Most fields (OS, kernel, hostname, CPU brand, arch, vendor, product, BIOS)
+    /// never change at runtime — only uptime and load average are truly dynamic.
+    pub fn system_info(&self) -> &SystemInfo {
+        &self.cached_system_info
+    }
+
+    /// Rebuild SystemInfo from scratch (called every ~10s or on demand).
+    fn build_system_info(&self) -> SystemInfo {
         let secs = System::uptime();
         let days = secs / 86400;
         let hours = (secs % 86400) / 3600;
         let mins = (secs % 3600) / 60;
-        
+
         let load = System::load_average();
-        
+
         let desktop_env = std::env::var("XDG_CURRENT_DESKTOP")
             .or_else(|_| std::env::var("DESKTOP_SESSION"))
             .unwrap_or_else(|_| "Unknown".to_string());
-            
+
         let display_server = std::env::var("WAYLAND_DISPLAY")
             .map(|_| "Wayland".to_string())
             .or_else(|_| std::env::var("DISPLAY").map(|_| "X11".to_string()))
@@ -374,6 +389,14 @@ impl App {
         }
     }
 
+    /// Refresh the cached SystemInfo if enough time has elapsed.
+    pub fn maybe_refresh_system_info(&mut self) {
+        if self.last_system_info_refresh.elapsed().as_secs() >= 10 {
+            self.cached_system_info = self.build_system_info();
+            self.last_system_info_refresh = Instant::now();
+        }
+    }
+
     /// Memory usage breakdown: (used, buffers, cached, free, total) in bytes.
     pub fn memory_breakdown(&self) -> MemoryBreakdown {
         MemoryBreakdown {
@@ -398,7 +421,7 @@ impl App {
         &self.cached_partitions
     }
 
-    /// Static hardware data (motherboard, GPU, RAM details) — fetched once.
+    /// Static hardware data (motherboard, GPU, RAM details) - fetched once.
     pub fn hardware_data(&self) -> &collectors::hardware::HardwareData {
         &self.hardware_data
     }
@@ -777,10 +800,11 @@ impl App {
         {
             self.status_message = None;
         }
+        self.maybe_refresh_system_info();
     }
 
     // ═════════════════════════════════════════════════════════════════
-    // Heavy refresh — tiered rates for performance
+    // Heavy refresh - tiered rates for performance
     // ═════════════════════════════════════════════════════════════════
 
     pub fn refresh_data(&mut self) {
@@ -790,7 +814,7 @@ impl App {
         let elapsed = if elapsed > 0.0 { elapsed } else { TICK_SECS };
         self.last_refresh = now;
 
-        // ══ Tier 1: Every tick — lightweight CPU & memory ══════════
+        // ══ Tier 1: Every tick - lightweight CPU & memory ══════════
         self.sys.refresh_cpu_all();
         collectors::cpu::refresh_cpu(&self.sys, &mut self.cpu_history, &mut self.per_core_history);
         self.sys.refresh_memory();
@@ -812,7 +836,7 @@ impl App {
             self.components.refresh(false);
             collectors::sensors::refresh_temperatures(&self.components, &mut self.temperatures);
             self.battery = collectors::sensors::read_battery();
-            
+
             if let Some(ref bat) = self.battery
                 && let Some(w) = bat.power_w
             {
@@ -825,10 +849,10 @@ impl App {
                     helpers::push_history(&mut self.battery_charge_history, 0);
                 }
             }
-            
+
             self.last_sensor_refresh = now;
 
-            // GPU stats (same tier as sensors — expensive, 5s)
+            // GPU stats (same tier as sensors - expensive, 5s)
             self.gpu_stats = collectors::gpu::collect_gpu_stats();
         }
 

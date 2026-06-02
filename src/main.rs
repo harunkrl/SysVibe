@@ -152,7 +152,7 @@ fn spawn_collector_tasks(tx: mpsc::Sender<StateUpdate>, config: &Config) {
     let data_refresh_ms = config.data_refresh_rate;
     let sensor_refresh_ms = config.sensor_refresh_rate;
     let max_procs = config.max_processes;
-    let _cpu_normalized = config.default_tab != ""; // placeholder for runtime toggle
+    let _cpu_normalized = !config.default_tab.is_empty(); // placeholder for runtime toggle
 
     // ── Task: Tier 1+2 — CPU, Memory, Network, Disk, Processes ──
     let tx_fast = tx.clone();
@@ -223,7 +223,7 @@ fn spawn_collector_tasks(tx: mpsc::Sender<StateUpdate>, config: &Config) {
                 true, // normalized by default
             );
 
-            let _ = tx_fast.send(StateUpdate::CpuMemoryNetDisk {
+            drop(tx_fast.send(StateUpdate::CpuMemoryNetDisk {
                 cpu_history: cpu_history.clone(),
                 per_core_history: per_core_history.clone(),
                 ram_used,
@@ -233,7 +233,7 @@ fn spawn_collector_tasks(tx: mpsc::Sender<StateUpdate>, config: &Config) {
                 network_stats,
                 disk_io,
                 processes,
-            });
+            }));
         }
     });
 
@@ -252,11 +252,11 @@ fn spawn_collector_tasks(tx: mpsc::Sender<StateUpdate>, config: &Config) {
             let battery = app::collectors::sensors::read_battery();
             let gpu_stats = app::collectors::gpu::collect_gpu_stats();
 
-            let _ = tx_sensor.send(StateUpdate::Sensors {
+            drop(tx_sensor.send(StateUpdate::Sensors {
                 temperatures,
                 battery,
                 gpu_stats,
-            });
+            }));
         }
     });
 
@@ -270,9 +270,9 @@ fn spawn_collector_tasks(tx: mpsc::Sender<StateUpdate>, config: &Config) {
             tokio::time::sleep(interval).await;
             log_collector.refresh();
 
-            let _ = tx_logs.send(StateUpdate::Logs {
+            drop(tx_logs.send(StateUpdate::Logs {
                 entries: log_collector.entries().clone(),
-            });
+            }));
         }
     });
 
@@ -288,7 +288,7 @@ fn spawn_collector_tasks(tx: mpsc::Sender<StateUpdate>, config: &Config) {
             let disks = sysinfo::Disks::new_with_refreshed_list();
             let partitions = app::collectors::disk::enumerate_partitions(&sys, &disks);
 
-            let _ = tx_parts.send(StateUpdate::Partitions { partitions });
+            drop(tx_parts.send(StateUpdate::Partitions { partitions }));
         }
     });
 }

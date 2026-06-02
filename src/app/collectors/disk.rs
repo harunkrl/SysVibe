@@ -202,11 +202,13 @@ fn disk_hardware_info(dev_name: &str) -> (Option<String>, String, Option<String>
         .map(|s| s.trim().to_string());
 
     let rpm = if !is_ssd_val {
-        sys_attr(&parent, "queue/rotational")
-            .and_then(|_v| {
-                // For HDDs, rotational=1 but no RPM field in /sys; default to 5400/7200 heuristic
-                None
-            })
+        // For HDDs, rotational=1 but no RPM field in /sys; default to 5400/7200 heuristic
+        // The rotational flag itself isn't useful as RPM data, so return None.
+        if !is_ssd_val {
+            sys_attr(&parent, "queue/rotational").and(Some(None)).flatten()
+        } else {
+            Some(0)
+        }
     } else {
         Some(0)
     };

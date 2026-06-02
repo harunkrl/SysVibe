@@ -76,12 +76,12 @@ impl Config {
     /// Load configuration from the XDG config directory, falling back to defaults.
     pub fn load() -> Self {
         let path = Self::config_path();
-        if path.exists() {
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                let mut config: Config = toml::from_str(&content).unwrap_or_default();
-                config.validate();
-                return config;
-            }
+        if path.exists()
+            && let Ok(content) = std::fs::read_to_string(&path)
+        {
+            let mut config: Config = toml::from_str(&content).unwrap_or_default();
+            config.validate();
+            return config;
         }
         Self::default()
     }

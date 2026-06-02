@@ -149,13 +149,11 @@ pub fn braille_line_graph(
         spans.push(Span::styled(label_text, Style::default().fg(Color::DarkGray)));
 
         // For each column, check if the line passes through this row
-        for col in 0..graph_w {
-            let lv = line_v[col];
-
+        for lv in line_v.iter().take(graph_w) {
             // Does the line land within this row's sub-pixel range?
-            if lv > row_bot_v && lv <= row_top_v {
+            if *lv > row_bot_v && *lv <= row_top_v {
                 // Which sub-pixel within this row? (0=bottom, 3=top)
-                let sp = (lv as isize - row_bot_v as isize - 1).max(0) as usize;
+                let sp = (*lv as isize - row_bot_v as isize - 1).max(0) as usize;
                 let bits = DOT_MAP[sp.min(3)];
                 let ch = char::from_u32(BRAILLE_OFFSET + bits as u32).unwrap_or(' ');
                 spans.push(Span::styled(ch.to_string(), Style::default().fg(color)));
@@ -233,14 +231,13 @@ pub fn braille_mirrored_graph(
         let sp_high = (half_h - row) * 4;
 
         let mut spans: Vec<Span<'static>> = Vec::with_capacity(w);
-        for col in 0..w {
-            let fill = up_fill[col];
-            let level = if fill >= sp_high {
+        for fill_val in up_fill.iter().take(w) {
+            let level = if *fill_val >= sp_high {
                 4
-            } else if fill <= sp_low {
+            } else if *fill_val <= sp_low {
                 0
             } else {
-                fill - sp_low
+                fill_val.saturating_sub(sp_low)
             };
             let ch = char::from_u32(BRAILLE_OFFSET + UP_FILL[level]).unwrap_or(' ');
             spans.push(Span::styled(ch.to_string(), Style::default().fg(up_color)));
@@ -266,14 +263,13 @@ pub fn braille_mirrored_graph(
         let sp_high = (row + 1) * 4;
 
         let mut spans: Vec<Span<'static>> = Vec::with_capacity(w);
-        for col in 0..w {
-            let fill = down_fill[col];
-            let level = if fill >= sp_high {
+        for fill_val in down_fill.iter().take(w) {
+            let level = if *fill_val >= sp_high {
                 4
-            } else if fill <= sp_low {
+            } else if *fill_val <= sp_low {
                 0
             } else {
-                fill - sp_low
+                fill_val.saturating_sub(sp_low)
             };
             let ch = char::from_u32(BRAILLE_OFFSET + DOWN_FILL[level]).unwrap_or(' ');
             spans.push(Span::styled(ch.to_string(), Style::default().fg(down_color)));
@@ -361,10 +357,9 @@ pub fn halfblock_graph(
         };
         spans.push(Span::styled(label_text, Style::default().fg(Color::DarkGray)));
 
-        for col in 0..graph_w {
-            let f = fill[col];
-            let top_filled = f > row_mid_v;
-            let bot_filled = f > row_bot_v;
+        for f_val in fill.iter().take(graph_w) {
+            let top_filled = *f_val > row_mid_v;
+            let bot_filled = *f_val > row_bot_v;
 
             let (ch, style) = match (top_filled, bot_filled) {
                 (true, true) => ('\u{2588}', Style::default().fg(color)),   // █ full block

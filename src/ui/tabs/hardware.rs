@@ -105,7 +105,7 @@ fn render_cpu_panel(f: &mut Frame, area: Rect, app: &App, focused: bool) {
     let cores = app.per_core_usage();
     let gauge_area = layout[1];
     let cols: usize = if cores.len() <= 4 { 1 } else { 2 };
-    let rows_per_col = (cores.len() + cols - 1) / cols;
+    let rows_per_col = cores.len().div_ceil(cols);
     let half_w = gauge_area.width / cols as u16;
 
     for (i, usage) in cores.iter().enumerate() {
@@ -313,7 +313,7 @@ fn render_memory_panel(f: &mut Frame, area: Rect, app: &App, focused: bool) {
             };
             let gauge = Gauge::default()
                 .gauge_style(Style::default().fg(color).bg(SURFACE0))
-                .ratio(ratio.min(1.0).max(0.0))
+                .ratio(ratio.clamp(0.0, 1.0))
                 .label(Span::styled(
                     label,
                     Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
@@ -494,9 +494,10 @@ fn render_disk_io_panel(f: &mut Frame, area: Rect, app: &App, focused: bool) {
 
     // ── Mirrored braille graph (Read ▲ / Write ▼) ─────────────
     let graph_h = inner.height.saturating_sub(text_h);
-    if graph_h >= 5 && inner.width > 4 {
-        if !dio.read_history.is_empty() || !dio.write_history.is_empty() {
-            let graph_area = Rect {
+    if graph_h >= 5 && inner.width > 4
+        && (!dio.read_history.is_empty() || !dio.write_history.is_empty())
+    {
+        let graph_area = Rect {
                 x: inner.x,
                 y: inner.y + text_h,
                 width: inner.width,
@@ -512,7 +513,6 @@ fn render_disk_io_panel(f: &mut Frame, area: Rect, app: &App, focused: bool) {
                 PEACH, // Write ▼
             );
             f.render_widget(Paragraph::new(rows), graph_area);
-        }
     }
 }
 

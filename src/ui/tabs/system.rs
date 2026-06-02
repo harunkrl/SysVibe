@@ -80,16 +80,15 @@ fn render_os_info(f: &mut Frame, area: Rect, app: &App) {
 
     let info = app.system_info();
     let max_w = inner.width as usize;
-    let mut lines: Vec<Line<'static>> = Vec::new();
-
-    // OS & Kernel
-    lines.push(kv_line("OS", &info.os_name, BLUE));
-    lines.push(kv_line("Kernel", &info.kernel_version, BLUE));
-    lines.push(kv_line("Host", &info.hostname, SUBTEXT));
-    lines.push(kv_line("Arch", &info.architecture, SUBTEXT));
-    lines.push(kv_line("Uptime", &info.uptime, GREEN));
-
-    lines.push(Line::raw("")); // spacing
+    let mut lines: Vec<Line<'static>> = vec![
+        // OS & Kernel
+        kv_line("OS", &info.os_name, BLUE),
+        kv_line("Kernel", &info.kernel_version, BLUE),
+        kv_line("Host", &info.hostname, SUBTEXT),
+        kv_line("Arch", &info.architecture, SUBTEXT),
+        kv_line("Uptime", &info.uptime, GREEN),
+        Line::raw(""), // spacing
+    ];
 
     // Motherboard & Platform
     let hw = app.hardware_data();
@@ -105,15 +104,15 @@ fn render_os_info(f: &mut Frame, area: Rect, app: &App) {
             lines.push(kv_line("Revision", ver, OVERLAY));
         }
     }
-    if let Some(ref vendor) = info.sys_vendor {
-        if mb.vendor.as_deref() != Some(vendor.as_str()) {
-            lines.push(kv_line("Vendor", vendor, MAUVE));
-        }
+    if let Some(ref vendor) = info.sys_vendor
+        && mb.vendor.as_deref() != Some(vendor.as_str())
+    {
+        lines.push(kv_line("Vendor", vendor, MAUVE));
     }
-    if let Some(ref product) = info.product_name {
-        if mb.name.as_deref() != Some(product.as_str()) {
-            lines.push(kv_line("Product", product, MAUVE));
-        }
+    if let Some(ref product) = info.product_name
+        && mb.name.as_deref() != Some(product.as_str())
+    {
+        lines.push(kv_line("Product", product, MAUVE));
     }
     if let Some(ref bv) = mb.bios_vendor {
         lines.push(kv_line(
@@ -253,10 +252,10 @@ fn render_os_info(f: &mut Frame, area: Rect, app: &App) {
         if let Ok(wl) = std::env::var("XDG_SESSION_DESKTOP") {
             lines.push(kv_line("Compositor", &wl, MAUVE));
         }
-    } else if info.display_server == "X11" {
-        if let Ok(xs) = std::env::var("XDG_SESSION_TYPE") {
-            lines.push(kv_line("Session", &xs, MAUVE));
-        }
+    } else if info.display_server == "X11"
+        && let Ok(xs) = std::env::var("XDG_SESSION_TYPE")
+    {
+        lines.push(kv_line("Session", &xs, MAUVE));
     }
 
     lines.push(Line::raw(""));
@@ -327,7 +326,7 @@ fn render_battery(f: &mut Frame, area: Rect, app: &App) {
         let mut hw_spans: Vec<Span<'static>> = vec![Span::raw(" ")];
         if let Some(ref tech) = bat.technology {
             hw_spans.push(Span::styled(
-                format!("{}", tech),
+                tech.to_string(),
                 Style::default().fg(TEXT),
             ));
         }
@@ -441,7 +440,7 @@ fn render_cpu_panel(f: &mut Frame, area: Rect, app: &App) {
 
     let cores = app.per_core_usage();
     let num_cores = cores.len().max(1);
-    let pairs = (num_cores + 1) / 2;
+    let pairs = num_cores.div_ceil(2);
 
     // Total CPU average
     let avg = app.cpu_history.back().copied().unwrap_or(0);
@@ -608,7 +607,7 @@ fn render_sensors(f: &mut Frame, area: Rect, app: &App) {
         let label = truncate_str(&sensor.label, 14);
 
         // Mini temperature bar (8 chars wide)
-        let ratio = (sensor.temp_c / 105.0).min(1.0).max(0.0);
+        let ratio = (sensor.temp_c / 105.0).clamp(0.0, 1.0);
         let filled = (ratio * 8.0_f32).round() as usize;
         let empty = 8 - filled;
 
@@ -678,7 +677,7 @@ fn render_disk_io(f: &mut Frame, area: Rect, app: &App) {
                 Style::default().fg(GREEN),
             ),
             Span::styled(
-                format!("{}", format_speed(io.read_speed_bps)),
+                format_speed(io.read_speed_bps).to_string(),
                 Style::default().fg(TEXT),
             ),
             Span::styled(
@@ -686,7 +685,7 @@ fn render_disk_io(f: &mut Frame, area: Rect, app: &App) {
                 Style::default().fg(PEACH),
             ),
             Span::styled(
-                format!("{}", format_speed(io.write_speed_bps)),
+                format_speed(io.write_speed_bps).to_string(),
                 Style::default().fg(TEXT),
             ),
         ]),

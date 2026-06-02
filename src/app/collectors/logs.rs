@@ -11,6 +11,12 @@ pub struct LogCollector {
     initialized: bool,
 }
 
+impl Default for LogCollector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LogCollector {
     /// Create a new log collector, auto-detecting whether journalctl is available.
     pub fn new() -> Self {

@@ -130,11 +130,11 @@ fn collect_amd_stats() -> Vec<GpuStats> {
             if let Ok(hwmon_entries) = fs::read_dir(&hwmon_path) {
                 for hwmon_entry in hwmon_entries.flatten() {
                     let temp_input = hwmon_entry.path().join("temp1_input");
-                    if let Ok(val) = fs::read_to_string(&temp_input) {
-                        if let Ok(millidegrees) = val.trim().parse::<f32>() {
-                            temp = millidegrees / 1000.0;
-                            break;
-                        }
+                    if let Ok(val) = fs::read_to_string(&temp_input)
+                        && let Ok(millidegrees) = val.trim().parse::<f32>()
+                    {
+                        temp = millidegrees / 1000.0;
+                        break;
                     }
                 }
             }
@@ -147,10 +147,10 @@ fn collect_amd_stats() -> Vec<GpuStats> {
             .and_then(|s| {
                 // Parse the active clock line (marked with *)
                 for line in s.lines() {
-                    if line.contains('*') {
-                        if let Some(mhz_part) = line.split_whitespace().nth(1) {
-                            return mhz_part.trim_end_matches("Mhz").parse::<u32>().ok();
-                        }
+                    if line.contains('*')
+                        && let Some(mhz_part) = line.split_whitespace().nth(1)
+                    {
+                        return mhz_part.trim_end_matches("Mhz").parse::<u32>().ok();
                     }
                 }
                 None

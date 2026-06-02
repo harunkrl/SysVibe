@@ -62,10 +62,10 @@ pub fn read_battery() -> Option<BatteryStatus> {
         } else if let (Ok(c_now), Ok(v_now)) = (
             fs::read_to_string(path.join("current_now")),
             fs::read_to_string(path.join("voltage_now")),
-        ) {
-            if let (Ok(ua), Ok(uv)) = (c_now.trim().parse::<f64>(), v_now.trim().parse::<f64>()) {
-                power_w = Some((ua * uv) / 1_000_000_000_000.0);
-            }
+        )
+            && let (Ok(ua), Ok(uv)) = (c_now.trim().parse::<f64>(), v_now.trim().parse::<f64>())
+        {
+            power_w = Some((ua * uv) / 1_000_000_000_000.0);
         }
 
         let manufacturer = fs::read_to_string(path.join("manufacturer")).ok().map(|s| s.trim().to_string());
@@ -77,12 +77,11 @@ pub fn read_battery() -> Option<BatteryStatus> {
         if let (Ok(full), Ok(design)) = (
             fs::read_to_string(path.join("charge_full")).or_else(|_| fs::read_to_string(path.join("energy_full"))),
             fs::read_to_string(path.join("charge_full_design")).or_else(|_| fs::read_to_string(path.join("energy_full_design")))
-        ) {
-            if let (Ok(f), Ok(d)) = (full.trim().parse::<f64>(), design.trim().parse::<f64>()) {
-                if d > 0.0 {
-                    health_pct = Some((f / d) * 100.0);
-                }
-            }
+        )
+            && let (Ok(f), Ok(d)) = (full.trim().parse::<f64>(), design.trim().parse::<f64>())
+            && d > 0.0
+        {
+            health_pct = Some((f / d) * 100.0);
         }
 
         return Some(BatteryStatus {

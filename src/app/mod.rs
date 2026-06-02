@@ -515,16 +515,16 @@ impl App {
     }
 
     pub fn set_battery(&mut self, bat: Option<BatteryStatus>) {
-        if let Some(ref b) = bat {
-            if let Some(w) = b.power_w {
-                let power_val = w.round() as u64;
-                if b.state == "Charging" {
-                    helpers::push_history(&mut self.battery_charge_history, power_val);
-                    helpers::push_history(&mut self.battery_power_history, 0);
-                } else {
-                    helpers::push_history(&mut self.battery_power_history, power_val);
-                    helpers::push_history(&mut self.battery_charge_history, 0);
-                }
+        if let Some(ref b) = bat
+            && let Some(w) = b.power_w
+        {
+            let power_val = w.round() as u64;
+            if b.state == "Charging" {
+                helpers::push_history(&mut self.battery_charge_history, power_val);
+                helpers::push_history(&mut self.battery_power_history, 0);
+            } else {
+                helpers::push_history(&mut self.battery_power_history, power_val);
+                helpers::push_history(&mut self.battery_charge_history, 0);
             }
         }
         self.battery = bat;
@@ -772,10 +772,10 @@ impl App {
 
     pub fn on_tick(&mut self) {
         self.tick_count += 1;
-        if let Some(ref msg) = self.status_message {
-            if Instant::now() >= msg.expires {
-                self.status_message = None;
-            }
+        if let Some(ref msg) = self.status_message
+            && Instant::now() >= msg.expires
+        {
+            self.status_message = None;
         }
     }
 
@@ -813,16 +813,16 @@ impl App {
             collectors::sensors::refresh_temperatures(&self.components, &mut self.temperatures);
             self.battery = collectors::sensors::read_battery();
             
-            if let Some(ref bat) = self.battery {
-                if let Some(w) = bat.power_w {
-                    let power_val = w.round() as u64;
-                    if bat.state == "Charging" {
-                        helpers::push_history(&mut self.battery_charge_history, power_val);
-                        helpers::push_history(&mut self.battery_power_history, 0);
-                    } else {
-                        helpers::push_history(&mut self.battery_power_history, power_val);
-                        helpers::push_history(&mut self.battery_charge_history, 0);
-                    }
+            if let Some(ref bat) = self.battery
+                && let Some(w) = bat.power_w
+            {
+                let power_val = w.round() as u64;
+                if bat.state == "Charging" {
+                    helpers::push_history(&mut self.battery_charge_history, power_val);
+                    helpers::push_history(&mut self.battery_power_history, 0);
+                } else {
+                    helpers::push_history(&mut self.battery_power_history, power_val);
+                    helpers::push_history(&mut self.battery_charge_history, 0);
                 }
             }
             
@@ -889,10 +889,10 @@ impl App {
                 }
             } else if self.proc_table_state.selected().is_none() {
                 self.proc_table_state.select(Some(0));
-            } else if let Some(i) = self.proc_table_state.selected() {
-                if i >= len {
-                    self.proc_table_state.select(Some(len - 1));
-                }
+            } else if let Some(i) = self.proc_table_state.selected()
+                && i >= len
+            {
+                self.proc_table_state.select(Some(len - 1));
             }
         }
     }

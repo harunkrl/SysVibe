@@ -87,7 +87,7 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
                     s.extend(key_desc("q", "Quit"));
 
                     // Show filter state if active
-                    if app.filter_input().len() > 0 {
+                    if !app.filter_input().is_empty() {
                         s.push(sep());
                         let search_icon = if app.config().nerd_fonts {
                             icons::SEARCH

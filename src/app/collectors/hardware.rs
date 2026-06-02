@@ -8,6 +8,9 @@
 use std::fs;
 use std::process::Command;
 
+/// RAM details: (speed_mt, mem_type, dimm_count, form_factor)
+type RamDetails = (Option<u32>, Option<String>, Option<u32>, Option<String>);
+
 // ═══════════════════════════════════════════════════════════════════════
 // HardwareData — all static hardware details fetched once at startup
 // ═══════════════════════════════════════════════════════════════════════
@@ -145,7 +148,7 @@ fn fetch_gpus() -> Vec<GpuInfo> {
         };
 
         // Extract description: everything after "slot: "
-        let raw_desc = match line.splitn(2, ':').nth(1) {
+        let raw_desc = match line.split_once(':').map(|x| x.1) {
             Some(d) => d.trim(),
             None => continue,
         };
@@ -242,7 +245,7 @@ fn parse_proc_meminfo_total() -> u64 {
 
 /// Try `lshw -C memory -short` for RAM speed, type, and slot count.
 /// Does NOT require root on most distributions.
-fn parse_lshw_memory() -> Option<(Option<u32>, Option<String>, Option<u32>, Option<String>)> {
+fn parse_lshw_memory() -> Option<RamDetails> {
     let output = Command::new("lshw")
         .args(["-C", "memory", "-short"])
         .output()
@@ -317,16 +320,14 @@ fn parse_lshw_memory() -> Option<(Option<u32>, Option<String>, Option<u32>, Opti
                 dimm_count += 1;
             }
         }
-        if dimm_count > 0 {
-            dimm_count -= 1; // Don't count the parent "system memory" line
-        }
+        dimm_count = dimm_count.saturating_sub(1); // Don't count the parent "system memory" line
     }
 
     Some((speed, mem_type, if dimm_count > 0 { Some(dimm_count) } else { None }, form_factor))
 }
 
 /// Try `dmidecode -t memory` — requires root but provides accurate data.
-fn parse_dmidecode_memory() -> Option<(Option<u32>, Option<String>, Option<u32>, Option<String>)> {
+fn parse_dmidecode_memory() -> Option<RamDetails> {
     let output = Command::new("dmidecode")
         .args(["-t", "memory"])
         .output()
@@ -345,7 +346,7 @@ fn parse_dmidecode_memory() -> Option<(Option<u32>, Option<String>, Option<u32>,
 }
 
 /// Parse dmidecode-style output (shared between dmidecode and lshw).
-fn parse_dmidecode_output(stdout: &str) -> Option<(Option<u32>, Option<String>, Option<u32>, Option<String>)> {
+fn parse_dmidecode_output(stdout: &str) -> Option<RamDetails> {
     let mut speed: Option<u32> = None;
     let mut mem_type: Option<String> = None;
     let mut dimm_count: u32 = 0;
@@ -391,7 +392,7 @@ fn parse_dmidecode_output(stdout: &str) -> Option<(Option<u32>, Option<String>, 
 }
 
 /// Fallback: try to read DMI data from SysFS (works without root).
-fn parse_dmi_sysfs() -> Option<(Option<u32>, Option<String>, Option<u32>, Option<String>)> {
+fn parse_dmi_sysfs() -> Option<RamDetails> {
     let speed = fs::read_to_string("/sys/devices/system/edac/mc/mc0/dimm0/dimm_speed_mt")
         .ok()
         .map(|s| s.trim().to_string())
@@ -411,19 +412,19 @@ fn parse_dmi_sysfs() -> Option<(Option<u32>, Option<String>, Option<u32>, Option
 
 /// Last-resort heuristic: guess RAM type from CPU architecture.
 /// AMD Rembrandt → DDR5/LPDDR5, Cezanne → DDR4, etc.
-fn guess_ram_heuristic(total_bytes: u64) -> (Option<u32>, Option<String>, Option<u32>, Option<String>) {
+fn guess_ram_heuristic(total_bytes: u64) -> RamDetails {
     let total_gib = total_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
 
     // Try to determine CPU family from /proc/cpuinfo
     let cpuinfo = fs::read_to_string("/proc/cpuinfo").unwrap_or_default();
-    let is_amd = cpuinfo.lines().any(|l| {
+    let _is_amd = cpuinfo.lines().any(|l| {
         let lower = l.to_lowercase();
         lower.contains("authenticamd") || lower.contains("amd")
     });
     let model_name = cpuinfo
         .lines()
         .find(|l| l.starts_with("model name"))
-        .and_then(|l| l.splitn(2, ':').nth(1).map(|s| s.trim().to_lowercase()));
+        .and_then(|l| l.split_once(':').map(|x| x.1).map(|s| s.trim().to_lowercase()));
 
     // Heuristic based on CPU model + total RAM
     let (guessed_type, guessed_speed) = if let Some(ref model) = model_name {
@@ -452,21 +453,15 @@ fn guess_ram_heuristic(total_bytes: u64) -> (Option<u32>, Option<String>, Option
             } else {
                 ("DDR4".to_string(), Some(3200u32))
             }
-        } else if is_amd {
-            ("DDR4".to_string(), Some(3200u32))
         } else {
             ("DDR4".to_string(), Some(3200u32))
         }
-    } else if is_amd {
-        ("DDR4".to_string(), Some(3200u32))
     } else {
         ("DDR4".to_string(), Some(3200u32))
     };
 
     // Guess DIMM count from total size
-    let dimm_count = if total_gib > 24.0 {
-        Some(2)
-    } else if total_gib > 8.0 {
+    let dimm_count = if total_gib > 8.0 {
         Some(2)
     } else {
         Some(1)

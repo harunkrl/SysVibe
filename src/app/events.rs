@@ -118,13 +118,12 @@ fn handle_normal_key(app: &mut App, code: KeyCode, _mods: KeyModifiers) {
             }
             app.navigate_down();
         }
-        KeyCode::Char('c') => {
-            if !app.selected_pids.is_empty() {
+        KeyCode::Char('c')
+            if !app.selected_pids.is_empty() => {
                 let count = app.selected_pids.len();
                 app.selected_pids.clear();
                 app.set_status(format!("Cleared {} selection(s)", count));
             }
-        }
         _ => {}
     }
 }

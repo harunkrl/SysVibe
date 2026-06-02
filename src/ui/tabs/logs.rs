@@ -3,7 +3,7 @@
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
 };
@@ -172,21 +172,49 @@ fn render_log_entries(f: &mut Frame, app: &App, area: Rect) {
         .skip(start)
         .take(visible_height)
         .map(|entry| {
-            let (level_color, level_icon) = match entry.level {
-                LogLevel::Error => (red(), if nf { icons::LOG_ERROR } else { icons::fallback::LOG_ERROR }),
-                LogLevel::Warning => (yellow(), if nf { icons::LOG_WARN } else { icons::fallback::LOG_WARN }),
-                LogLevel::Info => (blue(), if nf { icons::LOG_INFO } else { icons::fallback::LOG_INFO }),
-                LogLevel::Notice => (peach(), if nf { icons::LOG_WARN } else { "●" }),
-                LogLevel::Debug => (overlay(), if nf { icons::LOG_DEBUG } else { "●" }),
-                LogLevel::Unknown => (subtext(), if nf { icons::LOG_TRACE } else { "●" }),
-            };
-            let level_str = match entry.level {
-                LogLevel::Error => "ERR",
-                LogLevel::Warning => "WRN",
-                LogLevel::Notice => "NTC",
-                LogLevel::Info => "INF",
-                LogLevel::Debug => "DBG",
-                LogLevel::Unknown => "---",
+            let (level_color, level_icon, level_str, badge_bg, badge_fg) = match entry.level {
+                LogLevel::Error => (
+                    red(),
+                    if nf { icons::LOG_ERROR } else { icons::fallback::LOG_ERROR },
+                    "ERR",
+                    Color::Rgb(180, 40, 50),   // dark red bg
+                    Color::Rgb(255, 255, 255), // white fg
+                ),
+                LogLevel::Warning => (
+                    yellow(),
+                    if nf { icons::LOG_WARN } else { icons::fallback::LOG_WARN },
+                    "WRN",
+                    Color::Rgb(200, 170, 60),  // amber/yellow bg
+                    Color::Rgb(30, 30, 30),    // dark fg
+                ),
+                LogLevel::Info => (
+                    blue(),
+                    if nf { icons::LOG_INFO } else { icons::fallback::LOG_INFO },
+                    "INF",
+                    Color::Rgb(50, 80, 180),   // blue bg
+                    Color::Rgb(220, 230, 255), // light fg
+                ),
+                LogLevel::Notice => (
+                    peach(),
+                    if nf { icons::LOG_WARN } else { "●" },
+                    "NTC",
+                    Color::Rgb(190, 100, 60),  // warm/peach bg
+                    Color::Rgb(255, 255, 255), // white fg
+                ),
+                LogLevel::Debug => (
+                    overlay(),
+                    if nf { icons::LOG_DEBUG } else { "●" },
+                    "DBG",
+                    Color::Rgb(90, 95, 115),   // gray bg
+                    Color::Rgb(200, 205, 220), // light fg
+                ),
+                LogLevel::Unknown => (
+                    subtext(),
+                    if nf { icons::LOG_TRACE } else { "●" },
+                    "---",
+                    Color::Rgb(70, 74, 95),    // dim gray bg
+                    Color::Rgb(140, 145, 165), // dim fg
+                ),
             };
             Line::from(vec![
                 Span::styled(
@@ -198,9 +226,10 @@ fn render_log_entries(f: &mut Frame, app: &App, area: Rect) {
                     Style::default().fg(level_color),
                 ),
                 Span::styled(
-                    format!("{} ", level_str),
-                    Style::default().fg(level_color).add_modifier(Modifier::BOLD),
+                    format!(" {} ", level_str),
+                    Style::default().bg(badge_bg).fg(badge_fg).add_modifier(Modifier::BOLD),
                 ),
+                Span::styled(" ", Style::default()),
                 Span::styled(&entry.message, Style::default().fg(text())),
             ])
         })

@@ -1,8 +1,8 @@
 //! SysVibe — System tab rendering.
 //!
-//! Displays system info, CPU/memory gauges, temperatures, battery, and
-//! disk I/O in a balanced 3-column masonry layout with Nerd Font icons
-//! and focus-state highlighting.
+//! Displays static/slow-changing system info: OS, kernel, hostname,
+//! uptime, motherboard, static disk partitions, and battery health
+//! in a 2-column layout with Nerd Font icons and focus-state highlighting.
 
 use ratatui::{
     Frame,
@@ -27,44 +27,24 @@ pub fn render_system_tab(f: &mut Frame, app: &App, area: Rect) {
     let columns = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Percentage(30),
-            Constraint::Percentage(40),
-            Constraint::Percentage(30),
+            Constraint::Percentage(58),
+            Constraint::Percentage(42),
         ])
         .split(area);
 
-    // ── Left column: OS Info (top) + Battery (bottom) ───────────
-    let left_rows = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage(65),
-            Constraint::Percentage(35),
-        ])
-        .split(columns[0]);
-    render_os_info(f, left_rows[0], app);
-    render_battery(f, left_rows[1], app);
+    // ── Left column: OS Info (full height) ───────────────────
+    render_os_info(f, columns[0], app);
 
-    // ── Center column: CPU (top) + Memory (bottom) ──────────────
-    let center_rows = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Min(10),
-            Constraint::Length(4),
-        ])
-        .split(columns[1]);
-    render_cpu_panel(f, center_rows[0], app);
-    render_memory_panel(f, center_rows[1], app);
-
-    // ── Right column: Sensors (top) + Disk I/O (bottom) ─────────
+    // ── Right column: Battery (top, compact) + Disk Partitions (bottom) ──
     let right_rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Percentage(40),
+            Constraint::Min(8),
             Constraint::Percentage(60),
         ])
-        .split(columns[2]);
-    render_sensors(f, right_rows[0], app);
-    render_disk_io(f, right_rows[1], app);
+        .split(columns[1]);
+    render_battery(f, right_rows[0], app);
+    render_disk_partitions(f, right_rows[1], app);
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -136,7 +116,7 @@ fn render_os_info(f: &mut Frame, area: Rect, app: &App) {
     let cpu_brand = fit_str(&info.cpu_brand, cpu_max_val_w);
     lines.push(kv_line("CPU", &cpu_brand, blue()));
 
-    // RAM details
+    // RAM details (static)
     let ram = &hw.ram;
     let mut ram_parts = vec![
         Span::styled(
@@ -183,7 +163,7 @@ fn render_os_info(f: &mut Frame, area: Rect, app: &App) {
     }
     lines.push(Line::from(ram_parts));
 
-    // Cores / Swap
+    // Cores / Swap (static totals)
     lines.push(Line::from(vec![
         Span::styled(
             " Cores:",
@@ -281,7 +261,7 @@ fn render_os_info(f: &mut Frame, area: Rect, app: &App) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// Left Column — Battery Panel
+// Right Column — Battery Panel
 // ═══════════════════════════════════════════════════════════════════════
 
 fn render_battery(f: &mut Frame, area: Rect, app: &App) {
@@ -298,6 +278,7 @@ fn render_battery(f: &mut Frame, area: Rect, app: &App) {
         let pct = bat.percentage;
         let color = battery_color(pct);
 
+        // Percentage + state
         lines.push(Line::from(vec![
             Span::styled(
                 format!(" {:>5.1}% ", pct),
@@ -308,9 +289,21 @@ fn render_battery(f: &mut Frame, area: Rect, app: &App) {
                 Style::default().fg(text()),
             ),
         ]));
+    } else {
+        lines.push(Line::from(Span::styled(
+            "  No battery (AC power)",
+            Style::default().fg(overlay()),
+        )));
+    }
 
+    let has_battery = bat.is_some();
+    let has_graph = has_battery && !app.battery_power_history.is_empty();
+
+    // Build post-gauge lines (wattage + hw info)
+    let mut post_gauge_lines: Vec<Line<'static>> = Vec::new();
+    if let Some(bat) = bat {
         if let Some(power) = bat.power_w {
-            lines.push(Line::from(vec![
+            post_gauge_lines.push(Line::from(vec![
                 Span::styled(
                     " Power:",
                     Style::default().fg(subtext()).add_modifier(Modifier::BOLD),
@@ -345,23 +338,20 @@ fn render_battery(f: &mut Frame, area: Rect, app: &App) {
             ));
         }
         if hw_spans.len() > 1 {
-            lines.push(Line::from(hw_spans));
+            post_gauge_lines.push(Line::from(hw_spans));
         }
-    } else {
-        lines.push(Line::from(Span::styled(
-            "  No battery (AC power)",
-            Style::default().fg(overlay()),
-        )));
     }
 
-    let text_h = lines.len() as u16;
-    let has_battery = bat.is_some();
-    let has_graph = has_battery && !app.battery_power_history.is_empty();
-
-    // Split inner into: text | gauge | graph header | graph body
-    let mut constraints: Vec<Constraint> = vec![Constraint::Length(text_h.max(1))];
+    // Split inner into: header text | gauge | post-gauge text | graph header | graph body
+    let mut constraints: Vec<Constraint> = Vec::new();
+    constraints.push(Constraint::Length(1)); // header (percentage)
     if has_battery {
+        constraints.push(Constraint::Length(1)); // spacer
         constraints.push(Constraint::Length(1)); // gauge row
+        constraints.push(Constraint::Length(1)); // spacer
+    }
+    if !post_gauge_lines.is_empty() {
+        constraints.push(Constraint::Length(post_gauge_lines.len() as u16)); // wattage + hw
     }
     if has_graph {
         constraints.push(Constraint::Length(1)); // graph header
@@ -373,13 +363,15 @@ fn render_battery(f: &mut Frame, area: Rect, app: &App) {
         .constraints(constraints)
         .split(inner);
 
-    // Render text
-    f.render_widget(Paragraph::new(lines), sections[0]);
+    // Render header text (percentage + state)
+    let mut idx = 0;
+    f.render_widget(Paragraph::new(lines), sections[idx]);
+    idx += 1;
 
-    let mut idx = 1;
-
-    // Render battery gauge
+    // Render battery gauge with spacers
     if has_battery {
+        // sections[idx] is spacer — leave empty
+        idx += 1;
         if let Some(bat) = bat {
             let pct = bat.percentage;
             let color = battery_color(pct);
@@ -392,6 +384,14 @@ fn render_battery(f: &mut Frame, area: Rect, app: &App) {
                 ));
             f.render_widget(gauge, sections[idx]);
         }
+        idx += 1;
+        // sections[idx] is spacer — leave empty
+        idx += 1;
+    }
+
+    // Render post-gauge text (wattage + hw info)
+    if !post_gauge_lines.is_empty() {
+        f.render_widget(Paragraph::new(post_gauge_lines), sections[idx]);
         idx += 1;
     }
 
@@ -428,240 +428,23 @@ fn render_battery(f: &mut Frame, area: Rect, app: &App) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// Center Column — CPU Panel (per-core gauges + braille history)
+// Right Column — Static Disk Partitions Panel
 // ═══════════════════════════════════════════════════════════════════════
 
-fn render_cpu_panel(f: &mut Frame, area: Rect, app: &App) {
+fn render_disk_partitions(f: &mut Frame, area: Rect, app: &App) {
     let focus = app.panel_focus();
-    let title = icons::titled(app, icons::CPU, icons::fallback::CPU, "CPU");
-    let block = panel_block_focused(&title, focus == PanelFocus::Panel2);
-    let inner = block.inner(area);
-    f.render_widget(block, area);
-
-    let cores = app.per_core_usage();
-    let num_cores = cores.len().max(1);
-    let pairs = num_cores.div_ceil(2);
-
-    // Total CPU average
-    let avg = app.cpu_history.back().copied().unwrap_or(0);
-
-    // Build constraints: header + pair rows + braille graph
-    let mut constraints: Vec<Constraint> = Vec::new();
-    constraints.push(Constraint::Length(1)); // total CPU header
-    for _ in 0..pairs {
-        constraints.push(Constraint::Length(1));
-    }
-    constraints.push(Constraint::Min(4)); // braille graph
-
-    let rows = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints(constraints)
-        .split(inner);
-
-    // Total CPU gauge
-    {
-        let avg_pct = avg as f32;
-        let color = usage_color(avg_pct);
-        let gauge = Gauge::default()
-            .gauge_style(Style::default().fg(color))
-            .percent(avg.min(100) as u16)
-            .label(Span::styled(
-                format!("CPU {:5.1}%", avg_pct),
-                Style::default()
-                    .fg(text())
-                    .add_modifier(Modifier::BOLD),
-            ));
-        f.render_widget(gauge, rows[0]);
-    }
-
-    // Per-core gauges in 2-column grid
-    for pair_idx in 0..pairs {
-        let row_idx = pair_idx + 1; // offset by header row
-        let cols = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Percentage(50),
-                Constraint::Percentage(50),
-            ])
-            .split(rows[row_idx]);
-
-        // Left core
-        let left_idx = pair_idx * 2;
-        if left_idx < num_cores {
-            let usage = cores[left_idx];
-            let color = usage_color(usage);
-            let gauge = Gauge::default()
-                .gauge_style(Style::default().fg(color))
-                .percent(usage.min(100.0) as u16)
-                .label(Span::styled(
-                    format!("C{} {:5.1}%", left_idx, usage),
-                    Style::default().fg(text()),
-                ));
-            f.render_widget(gauge, cols[0]);
-        }
-
-        // Right core
-        let right_idx = pair_idx * 2 + 1;
-        if right_idx < num_cores {
-            let usage = cores[right_idx];
-            let color = usage_color(usage);
-            let gauge = Gauge::default()
-                .gauge_style(Style::default().fg(color))
-                .percent(usage.min(100.0) as u16)
-                .label(Span::styled(
-                    format!("C{} {:5.1}%", right_idx, usage),
-                    Style::default().fg(text()),
-                ));
-            f.render_widget(gauge, cols[1]);
-        }
-    }
-
-    // CPU history braille graph
-    let graph_area = rows[pairs + 1];
-    if !app.cpu_history.is_empty() && graph_area.height >= 3 && graph_area.width > 12 {
-        let graph_rows = braille_line_graph(
-            &app.cpu_history,
-            graph_area.width,
-            graph_area.height,
-            green(),
-            green(),
-            "%",
-        );
-        f.render_widget(Paragraph::new(graph_rows), graph_area);
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-// Center Column — Memory Panel (RAM + Swap gauges)
-// ═══════════════════════════════════════════════════════════════════════
-
-fn render_memory_panel(f: &mut Frame, area: Rect, app: &App) {
-    let focus = app.panel_focus();
-    let title = icons::titled(app, icons::RAM, icons::fallback::RAM, "Memory");
-    let block = panel_block_focused(&title, focus == PanelFocus::Panel6);
-    let inner = block.inner(area);
-    f.render_widget(block, area);
-
-    let rows = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage(50),
-            Constraint::Percentage(50),
-        ])
-        .split(inner);
-
-    // RAM gauge
-    let (ram_used, ram_total) = app.ram_usage();
-    let ram_ratio = if ram_total > 0.0 {
-        ram_used / ram_total
-    } else {
-        0.0
-    };
-    let ram_color = gauge_color(ram_ratio);
-    let ram_gauge = Gauge::default()
-        .gauge_style(Style::default().fg(ram_color))
-        .ratio(ram_ratio.clamp(0.0, 1.0))
-        .label(Span::styled(
-            format!("RAM {:.1}/{:.1} GiB", ram_used, ram_total),
-            Style::default().fg(text()),
-        ));
-    f.render_widget(ram_gauge, rows[0]);
-
-    // Swap gauge
-    let (swap_used, swap_total) = app.swap_usage();
-    let swap_ratio = if swap_total > 0.0 {
-        swap_used / swap_total
-    } else {
-        0.0
-    };
-    let swap_color = gauge_color(swap_ratio);
-    let swap_gauge = Gauge::default()
-        .gauge_style(Style::default().fg(swap_color))
-        .ratio(swap_ratio.clamp(0.0, 1.0))
-        .label(Span::styled(
-            format!(
-                "Swap {:.1}/{:.1} GiB",
-                swap_used, swap_total
-            ),
-            Style::default().fg(text()),
-        ));
-    f.render_widget(swap_gauge, rows[1]);
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-// Right Column — Sensors Panel
-// ═══════════════════════════════════════════════════════════════════════
-
-fn render_sensors(f: &mut Frame, area: Rect, app: &App) {
-    let focus = app.panel_focus();
-    let title = icons::titled(app, icons::TEMP, icons::fallback::TEMP, "Sensors");
-    let block = panel_block_focused(&title, focus == PanelFocus::Panel3);
-    let inner = block.inner(area);
-    f.render_widget(block, area);
-
-    let temps = app.temperatures();
-    let mut lines: Vec<Line<'static>> = Vec::new();
-
-    for sensor in temps.iter().take(10) {
-        let color = temp_color(sensor.temp_c);
-        let label = truncate_str(&sensor.label, 14);
-
-        // Mini temperature bar (8 chars wide)
-        let ratio = (sensor.temp_c / 105.0).clamp(0.0, 1.0);
-        let filled = (ratio * 8.0_f32).round() as usize;
-        let empty = 8 - filled;
-
-        lines.push(Line::from(vec![
-            Span::styled(
-                format!(" {:<14}", label),
-                Style::default().fg(subtext()),
-            ),
-            Span::styled(
-                format!("{:>6.1}°C", sensor.temp_c),
-                Style::default().fg(color).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!(
-                    " [{}{}]",
-                    "\u{2588}".repeat(filled),
-                    "\u{2591}".repeat(empty),
-                ),
-                Style::default().fg(color),
-            ),
-        ]));
-    }
-
-    if temps.is_empty() {
-        lines.push(Line::from(Span::styled(
-            "  No sensors found",
-            Style::default().fg(overlay()),
-        )));
-    }
-
-    let para = Paragraph::new(lines);
-    f.render_widget(para, inner);
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-// Right Column — Disk I/O Panel
-// ═══════════════════════════════════════════════════════════════════════
-
-fn render_disk_io(f: &mut Frame, area: Rect, app: &App) {
-    let focus = app.panel_focus();
-    let title = icons::titled(app, icons::DISK, icons::fallback::DISK, "Disk I/O");
+    let title = icons::titled(app, icons::DISK, icons::fallback::DISK, "Disk Partitions");
     let block = panel_block_focused(&title, focus == PanelFocus::Panel5);
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    let io = app.disk_io();
     let partitions = app.disk_partitions();
-    let num_parts = partitions.len().min(10); // cap to avoid overflow
+    let num_parts = partitions.len().min(10);
 
-    // Build layout: header (2 rows) + per-partition (2 rows: info + gauge)
+    // Build layout: one section per partition (info line + gauge)
     let mut constraints: Vec<Constraint> = Vec::new();
-    constraints.push(Constraint::Length(2)); // I/O header block
     for _ in 0..num_parts {
-        constraints.push(Constraint::Length(2)); // info line + gauge
+        constraints.push(Constraint::Min(2)); // info line + gauge
     }
 
     let rows = Layout::default()
@@ -669,40 +452,6 @@ fn render_disk_io(f: &mut Frame, area: Rect, app: &App) {
         .constraints(constraints)
         .split(inner);
 
-    // ── I/O speed header (2 lines) ──────────────────────────────
-    let header_lines = vec![
-        Line::from(vec![
-            Span::styled(
-                format!(" {} ", icons::DISK_IO_READ),
-                Style::default().fg(green()),
-            ),
-            Span::styled(
-                format_speed(io.read_speed_bps).to_string(),
-                Style::default().fg(text()),
-            ),
-            Span::styled(
-                format!("  {} ", icons::DISK_IO_WRITE),
-                Style::default().fg(peach()),
-            ),
-            Span::styled(
-                format_speed(io.write_speed_bps).to_string(),
-                Style::default().fg(text()),
-            ),
-        ]),
-        Line::from(vec![
-            Span::styled(
-                " IOPS:",
-                Style::default().fg(subtext()).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!(" R:{} W:{}", io.read_iops, io.write_iops),
-                Style::default().fg(overlay()),
-            ),
-        ]),
-    ];
-    f.render_widget(Paragraph::new(header_lines), rows[0]);
-
-    // ── Per-partition: info line + Gauge ─────────────────────────
     for (i, part) in partitions.iter().take(num_parts).enumerate() {
         let part_section = Layout::default()
             .direction(Direction::Vertical)
@@ -710,7 +459,7 @@ fn render_disk_io(f: &mut Frame, area: Rect, app: &App) {
                 Constraint::Length(1), // info text
                 Constraint::Length(1), // gauge
             ])
-            .split(rows[i + 1]);
+            .split(rows[i]);
 
         let ratio = if part.total_bytes > 0 {
             part.used_bytes as f64 / part.total_bytes as f64
@@ -723,13 +472,11 @@ fn render_disk_io(f: &mut Frame, area: Rect, app: &App) {
         let total_str = format_bytes(part.total_bytes);
         let avail_str = format_bytes(part.available_bytes);
 
-        // Info line: mount, usage stats, disk type tag
+        // Disk type tag
         let type_tag = match part.disk_type.as_str() {
             "SSD" => Span::styled(" SSD", Style::default().fg(green())),
             "HDD" => Span::styled(" HDD", Style::default().fg(peach())),
-            other => {
-                Span::styled(format!(" {}", other), Style::default().fg(overlay()))
-            }
+            other => Span::styled(format!(" {}", other), Style::default().fg(overlay())),
         };
 
         let info_line = Line::from(vec![
@@ -737,34 +484,23 @@ fn render_disk_io(f: &mut Frame, area: Rect, app: &App) {
                 format!(" {:<5}", part.mount_point),
                 Style::default().fg(blue()).add_modifier(Modifier::BOLD),
             ),
-            Span::styled(
-                format!("{:>5}", used_str),
-                Style::default().fg(color),
-            ),
+            Span::styled(format!("{:>5}", used_str), Style::default().fg(color)),
             Span::styled("/", Style::default().fg(overlay())),
-            Span::styled(
-                format!("{:>5}", total_str),
-                Style::default().fg(text()),
-            ),
+            Span::styled(format!("{:>5}", total_str), Style::default().fg(text())),
             Span::styled(
                 format!(" {:>6}", pct_str),
-                Style::default()
-                    .fg(color)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(color).add_modifier(Modifier::BOLD),
             ),
             type_tag,
         ]);
         f.render_widget(Paragraph::new(info_line), part_section[0]);
 
-        // Gauge with device, FS type, and available space in label
+        // Gauge with device, FS type, and available space
         let gauge = Gauge::default()
             .gauge_style(Style::default().fg(color))
             .ratio(ratio.clamp(0.0, 1.0))
             .label(Span::styled(
-                format!(
-                    "{} [{}] {} free",
-                    part.device, part.fs_type, avail_str
-                ),
+                format!("{} [{}] {} free", part.device, part.fs_type, avail_str),
                 Style::default().fg(overlay()),
             ));
         f.render_widget(gauge, part_section[1]);

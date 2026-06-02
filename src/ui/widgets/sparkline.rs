@@ -98,7 +98,7 @@ pub fn braille_mini(data: &[u64], max_val: u64) -> String {
 /// - Y-axis (vertical): auto-scaled in 5W steps (0-20W, then 0-25W, etc.)
 /// - X-axis (horizontal): time, data points spread across available width
 /// - Uses braille characters for 4-pixel vertical resolution per row
-/// - Draws only the **line** itself (not a filled area)
+/// - Draws a continuous **line** by interpolating between data points
 ///
 /// Returns lines ready for `Paragraph`, with Y-axis labels on the left.
 #[allow(dead_code)]
@@ -132,27 +132,93 @@ pub fn braille_line_graph(
     let total_v = graph_h * 4;
 
     // ── Compute per-column line position in sub-pixel units ──────
-    // line_v[col] = vertical sub-pixel index (0 = bottom, total_v = top)
+    // line_v[col] = vertical sub-pixel index (0 = bottom, total_v-1 = top)
     let line_v: Vec<usize> = samples
         .iter()
         .map(|&val| {
-            let v = ((val as f64 / y_max) * total_v as f64).round() as usize;
-            v.min(total_v)
+            let v = ((val as f64 / y_max) * (total_v - 1) as f64).round() as usize;
+            v.min(total_v - 1)
         })
         .collect();
 
-    // Braille single-column dot mapping (bottom to top within a cell):
-    //   subpixel 0 (bottom) → dot7 = 0x40
-    //   subpixel 1          → dot6 = 0x20
-    //   subpixel 2          → dot5 = 0x10
-    //   subpixel 3 (top)    → dot4 = 0x08
-    const DOT_MAP: [u8; 4] = [0x40, 0x20, 0x10, 0x08];
+    // ── Build a dot grid using a flat Vec<u8> ─────────────────
+    // Each braille character occupies 1 column × 1 row on screen
+    // but has a 2×4 sub-pixel grid.
+    // We only use the LEFT column (x_sub=0) of dots per character,
+    // which gives us 1 screen column → 4 vertical sub-pixels.
+    //
+    // Braille dot encoding for left column (bottom to top):
+    //   subpixel row 0 (bottom) → dot7 = 0x40
+    //   subpixel row 1          → dot6 = 0x20
+    //   subpixel row 2          → dot5 = 0x10
+    //   subpixel row 3 (top)    → dot4 = 0x08
+    //
+    // Braille dot encoding for right column (bottom to top):
+    //   subpixel row 0 (bottom) → dot8 = 0x80
+    //   subpixel row 1          → dot3 = 0x04
+    //   subpixel row 2          → dot2 = 0x02
+    //   subpixel row 3 (top)    → dot1 = 0x01
+    //
+    // We use a (graph_w * 2) × total_v grid where the x dimension has
+    // 2 sub-pixels per character (left=0, right=1), giving us 2× horizontal
+    // resolution for smoother diagonal lines.
+    const DOT_MAP_LEFT: [u8; 4] = [0x40, 0x20, 0x10, 0x08];
+    const DOT_MAP_RIGHT: [u8; 4] = [0x80, 0x04, 0x02, 0x01];
 
+    // grid: flat array indexed by [screen_col][x_sub], each entry is a u8
+    // braille pattern for that character cell.
+    let mut grid = vec![0u8; graph_w];
+
+    // Helper: set the dot at screen column `col` and vertical sub-pixel `vy`.
+    // We only use the left column of each braille character.
+    // `vy` ranges from 0 (bottom) to total_v-1 (top).
+    let set_dot = |grid: &mut [u8], col: usize, vy: usize| {
+        if col >= graph_w {
+            return;
+        }
+        // Which screen row does this sub-pixel belong to?
+        // row 0 is the topmost on screen.
+        // vy = total_v - 1 is the topmost sub-pixel.
+        // vy = 0 is the bottommost sub-pixel.
+        let sp_in_cell = (total_v - 1 - vy) % 4; // 0=top dot, 3=bottom dot within cell
+        // Map sp_in_cell to the DOT_MAP_LEFT index:
+        // sp_in_cell 0 (top in cell) → DOT_MAP_LEFT[3] = 0x08 (dot4)
+        // sp_in_cell 3 (bottom in cell) → DOT_MAP_LEFT[0] = 0x40 (dot7)
+        grid[col] |= DOT_MAP_LEFT[sp_in_cell];
+    };
+
+    // ── Draw line segments between consecutive points ──────────
+    // For each pair of adjacent columns, draw all sub-pixels along
+    // the line segment using Bresenham-style interpolation.
+    for i in 0..graph_w.saturating_sub(1) {
+        let y0 = line_v[i];
+        let y1 = line_v[i + 1];
+
+        // Draw the point at column i
+        set_dot(&mut grid, i, y0);
+
+        // Interpolate vertically between (i, y0) and (i+1, y1).
+        // Fill every sub-pixel row from min(y0,y1) to max(y0,y1)
+        // at both column i and i+1 to ensure continuity.
+        let (lo, hi) = if y0 <= y1 { (y0, y1) } else { (y1, y0) };
+        for vy in lo..=hi {
+            set_dot(&mut grid, i, vy);
+            set_dot(&mut grid, i + 1, vy);
+        }
+    }
+
+    // Draw the last point if there's only one column or to ensure the
+    // rightmost data point is plotted.
+    if !line_v.is_empty() {
+        set_dot(&mut grid, line_v.len() - 1, *line_v.last().unwrap());
+    }
+
+    // ── Render rows from the grid ──────────────────────────────
     let mut rows: Vec<Line<'static>> = Vec::new();
 
     for row in 0..graph_h {
-        let row_top_v = total_v - row * 4;
-        let row_bot_v = total_v - (row + 1) * 4; // inclusive bottom
+        let row_top_v = total_v - row * 4;       // top boundary (exclusive)
+        let _row_bot_v = total_v - (row + 1) * 4; // bottom boundary (inclusive)
 
         let mut spans: Vec<Span<'static>> = Vec::with_capacity(label_w + graph_w);
 
@@ -170,13 +236,10 @@ pub fn braille_line_graph(
         };
         spans.push(Span::styled(label_text, Style::default().fg(Color::DarkGray)));
 
-        // For each column, check if the line passes through this row
-        for lv in line_v.iter().take(graph_w) {
-            // Does the line land within this row's sub-pixel range?
-            if *lv > row_bot_v && *lv <= row_top_v {
-                // Which sub-pixel within this row? (0=bottom, 3=top)
-                let sp = (*lv as isize - row_bot_v as isize - 1).max(0) as usize;
-                let bits = DOT_MAP[sp.min(3)];
+        // For each column, render the accumulated braille pattern
+        for col in 0..graph_w {
+            let bits = grid[col];
+            if bits != 0 {
                 spans.push(Span::styled(braille(bits as usize), Style::default().fg(color)));
             } else {
                 spans.push(Span::raw(" "));

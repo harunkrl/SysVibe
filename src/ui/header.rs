@@ -36,11 +36,17 @@ pub fn render_header(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
         }
         let is_active = app.tab == *tab;
         if is_active {
-            // Powerline-like indicator + tab icon + bold + underline
+            // Powerline-like indicator + tab icon (no underline) + bold label (underlined)
             let indicator = if nf { icons::INDICATOR } else { ">" };
             let icon_str = if nf { *nf_icon } else { *fb_icon };
+            // Icon span: bold but NOT underlined — avoids underline overlapping Nerd Font glyphs
             tab_spans.push(Span::styled(
-                format!("{} {}{} ", indicator, icon_str, name),
+                format!("{} {} ", indicator, icon_str),
+                Style::default().fg(focus_tab()).add_modifier(Modifier::BOLD),
+            ));
+            // Label span: bold + underlined
+            tab_spans.push(Span::styled(
+                format!("{} ", name),
                 Style::default().fg(focus_tab()).add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
             ));
         } else {

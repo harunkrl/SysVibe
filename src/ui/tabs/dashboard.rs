@@ -29,9 +29,9 @@ pub fn render_dashboard_tab(f: &mut Frame, app: &App, area: Rect) {
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Percentage(38), // CPU graph
-            Constraint::Percentage(38), // RAM | Processes | Network
-            Constraint::Percentage(24), // GPU | System + Disk
+            Constraint::Percentage(40), // CPU graph
+            Constraint::Percentage(30), // RAM | Processes | Network
+            Constraint::Percentage(30), // GPU | System + Disk
         ])
         .split(area);
 
@@ -42,8 +42,8 @@ pub fn render_dashboard_tab(f: &mut Frame, app: &App, area: Rect) {
     let mid_cols = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Percentage(25), // RAM/Swap
-            Constraint::Percentage(45), // Top processes
+            Constraint::Percentage(30), // RAM/Swap
+            Constraint::Percentage(40), // Top processes
             Constraint::Percentage(30), // Network
         ])
         .split(rows[1]);

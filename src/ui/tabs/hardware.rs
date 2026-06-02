@@ -1,7 +1,7 @@
 //! SysVibe — Hardware tab rendering.
 //!
-//! Displays real-time CPU, memory, network, disk I/O, temperature,
-//! and GPU data using a 3×2 panel grid with Gauge widgets,
+//! Displays real-time CPU, memory, network, disk I/O, and temperature
+//! data using a balanced panel grid with Gauge widgets,
 //! Nerd Font icons, and focus-state highlighting.
 
 use std::collections::VecDeque;
@@ -11,7 +11,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Gauge, Paragraph, Wrap},
+    widgets::{Gauge, Paragraph},
 };
 
 use crate::app::App;
@@ -27,9 +27,8 @@ use crate::ui::widgets::sparkline::{braille_mini, braille_mirrored_graph};
 
 pub fn render_hardware_tab(f: &mut Frame, app: &App, area: Rect) {
     let focus = app.panel_focus();
-    let show_gpu = app.config().show_gpu;
 
-    // 3-row asymmetric layout: CPU+Memory / Network+Disk / Temp+GPU
+    // 3-row asymmetric layout: CPU+Memory / Network+Disk / Temperature
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -57,17 +56,8 @@ pub fn render_hardware_tab(f: &mut Frame, app: &App, area: Rect) {
     render_network_panel(f, row2[0], app, focus == PanelFocus::Panel3);
     render_disk_io_panel(f, row2[1], app, focus == PanelFocus::Panel4);
 
-    // Row 3: Temperature | GPU (or full-width Temperature when GPU disabled)
-    if show_gpu {
-        let row3 = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-            .split(rows[2]);
-        render_temperature_panel(f, row3[0], app, focus == PanelFocus::Panel5);
-        render_gpu_panel(f, row3[1], app, focus == PanelFocus::Panel6);
-    } else {
-        render_temperature_panel(f, rows[2], app, focus == PanelFocus::Panel5);
-    }
+    // Row 3: Temperature (full width — GPU static info is on System tab)
+    render_temperature_panel(f, rows[2], app, focus == PanelFocus::Panel5);
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -144,7 +134,7 @@ fn render_cpu_panel(f: &mut Frame, area: Rect, app: &App, focused: bool) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// Memory Panel (Panel2) — Gauge widgets for RAM & Swap + disk partitions
+// Memory Panel (Panel2) — Live RAM & Swap gauges with breakdown
 // ═══════════════════════════════════════════════════════════════════════
 
 fn render_memory_panel(f: &mut Frame, area: Rect, app: &App, focused: bool) {
@@ -184,43 +174,35 @@ fn render_memory_panel(f: &mut Frame, area: Rect, app: &App, focused: bool) {
     ));
     lines.push(Line::raw(""));
 
-    // Breakdown with aligned columns
-    let col1 = 14;
-    let col2 = 12;
+    // Breakdown with clean, properly aligned labels (Fix 3: was using `{::>width$}` filling with colons)
+    let label_w = 8;
+    let value_w = 10;
     lines.push(Line::from(vec![
         Span::styled(
-            format!(" {::>width$}", "Used", width = col1),
+            format!(" {:>width$}", "Used", width = label_w),
             Style::default().fg(peach()),
         ),
         Span::styled(
-            format!("{:>width$}", format_bytes(mem.used_bytes), width = col2),
-            Style::default().fg(text()),
-        ),
-        Span::styled(
-            format!("  {:>width$}", "Free", width = col1 - 2),
-            Style::default().fg(green()),
-        ),
-        Span::styled(
-            format!("{:>width$}", format_bytes(mem.free_bytes), width = col2 - 2),
+            format!("{:>width$} / {:.1} GiB", format_bytes(mem.used_bytes), total, width = value_w),
             Style::default().fg(text()),
         ),
     ]));
     lines.push(Line::from(vec![
         Span::styled(
-            format!(" {::>width$}", "Cache", width = col1),
+            format!(" {:>width$}", "Cache", width = label_w),
             Style::default().fg(mauve()),
         ),
         Span::styled(
-            format!("{:>width$}", format_bytes(mem.cached_bytes), width = col2),
+            format!("{:>width$}", format_bytes(mem.cached_bytes), width = value_w),
             Style::default().fg(text()),
         ),
         Span::styled(
-            format!("  {:>width$}", "Total", width = col1 - 2),
-            Style::default().fg(subtext()),
+            format!("  {:>width$}", "Avail", width = label_w - 2),
+            Style::default().fg(green()),
         ),
         Span::styled(
-            format!("{:>width$}", format_bytes(mem.total_bytes), width = col2 - 2),
-            Style::default().fg(subtext()),
+            format!("{:>width$}", format_bytes(mem.free_bytes), width = value_w - 2),
+            Style::default().fg(text()),
         ),
     ]));
 
@@ -253,48 +235,6 @@ fn render_memory_panel(f: &mut Frame, area: Rect, app: &App, focused: bool) {
             ),
             Span::styled("Disabled / No Swap", Style::default().fg(overlay())),
         ]));
-    }
-
-    // ── Disk partitions with Gauge widgets ─────────────────────
-    let partitions = app.disk_partitions();
-    if !partitions.is_empty() {
-        lines.push(Line::raw("")); // spacing
-        lines.push(Line::from(vec![
-            Span::styled(
-                " DISKS",
-                Style::default().fg(teal()).add_modifier(Modifier::BOLD),
-            ),
-        ]));
-
-        for part in partitions.iter().take(3) {
-            let ratio = if part.total_bytes > 0 {
-                part.used_bytes as f64 / part.total_bytes as f64
-            } else {
-                0.0
-            };
-            let color = gauge_color(ratio);
-            let mount = truncate_str(&part.mount_point, 6);
-            let used_s = format_bytes(part.used_bytes);
-            let total_s = format_bytes(part.total_bytes);
-
-            lines.push(Line::from(vec![
-                Span::styled(
-                    format!(" {:<6}", mount),
-                    Style::default().fg(blue()),
-                ),
-                Span::styled(
-                    format!("{:>6}/{:<6}", used_s, total_s),
-                    Style::default().fg(text()),
-                ),
-            ]));
-            gauge_slots.push((
-                lines.len(),
-                ratio,
-                color,
-                format!("{:.0}%", ratio * 100.0),
-            ));
-            lines.push(Line::raw("")); // gauge row
-        }
     }
 
     // Render text (no wrap — prevents gauge misalignment)
@@ -498,26 +438,26 @@ fn render_disk_io_panel(f: &mut Frame, area: Rect, app: &App, focused: bool) {
         && (!dio.read_history.is_empty() || !dio.write_history.is_empty())
     {
         let graph_area = Rect {
-                x: inner.x,
-                y: inner.y + text_h,
-                width: inner.width,
-                height: graph_h,
-            };
+            x: inner.x,
+            y: inner.y + text_h,
+            width: inner.width,
+            height: graph_h,
+        };
 
-            let rows = braille_mirrored_graph(
-                &dio.read_history,
-                &dio.write_history,
-                graph_area.width,
-                graph_area.height,
-                green(), // Read ▲
-                peach(), // Write ▼
-            );
-            f.render_widget(Paragraph::new(rows), graph_area);
+        let rows = braille_mirrored_graph(
+            &dio.read_history,
+            &dio.write_history,
+            graph_area.width,
+            graph_area.height,
+            green(), // Read ▲
+            peach(), // Write ▼
+        );
+        f.render_widget(Paragraph::new(rows), graph_area);
     }
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// Temperature & Load Panel (Panel5)
+// Temperature Panel (Panel5) — live temperatures only
 // ═══════════════════════════════════════════════════════════════════════
 
 fn render_temperature_panel(f: &mut Frame, area: Rect, app: &App, focused: bool) {
@@ -530,14 +470,28 @@ fn render_temperature_panel(f: &mut Frame, area: Rect, app: &App, focused: bool)
 
     // ── Temperature sensors ────────────────────────────────────
     let temps = app.temperatures();
-    for sensor in temps.iter().take(6) {
+    for sensor in temps.iter().take(8) {
         let color = temp_color(sensor.temp_c);
         let label = truncate_str(&sensor.label, 14);
+
+        // Mini temperature bar (8 chars wide)
+        let ratio = (sensor.temp_c / 105.0).clamp(0.0, 1.0);
+        let filled = (ratio * 8.0_f32).round() as usize;
+        let empty = 8 - filled;
+
         lines.push(Line::from(vec![
             Span::styled(format!(" {:<14}", label), Style::default().fg(subtext())),
             Span::styled(
                 format!("{:>6.1}°C", sensor.temp_c),
                 Style::default().fg(color).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!(
+                    " [{}{}]",
+                    "\u{2588}".repeat(filled),
+                    "\u{2591}".repeat(empty),
+                ),
+                Style::default().fg(color),
             ),
         ]));
     }
@@ -549,167 +503,6 @@ fn render_temperature_panel(f: &mut Frame, area: Rect, app: &App, focused: bool)
         )));
     }
 
-    // ── Load averages ──────────────────────────────────────────
-    let info = app.system_info();
-    let load = info.load_average;
-
-    lines.push(Line::raw(""));
-    lines.push(Line::from(vec![
-        Span::styled(
-            " Load:",
-            Style::default().fg(subtext()).add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(
-            format!(" {:.2}", load.0),
-            Style::default().fg(load_color(load.0)),
-        ),
-        Span::styled(
-            format!(" {:.2}", load.1),
-            Style::default().fg(load_color(load.1)),
-        ),
-        Span::styled(
-            format!(" {:.2}", load.2),
-            Style::default().fg(load_color(load.2)),
-        ),
-        Span::styled(" (1/5/15m)", Style::default().fg(overlay())),
-    ]));
-
-    lines.push(Line::raw(""));
-
-    // ── System info ────────────────────────────────────────────
-    lines.push(Line::from(vec![
-        Span::styled(
-            " Host:",
-            Style::default().fg(subtext()).add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(format!(" {}", info.hostname), Style::default().fg(text())),
-    ]));
-    lines.push(Line::from(vec![
-        Span::styled(
-            " Up:",
-            Style::default().fg(subtext()).add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(format!(" {}", info.uptime), Style::default().fg(green())),
-    ]));
-
-    if let Some(ref vendor) = info.sys_vendor {
-        lines.push(Line::from(vec![
-            Span::styled(" OEM:", Style::default().fg(subtext())),
-            Span::styled(
-                format!(" {}", truncate_str(vendor, 22)),
-                Style::default().fg(text()),
-            ),
-        ]));
-    }
-    if let Some(ref product) = info.product_name {
-        lines.push(Line::from(vec![
-            Span::styled(" Model:", Style::default().fg(subtext())),
-            Span::styled(
-                format!(" {}", truncate_str(product, 22)),
-                Style::default().fg(text()),
-            ),
-        ]));
-    }
-
-    lines.push(Line::raw(""));
-
-    lines.push(Line::from(vec![
-        Span::styled(" Arch:", Style::default().fg(subtext())),
-        Span::styled(format!(" {}", info.architecture), Style::default().fg(text())),
-    ]));
-    lines.push(Line::from(vec![
-        Span::styled(" DE:", Style::default().fg(subtext())),
-        Span::styled(
-            format!(" {}", info.desktop_env),
-            Style::default().fg(mauve()),
-        ),
-    ]));
-    lines.push(Line::from(vec![
-        Span::styled(" Display:", Style::default().fg(subtext())),
-        Span::styled(
-            format!(" {}", info.display_server),
-            Style::default().fg(mauve()),
-        ),
-    ]));
-
-    let para = Paragraph::new(lines).wrap(Wrap { trim: true });
+    let para = Paragraph::new(lines);
     f.render_widget(para, inner);
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-// GPU Panel (Panel6) — shown when config.show_gpu is enabled
-// ═══════════════════════════════════════════════════════════════════════
-
-fn render_gpu_panel(f: &mut Frame, area: Rect, app: &App, focused: bool) {
-    let title = icons::titled(app, icons::GPU, icons::fallback::GPU, "GPU");
-    let block = panel_block_focused(&title, focused);
-    let inner = block.inner(area);
-    f.render_widget(block, area);
-
-    let hw = app.hardware_data();
-    let mut lines: Vec<Line<'static>> = Vec::new();
-
-    if hw.gpus.is_empty() {
-        lines.push(Line::from(Span::styled(
-            "  No GPU detected",
-            Style::default().fg(overlay()),
-        )));
-    } else {
-        for (i, gpu) in hw.gpus.iter().enumerate() {
-            let prefix = if hw.gpus.len() == 1 {
-                "GPU".to_string()
-            } else {
-                format!("GPU{}", i + 1)
-            };
-            let max_w = inner.width as usize;
-            let gpu_name = fit_str(&gpu.model, max_w.saturating_sub(prefix.len() + 4));
-
-            lines.push(Line::from(vec![
-                Span::styled(
-                    format!(" {}:", prefix),
-                    Style::default().fg(teal()).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(format!(" {}", gpu_name), Style::default().fg(text())),
-            ]));
-
-            if let Some(ref drv) = gpu.driver {
-                lines.push(Line::from(vec![
-                    Span::styled(" Driver:", Style::default().fg(subtext())),
-                    Span::styled(format!(" {}", drv), Style::default().fg(overlay())),
-                ]));
-            }
-
-            lines.push(Line::from(vec![
-                Span::styled(" Type:", Style::default().fg(subtext())),
-                Span::styled(format!(" {}", gpu.dev_type), Style::default().fg(overlay())),
-            ]));
-
-            if let Some(ref pci) = gpu.pci_slot {
-                lines.push(Line::from(vec![
-                    Span::styled(" PCI:", Style::default().fg(subtext())),
-                    Span::styled(format!(" {}", pci), Style::default().fg(overlay())),
-                ]));
-            }
-
-            lines.push(Line::raw("")); // spacing between GPUs
-        }
-    }
-
-    let para = Paragraph::new(lines).wrap(Wrap { trim: true });
-    f.render_widget(para, inner);
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-// Helpers
-// ═══════════════════════════════════════════════════════════════════════
-
-fn load_color(load: f64) -> Color {
-    let cores = 4.0;
-    if load < cores * 0.5 {
-        green()
-    } else if load < cores * 0.8 {
-        yellow()
-    } else {
-        red()
-    }
 }

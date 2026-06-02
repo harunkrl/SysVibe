@@ -105,8 +105,8 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
     let name_icon = if nf { icons::SORT } else { "" };
 
     let header = Row::new(vec![
-        Span::styled(format!("{}PID{}", pid_icon, sort_indicator(SortBy::Pid)), pid_style),
-        Span::styled(format!("{}NAME{}", name_icon, sort_indicator(SortBy::Name)), name_style),
+        Span::styled(format!("{} PID{}", pid_icon, sort_indicator(SortBy::Pid)), pid_style),
+        Span::styled(format!("{} NAME{}", name_icon, sort_indicator(SortBy::Name)), name_style),
         Span::styled(format!("CPU%{}", sort_indicator(SortBy::Cpu)), cpu_style),
         Span::styled(format!("MEM%{}", sort_indicator(SortBy::Mem)), mem_style),
     ])
@@ -115,12 +115,12 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
 
     let widths = [
         Constraint::Length(8),
-        Constraint::Min(20),
-        Constraint::Length(15),
-        Constraint::Length(15),
+        Constraint::Percentage(30),
+        Constraint::Length(10),
+        Constraint::Length(10),
     ];
 
-    let rows = procs.iter().map(|p| {
+    let rows = procs.iter().enumerate().map(|(row_idx, p)| {
         let cpu_color = usage_color(p.cpu_pct);
         let mem_color = usage_color(p.mem_pct);
 
@@ -130,8 +130,15 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
 
         let proc_icon = if nf { icons::PROCESS_RUNNING } else { "" };
 
-        // Visual mini-bars
-        let bar_len = 6;
+        // Zebra striping: alternate rows get a subtle Surface0 background
+        let row_bg = if row_idx % 2 == 1 {
+            surface0()
+        } else {
+            Color::Reset
+        };
+
+        // Visual mini-bars (compact: 4 chars wide to fit in Length(10) column)
+        let bar_len = 4;
         let c_fill = ((p.cpu_pct / 100.0) * bar_len as f32).round() as usize;
         let c_bar = format!("{}{}", "█".repeat(c_fill.min(bar_len)), "░".repeat(bar_len.saturating_sub(c_fill)));
 
@@ -139,15 +146,15 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
         let m_bar = format!("{}{}", "█".repeat(m_fill.min(bar_len)), "░".repeat(bar_len.saturating_sub(m_fill)));
 
         Row::new(vec![
-            Cell::from(Span::styled(format!("{}", p.pid), Style::default().fg(overlay()))),
-            Cell::from(Span::styled(format!("{}{}{}", prefix, proc_icon, p.name), Style::default().fg(name_color))),
+            Cell::from(Span::styled(format!("{}", p.pid), Style::default().fg(overlay()).bg(row_bg))),
+            Cell::from(Span::styled(format!("{}{}{}", prefix, proc_icon, p.name), Style::default().fg(name_color).bg(row_bg))),
             Cell::from(Line::from(vec![
-                Span::styled(format!("{:>5.1}% ", p.cpu_pct), Style::default().fg(cpu_color)),
-                Span::styled(c_bar, Style::default().fg(cpu_color)),
+                Span::styled(format!(" {:>4.0}%", p.cpu_pct), Style::default().fg(cpu_color).bg(row_bg)),
+                Span::styled(c_bar, Style::default().fg(cpu_color).bg(row_bg)),
             ])),
             Cell::from(Line::from(vec![
-                Span::styled(format!("{:>5.1}% ", p.mem_pct), Style::default().fg(mem_color)),
-                Span::styled(m_bar, Style::default().fg(mem_color)),
+                Span::styled(format!(" {:>4.0}%", p.mem_pct), Style::default().fg(mem_color).bg(row_bg)),
+                Span::styled(m_bar, Style::default().fg(mem_color).bg(row_bg)),
             ])),
         ])
     });
@@ -161,7 +168,7 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
                 .fg(lavender())
                 .add_modifier(Modifier::BOLD),
         )
-        .highlight_symbol(">> ");
+        .highlight_symbol("> ");
 
     f.render_stateful_widget(table, area, &mut app.proc_table_state);
 }

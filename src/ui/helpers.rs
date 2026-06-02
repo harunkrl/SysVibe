@@ -22,13 +22,13 @@ pub fn panel_block(title: &str) -> Block<'_> {
 }
 
 /// Panel block with optional focus-state highlighting.
-/// When `focused` is true, uses LAVENDER border + Thick border type.
+/// When `focused` is true, uses LAVENDER border + Plain border type.
 /// When false, uses SURFACE1 border + Rounded type (default muted look).
 pub fn panel_block_focused(title: &str, focused: bool) -> Block<'_> {
     if focused {
         Block::bordered()
-            .border_type(BorderType::Thick)
-            .border_style(Style::default().fg(focus_border()))
+            .border_type(BorderType::Plain)
+            .border_style(Style::default().fg(lavender()))
             .title(Line::styled(
                 format!(" {} ", title),
                 Style::default().fg(text()).add_modifier(Modifier::BOLD),

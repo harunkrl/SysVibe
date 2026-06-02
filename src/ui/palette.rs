@@ -69,42 +69,9 @@ theme_color!(focus_border, focus_border);
 theme_color!(focus_tab, focus_tab);
 
 // ═══════════════════════════════════════════════════════════════════════
-// Static constants for backwards compatibility (Catppuccin Macchiato)
+// NOTE: Static color constants have been removed. All color access
+// now goes through the runtime function accessors above, which
+// respect the current theme. This ensures theme switching works
+// correctly across all UI elements.
 // ═══════════════════════════════════════════════════════════════════════
-// These are used at compile time. Runtime code should prefer the
-// function accessors above for theme-aware colors.
 
-#[allow(dead_code)]
-pub const ROSEWATER: Color = Color::Rgb(244, 194, 219);
-#[allow(dead_code)]
-pub const FLAMINGO: Color = Color::Rgb(242, 205, 205);
-#[allow(dead_code)]
-pub const PINK: Color = Color::Rgb(245, 189, 230);
-pub const MAUVE: Color = Color::Rgb(198, 160, 246);
-pub const RED: Color = Color::Rgb(237, 135, 150);
-pub const MAROON: Color = Color::Rgb(235, 111, 146);
-pub const PEACH: Color = Color::Rgb(245, 164, 136);
-pub const YELLOW: Color = Color::Rgb(238, 212, 159);
-pub const GREEN: Color = Color::Rgb(166, 227, 149);
-pub const TEAL: Color = Color::Rgb(139, 213, 202);
-#[allow(dead_code)]
-pub const SKY: Color = Color::Rgb(137, 220, 235);
-#[allow(dead_code)]
-pub const SAPPHIRE: Color = Color::Rgb(125, 196, 228);
-pub const BLUE: Color = Color::Rgb(138, 173, 244);
-pub const LAVENDER: Color = Color::Rgb(183, 223, 249);
-pub const TEXT: Color = Color::Rgb(202, 211, 245);
-pub const SUBTEXT: Color = Color::Rgb(165, 173, 203);
-pub const OVERLAY: Color = Color::Rgb(128, 135, 162);
-pub const SURFACE0: Color = Color::Rgb(54, 58, 79);
-pub const SURFACE1: Color = Color::Rgb(73, 77, 100);
-pub const SURFACE2: Color = Color::Rgb(91, 96, 120);
-pub const BASE: Color = Color::Rgb(30, 30, 46);
-#[allow(dead_code)]
-pub const MANTLE: Color = Color::Rgb(24, 24, 37);
-#[allow(dead_code)]
-pub const CRUST: Color = Color::Rgb(17, 17, 27);
-pub const FOCUS_BORDER: Color = LAVENDER;
-#[allow(dead_code)]
-pub const FOCUS_BORDER_ALT: Color = MAUVE;
-pub const FOCUS_TAB: Color = MAUVE;

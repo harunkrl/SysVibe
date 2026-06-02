@@ -91,13 +91,13 @@ fn render_cpu_panel(f: &mut Frame, area: Rect, app: &App, focused: bool) {
     // Summary line
     let avg = app.cpu_history.back().copied().unwrap_or(0);
     let line = Line::from(vec![
-        Span::styled(" Avg:", Style::default().fg(SUBTEXT).add_modifier(Modifier::BOLD)),
+        Span::styled(" Avg:", Style::default().fg(subtext()).add_modifier(Modifier::BOLD)),
         Span::styled(
             format!(" {:5.1}%", avg),
             Style::default().fg(usage_color(avg as f32)),
         ),
-        Span::styled("  Cores:", Style::default().fg(SUBTEXT).add_modifier(Modifier::BOLD)),
-        Span::styled(format!(" {}", app.num_cores()), Style::default().fg(TEXT)),
+        Span::styled("  Cores:", Style::default().fg(subtext()).add_modifier(Modifier::BOLD)),
+        Span::styled(format!(" {}", app.num_cores()), Style::default().fg(text())),
     ]);
     f.render_widget(Paragraph::new(line), layout[0]);
 
@@ -131,7 +131,7 @@ fn render_cpu_panel(f: &mut Frame, area: Rect, app: &App, focused: bool) {
         let spark = braille_mini(&spark_data, 100);
 
         let line = Line::from(vec![
-            Span::styled(format!("C{:>2}", i), Style::default().fg(SUBTEXT)),
+            Span::styled(format!("C{:>2}", i), Style::default().fg(subtext())),
             Span::styled(format!(" {:5.1}%", usage), Style::default().fg(color)),
             Span::styled(format!(" {}", spark), Style::default().fg(color)),
         ]);
@@ -168,10 +168,10 @@ fn render_memory_panel(f: &mut Frame, area: Rect, app: &App, focused: bool) {
 
     // ── RAM header with total ──────────────────────────────────
     lines.push(Line::from(vec![
-        Span::styled(" RAM ", Style::default().fg(BLUE).add_modifier(Modifier::BOLD)),
+        Span::styled(" RAM ", Style::default().fg(blue()).add_modifier(Modifier::BOLD)),
         Span::styled(
             format!("{:.1} / {:.1} GiB", used, total),
-            Style::default().fg(TEXT),
+            Style::default().fg(text()),
         ),
     ]));
 
@@ -190,37 +190,37 @@ fn render_memory_panel(f: &mut Frame, area: Rect, app: &App, focused: bool) {
     lines.push(Line::from(vec![
         Span::styled(
             format!(" {::>width$}", "Used", width = col1),
-            Style::default().fg(PEACH),
+            Style::default().fg(peach()),
         ),
         Span::styled(
             format!("{:>width$}", format_bytes(mem.used_bytes), width = col2),
-            Style::default().fg(TEXT),
+            Style::default().fg(text()),
         ),
         Span::styled(
             format!("  {:>width$}", "Free", width = col1 - 2),
-            Style::default().fg(GREEN),
+            Style::default().fg(green()),
         ),
         Span::styled(
             format!("{:>width$}", format_bytes(mem.free_bytes), width = col2 - 2),
-            Style::default().fg(TEXT),
+            Style::default().fg(text()),
         ),
     ]));
     lines.push(Line::from(vec![
         Span::styled(
             format!(" {::>width$}", "Cache", width = col1),
-            Style::default().fg(MAUVE),
+            Style::default().fg(mauve()),
         ),
         Span::styled(
             format!("{:>width$}", format_bytes(mem.cached_bytes), width = col2),
-            Style::default().fg(TEXT),
+            Style::default().fg(text()),
         ),
         Span::styled(
             format!("  {:>width$}", "Total", width = col1 - 2),
-            Style::default().fg(SUBTEXT),
+            Style::default().fg(subtext()),
         ),
         Span::styled(
             format!("{:>width$}", format_bytes(mem.total_bytes), width = col2 - 2),
-            Style::default().fg(SUBTEXT),
+            Style::default().fg(subtext()),
         ),
     ]));
 
@@ -231,11 +231,11 @@ fn render_memory_panel(f: &mut Frame, area: Rect, app: &App, focused: bool) {
         lines.push(Line::from(vec![
             Span::styled(
                 " SWAP ",
-                Style::default().fg(MAUVE).add_modifier(Modifier::BOLD),
+                Style::default().fg(mauve()).add_modifier(Modifier::BOLD),
             ),
             Span::styled(
                 format!("{:.1} / {:.1} GiB", swap_used, swap_total),
-                Style::default().fg(TEXT),
+                Style::default().fg(text()),
             ),
         ]));
         gauge_slots.push((
@@ -249,9 +249,9 @@ fn render_memory_panel(f: &mut Frame, area: Rect, app: &App, focused: bool) {
         lines.push(Line::from(vec![
             Span::styled(
                 " SWAP ",
-                Style::default().fg(MAUVE).add_modifier(Modifier::BOLD),
+                Style::default().fg(mauve()).add_modifier(Modifier::BOLD),
             ),
-            Span::styled("Disabled / No Swap", Style::default().fg(OVERLAY)),
+            Span::styled("Disabled / No Swap", Style::default().fg(overlay())),
         ]));
     }
 
@@ -262,7 +262,7 @@ fn render_memory_panel(f: &mut Frame, area: Rect, app: &App, focused: bool) {
         lines.push(Line::from(vec![
             Span::styled(
                 " DISKS",
-                Style::default().fg(TEAL).add_modifier(Modifier::BOLD),
+                Style::default().fg(teal()).add_modifier(Modifier::BOLD),
             ),
         ]));
 
@@ -280,11 +280,11 @@ fn render_memory_panel(f: &mut Frame, area: Rect, app: &App, focused: bool) {
             lines.push(Line::from(vec![
                 Span::styled(
                     format!(" {:<6}", mount),
-                    Style::default().fg(BLUE),
+                    Style::default().fg(blue()),
                 ),
                 Span::styled(
                     format!("{:>6}/{:<6}", used_s, total_s),
-                    Style::default().fg(TEXT),
+                    Style::default().fg(text()),
                 ),
             ]));
             gauge_slots.push((
@@ -312,11 +312,11 @@ fn render_memory_panel(f: &mut Frame, area: Rect, app: &App, focused: bool) {
                 height: 1,
             };
             let gauge = Gauge::default()
-                .gauge_style(Style::default().fg(color).bg(SURFACE0))
+                .gauge_style(Style::default().fg(color).bg(surface0()))
                 .ratio(ratio.clamp(0.0, 1.0))
                 .label(Span::styled(
                     label,
-                    Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
+                    Style::default().fg(text()).add_modifier(Modifier::BOLD),
                 ));
             f.render_widget(gauge, gauge_area);
         }
@@ -342,7 +342,7 @@ fn render_network_panel(f: &mut Frame, area: Rect, app: &App, focused: bool) {
         f.render_widget(
             Paragraph::new(Line::from(Span::styled(
                 "  No interfaces found",
-                Style::default().fg(OVERLAY),
+                Style::default().fg(overlay()),
             ))),
             inner,
         );
@@ -355,23 +355,23 @@ fn render_network_panel(f: &mut Frame, area: Rect, app: &App, focused: bool) {
         lines.push(Line::from(vec![
             Span::styled(
                 format!(" {} ", ns.interface),
-                Style::default().fg(BLUE).add_modifier(Modifier::BOLD),
+                Style::default().fg(blue()).add_modifier(Modifier::BOLD),
             ),
             Span::styled(
                 format!("{} ", dl_icon),
-                Style::default().fg(SKY).add_modifier(Modifier::BOLD),
+                Style::default().fg(sky()).add_modifier(Modifier::BOLD),
             ),
             Span::styled(
                 format!("{:>10}", format_speed(ns.rx_speed_bps)),
-                Style::default().fg(TEXT),
+                Style::default().fg(text()),
             ),
             Span::styled(
                 format!(" {} ", ul_icon),
-                Style::default().fg(MAUVE).add_modifier(Modifier::BOLD),
+                Style::default().fg(mauve()).add_modifier(Modifier::BOLD),
             ),
             Span::styled(
                 format!("{:>10}", format_speed(ns.tx_speed_bps)),
-                Style::default().fg(TEXT),
+                Style::default().fg(text()),
             ),
         ]));
     }
@@ -424,8 +424,8 @@ fn render_network_panel(f: &mut Frame, area: Rect, app: &App, focused: bool) {
                 &total_tx,
                 graph_area.width,
                 graph_area.height,
-                SKY,   // RX (download) ▲ cyan
-                MAUVE, // TX (upload) ▼ magenta
+                sky(),   // RX (download) ▲ cyan
+                mauve(), // TX (upload) ▼ magenta
             );
             f.render_widget(Paragraph::new(rows), graph_area);
         }
@@ -453,21 +453,21 @@ fn render_disk_io_panel(f: &mut Frame, area: Rect, app: &App, focused: bool) {
     lines.push(Line::from(vec![
         Span::styled(
             format!(" {} ", read_icon),
-            Style::default().fg(GREEN).add_modifier(Modifier::BOLD),
+            Style::default().fg(green()).add_modifier(Modifier::BOLD),
         ),
         Span::styled(
             format!("{:>12}", format_speed(dio.read_speed_bps)),
-            Style::default().fg(TEXT),
+            Style::default().fg(text()),
         ),
     ]));
     lines.push(Line::from(vec![
         Span::styled(
             format!(" {} ", write_icon),
-            Style::default().fg(PEACH).add_modifier(Modifier::BOLD),
+            Style::default().fg(peach()).add_modifier(Modifier::BOLD),
         ),
         Span::styled(
             format!("{:>12}", format_speed(dio.write_speed_bps)),
-            Style::default().fg(TEXT),
+            Style::default().fg(text()),
         ),
     ]));
 
@@ -475,12 +475,12 @@ fn render_disk_io_panel(f: &mut Frame, area: Rect, app: &App, focused: bool) {
 
     // IOPS
     lines.push(Line::from(vec![
-        Span::styled(" IOPS R:", Style::default().fg(GREEN)),
-        Span::styled(format!(" {:>6}/s", dio.read_iops), Style::default().fg(TEXT)),
+        Span::styled(" IOPS R:", Style::default().fg(green())),
+        Span::styled(format!(" {:>6}/s", dio.read_iops), Style::default().fg(text())),
     ]));
     lines.push(Line::from(vec![
-        Span::styled(" IOPS W:", Style::default().fg(PEACH)),
-        Span::styled(format!(" {:>6}/s", dio.write_iops), Style::default().fg(TEXT)),
+        Span::styled(" IOPS W:", Style::default().fg(peach())),
+        Span::styled(format!(" {:>6}/s", dio.write_iops), Style::default().fg(text())),
     ]));
 
     let text_h = lines.len() as u16;
@@ -509,8 +509,8 @@ fn render_disk_io_panel(f: &mut Frame, area: Rect, app: &App, focused: bool) {
                 &dio.write_history,
                 graph_area.width,
                 graph_area.height,
-                GREEN, // Read ▲
-                PEACH, // Write ▼
+                green(), // Read ▲
+                peach(), // Write ▼
             );
             f.render_widget(Paragraph::new(rows), graph_area);
     }
@@ -534,7 +534,7 @@ fn render_temperature_panel(f: &mut Frame, area: Rect, app: &App, focused: bool)
         let color = temp_color(sensor.temp_c);
         let label = truncate_str(&sensor.label, 14);
         lines.push(Line::from(vec![
-            Span::styled(format!(" {:<14}", label), Style::default().fg(SUBTEXT)),
+            Span::styled(format!(" {:<14}", label), Style::default().fg(subtext())),
             Span::styled(
                 format!("{:>6.1}°C", sensor.temp_c),
                 Style::default().fg(color).add_modifier(Modifier::BOLD),
@@ -545,7 +545,7 @@ fn render_temperature_panel(f: &mut Frame, area: Rect, app: &App, focused: bool)
     if temps.is_empty() {
         lines.push(Line::from(Span::styled(
             "  No sensors found",
-            Style::default().fg(OVERLAY),
+            Style::default().fg(overlay()),
         )));
     }
 
@@ -557,7 +557,7 @@ fn render_temperature_panel(f: &mut Frame, area: Rect, app: &App, focused: bool)
     lines.push(Line::from(vec![
         Span::styled(
             " Load:",
-            Style::default().fg(SUBTEXT).add_modifier(Modifier::BOLD),
+            Style::default().fg(subtext()).add_modifier(Modifier::BOLD),
         ),
         Span::styled(
             format!(" {:.2}", load.0),
@@ -571,7 +571,7 @@ fn render_temperature_panel(f: &mut Frame, area: Rect, app: &App, focused: bool)
             format!(" {:.2}", load.2),
             Style::default().fg(load_color(load.2)),
         ),
-        Span::styled(" (1/5/15m)", Style::default().fg(OVERLAY)),
+        Span::styled(" (1/5/15m)", Style::default().fg(overlay())),
     ]));
 
     lines.push(Line::raw(""));
@@ -580,33 +580,33 @@ fn render_temperature_panel(f: &mut Frame, area: Rect, app: &App, focused: bool)
     lines.push(Line::from(vec![
         Span::styled(
             " Host:",
-            Style::default().fg(SUBTEXT).add_modifier(Modifier::BOLD),
+            Style::default().fg(subtext()).add_modifier(Modifier::BOLD),
         ),
-        Span::styled(format!(" {}", info.hostname), Style::default().fg(TEXT)),
+        Span::styled(format!(" {}", info.hostname), Style::default().fg(text())),
     ]));
     lines.push(Line::from(vec![
         Span::styled(
             " Up:",
-            Style::default().fg(SUBTEXT).add_modifier(Modifier::BOLD),
+            Style::default().fg(subtext()).add_modifier(Modifier::BOLD),
         ),
-        Span::styled(format!(" {}", info.uptime), Style::default().fg(GREEN)),
+        Span::styled(format!(" {}", info.uptime), Style::default().fg(green())),
     ]));
 
     if let Some(ref vendor) = info.sys_vendor {
         lines.push(Line::from(vec![
-            Span::styled(" OEM:", Style::default().fg(SUBTEXT)),
+            Span::styled(" OEM:", Style::default().fg(subtext())),
             Span::styled(
                 format!(" {}", truncate_str(vendor, 22)),
-                Style::default().fg(TEXT),
+                Style::default().fg(text()),
             ),
         ]));
     }
     if let Some(ref product) = info.product_name {
         lines.push(Line::from(vec![
-            Span::styled(" Model:", Style::default().fg(SUBTEXT)),
+            Span::styled(" Model:", Style::default().fg(subtext())),
             Span::styled(
                 format!(" {}", truncate_str(product, 22)),
-                Style::default().fg(TEXT),
+                Style::default().fg(text()),
             ),
         ]));
     }
@@ -614,21 +614,21 @@ fn render_temperature_panel(f: &mut Frame, area: Rect, app: &App, focused: bool)
     lines.push(Line::raw(""));
 
     lines.push(Line::from(vec![
-        Span::styled(" Arch:", Style::default().fg(SUBTEXT)),
-        Span::styled(format!(" {}", info.architecture), Style::default().fg(TEXT)),
+        Span::styled(" Arch:", Style::default().fg(subtext())),
+        Span::styled(format!(" {}", info.architecture), Style::default().fg(text())),
     ]));
     lines.push(Line::from(vec![
-        Span::styled(" DE:", Style::default().fg(SUBTEXT)),
+        Span::styled(" DE:", Style::default().fg(subtext())),
         Span::styled(
             format!(" {}", info.desktop_env),
-            Style::default().fg(MAUVE),
+            Style::default().fg(mauve()),
         ),
     ]));
     lines.push(Line::from(vec![
-        Span::styled(" Display:", Style::default().fg(SUBTEXT)),
+        Span::styled(" Display:", Style::default().fg(subtext())),
         Span::styled(
             format!(" {}", info.display_server),
-            Style::default().fg(MAUVE),
+            Style::default().fg(mauve()),
         ),
     ]));
 
@@ -652,7 +652,7 @@ fn render_gpu_panel(f: &mut Frame, area: Rect, app: &App, focused: bool) {
     if hw.gpus.is_empty() {
         lines.push(Line::from(Span::styled(
             "  No GPU detected",
-            Style::default().fg(OVERLAY),
+            Style::default().fg(overlay()),
         )));
     } else {
         for (i, gpu) in hw.gpus.iter().enumerate() {
@@ -667,27 +667,27 @@ fn render_gpu_panel(f: &mut Frame, area: Rect, app: &App, focused: bool) {
             lines.push(Line::from(vec![
                 Span::styled(
                     format!(" {}:", prefix),
-                    Style::default().fg(TEAL).add_modifier(Modifier::BOLD),
+                    Style::default().fg(teal()).add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(format!(" {}", gpu_name), Style::default().fg(TEXT)),
+                Span::styled(format!(" {}", gpu_name), Style::default().fg(text())),
             ]));
 
             if let Some(ref drv) = gpu.driver {
                 lines.push(Line::from(vec![
-                    Span::styled(" Driver:", Style::default().fg(SUBTEXT)),
-                    Span::styled(format!(" {}", drv), Style::default().fg(OVERLAY)),
+                    Span::styled(" Driver:", Style::default().fg(subtext())),
+                    Span::styled(format!(" {}", drv), Style::default().fg(overlay())),
                 ]));
             }
 
             lines.push(Line::from(vec![
-                Span::styled(" Type:", Style::default().fg(SUBTEXT)),
-                Span::styled(format!(" {}", gpu.dev_type), Style::default().fg(OVERLAY)),
+                Span::styled(" Type:", Style::default().fg(subtext())),
+                Span::styled(format!(" {}", gpu.dev_type), Style::default().fg(overlay())),
             ]));
 
             if let Some(ref pci) = gpu.pci_slot {
                 lines.push(Line::from(vec![
-                    Span::styled(" PCI:", Style::default().fg(SUBTEXT)),
-                    Span::styled(format!(" {}", pci), Style::default().fg(OVERLAY)),
+                    Span::styled(" PCI:", Style::default().fg(subtext())),
+                    Span::styled(format!(" {}", pci), Style::default().fg(overlay())),
                 ]));
             }
 
@@ -706,10 +706,10 @@ fn render_gpu_panel(f: &mut Frame, area: Rect, app: &App, focused: bool) {
 fn load_color(load: f64) -> Color {
     let cores = 4.0;
     if load < cores * 0.5 {
-        GREEN
+        green()
     } else if load < cores * 0.8 {
-        YELLOW
+        yellow()
     } else {
-        RED
+        red()
     }
 }

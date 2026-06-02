@@ -32,7 +32,7 @@ pub fn render_header(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
     let mut tab_spans: Vec<Span<'_>> = Vec::new();
     for (i, (name, tab, nf_icon, fb_icon)) in tabs.iter().enumerate() {
         if i > 0 {
-            tab_spans.push(Span::styled(" │ ", Style::default().fg(SURFACE2)));
+            tab_spans.push(Span::styled(" │ ", Style::default().fg(surface2())));
         }
         let is_active = app.tab == *tab;
         if is_active {
@@ -41,13 +41,13 @@ pub fn render_header(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
             let icon_str = if nf { *nf_icon } else { *fb_icon };
             tab_spans.push(Span::styled(
                 format!("{} {}{} ", indicator, icon_str, name),
-                Style::default().fg(FOCUS_TAB).add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+                Style::default().fg(focus_tab()).add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
             ));
         } else {
             let icon_str = if nf { *nf_icon } else { *fb_icon };
             tab_spans.push(Span::styled(
                 format!(" {} {} ", icon_str, name),
-                Style::default().fg(SUBTEXT),
+                Style::default().fg(subtext()),
             ));
         }
     }
@@ -63,15 +63,15 @@ pub fn render_header(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
         .title_top(Line::from(vec![
             Span::styled(
                 format!("  {} SysVibe", os_icon_str),
-                Style::default().fg(MAUVE).add_modifier(Modifier::BOLD),
+                Style::default().fg(mauve()).add_modifier(Modifier::BOLD),
             ),
             Span::styled(
                 format!(" v{} ", env!("CARGO_PKG_VERSION")),
                 Style::default()
-                    .fg(SUBTEXT)
+                    .fg(subtext())
                     .add_modifier(Modifier::ITALIC),
             ),
-            Span::styled(refresh_dot, Style::default().fg(GREEN)),
+            Span::styled(refresh_dot, Style::default().fg(green())),
         ]))
         .title_top(Line::from(time_str).alignment(Alignment::Right));
 

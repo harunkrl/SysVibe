@@ -35,7 +35,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             area.width, area.height, MIN_WIDTH, MIN_HEIGHT
         );
         let paragraph = Paragraph::new(msg)
-            .style(Style::default().fg(palette::RED).add_modifier(Modifier::BOLD))
+            .style(Style::default().fg(palette::red()).add_modifier(Modifier::BOLD))
             .alignment(Alignment::Center);
         f.render_widget(paragraph, area);
         return;
@@ -44,8 +44,8 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     let outer_block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Thick)
-        .border_style(Style::default().fg(palette::SURFACE2))
-        .style(Style::default().bg(palette::BASE));
+        .border_style(Style::default().fg(palette::surface2()))
+        .style(Style::default().bg(palette::base()));
     let inner_area = outer_block.inner(area);
     f.render_widget(outer_block, area);
 
@@ -64,7 +64,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     // 2. Main content area (tab routing)
     // We add a subtle bottom border to the tab content to separate it from the footer
     let tab_area = chunks[1];
-    let tab_block = Block::default().borders(Borders::BOTTOM).border_style(ratatui::style::Style::default().fg(palette::SURFACE1));
+    let tab_block = Block::default().borders(Borders::BOTTOM).border_style(ratatui::style::Style::default().fg(palette::surface1()));
     let inner_tab_area = tab_block.inner(tab_area);
     f.render_widget(tab_block, tab_area);
 

@@ -87,7 +87,7 @@ fn render_cpu_graph(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: Pane
         inner.width,
         inner.height.saturating_sub(1), // leave 1 row for label
         cpu_color,
-        SURFACE0,
+        surface0(),
         "%",
     );
 
@@ -133,7 +133,7 @@ fn render_memory_panel(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: P
 
     let lines = vec![
         Line::from(vec![
-            Span::styled(" CPU ", Style::default().fg(SUBTEXT)),
+            Span::styled(" CPU ", Style::default().fg(subtext())),
             Span::styled(
                 format!("{:.1}%", cpu_pct),
                 Style::default().fg(cpu_color).add_modifier(Modifier::BOLD),
@@ -157,7 +157,7 @@ fn render_memory_panel(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: P
         Line::from(vec![
             Span::styled(
                 format!(" Load {:.2} {:.2} {:.2}", info.load_average.0, info.load_average.1, info.load_average.2),
-                Style::default().fg(OVERLAY),
+                Style::default().fg(overlay()),
             ),
         ]),
     ];
@@ -177,7 +177,7 @@ fn render_memory_panel(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: P
     // RAM gauge (overlay on row 2 of inner area)
     if text_area[1].width > 2 {
         let ram_gauge = Gauge::default()
-            .gauge_style(Style::default().fg(ram_color).bg(SURFACE0))
+            .gauge_style(Style::default().fg(ram_color).bg(surface0()))
             .ratio(ram_ratio.min(1.0))
             .label(format!("{:.0}%", ram_ratio * 100.0));
         f.render_widget(ram_gauge, text_area[1]);
@@ -186,7 +186,7 @@ fn render_memory_panel(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: P
     // Swap gauge
     if text_area[2].width > 2 {
         let swap_gauge = Gauge::default()
-            .gauge_style(Style::default().fg(swap_color).bg(SURFACE0))
+            .gauge_style(Style::default().fg(swap_color).bg(surface0()))
             .ratio(swap_ratio.min(1.0))
             .label(format!("{:.0}%", swap_ratio * 100.0));
         f.render_widget(swap_gauge, text_area[2]);
@@ -211,10 +211,10 @@ fn render_top_processes(f: &mut Frame, app: &App, area: Rect, nf: bool, focus: P
 
     // Header
     lines.push(Line::from(vec![
-        Span::styled(" PID     ", Style::default().fg(SUBTEXT).add_modifier(Modifier::BOLD)),
-        Span::styled("NAME             ", Style::default().fg(SUBTEXT).add_modifier(Modifier::BOLD)),
-        Span::styled("CPU%    ", Style::default().fg(SUBTEXT).add_modifier(Modifier::BOLD)),
-        Span::styled("MEM%", Style::default().fg(SUBTEXT).add_modifier(Modifier::BOLD)),
+        Span::styled(" PID     ", Style::default().fg(subtext()).add_modifier(Modifier::BOLD)),
+        Span::styled("NAME             ", Style::default().fg(subtext()).add_modifier(Modifier::BOLD)),
+        Span::styled("CPU%    ", Style::default().fg(subtext()).add_modifier(Modifier::BOLD)),
+        Span::styled("MEM%", Style::default().fg(subtext()).add_modifier(Modifier::BOLD)),
     ]));
 
     for proc_entry in procs.iter().take(show_count) {
@@ -228,8 +228,8 @@ fn render_top_processes(f: &mut Frame, app: &App, area: Rect, nf: bool, focus: P
         };
 
         lines.push(Line::from(vec![
-            Span::styled(format!("{:<8}", proc_entry.pid), Style::default().fg(OVERLAY)),
-            Span::styled(format!("{}{} ", proc_icon, name), Style::default().fg(TEXT)),
+            Span::styled(format!("{:<8}", proc_entry.pid), Style::default().fg(overlay())),
+            Span::styled(format!("{}{} ", proc_icon, name), Style::default().fg(text())),
             Span::styled(format!("{:>6.1}%  ", proc_entry.cpu_pct), Style::default().fg(cpu_color)),
             Span::styled(format!("{:>5.1}%", proc_entry.mem_pct), Style::default().fg(mem_color)),
         ]));
@@ -238,7 +238,7 @@ fn render_top_processes(f: &mut Frame, app: &App, area: Rect, nf: bool, focus: P
     if procs.len() > show_count {
         lines.push(Line::from(Span::styled(
             format!("  ... +{} more", procs.len() - show_count),
-            Style::default().fg(SURFACE2),
+            Style::default().fg(surface2()),
         )));
     }
 
@@ -267,16 +267,16 @@ fn render_network_panel(f: &mut Frame, app: &App, area: Rect, nf: bool, focus: P
         let ip = ns.local_ip.as_deref().unwrap_or("-");
 
         lines.push(Line::from(vec![
-            Span::styled(format!(" {} ", ns.interface), Style::default().fg(MAUVE).add_modifier(Modifier::BOLD)),
-            Span::styled(ip.to_string(), Style::default().fg(SUBTEXT)),
+            Span::styled(format!(" {} ", ns.interface), Style::default().fg(mauve()).add_modifier(Modifier::BOLD)),
+            Span::styled(ip.to_string(), Style::default().fg(subtext())),
         ]));
         lines.push(Line::from(vec![
-            Span::styled(format!(" {} ", dl_icon), Style::default().fg(GREEN)),
-            Span::styled(format!("{:>12}", rx), Style::default().fg(GREEN)),
+            Span::styled(format!(" {} ", dl_icon), Style::default().fg(green())),
+            Span::styled(format!("{:>12}", rx), Style::default().fg(green())),
         ]));
         lines.push(Line::from(vec![
-            Span::styled(format!(" {} ", ul_icon), Style::default().fg(PEACH)),
-            Span::styled(format!("{:>12}", tx), Style::default().fg(PEACH)),
+            Span::styled(format!(" {} ", ul_icon), Style::default().fg(peach())),
+            Span::styled(format!("{:>12}", tx), Style::default().fg(peach())),
         ]));
         lines.push(Line::from("")); // spacer
     }
@@ -289,8 +289,8 @@ fn render_network_panel(f: &mut Frame, app: &App, area: Rect, nf: bool, focus: P
             &ns.tx_history,
             inner.width,
             graph_h,
-            GREEN,
-            PEACH,
+            green(),
+            peach(),
         );
         lines.extend(graph_lines);
     }
@@ -314,7 +314,7 @@ fn render_gpu_panel(f: &mut Frame, app: &App, area: Rect, nf: bool, focus: Panel
         f.render_widget(
             Paragraph::new(Line::styled(
                 "  No GPU detected",
-                Style::default().fg(SUBTEXT),
+                Style::default().fg(subtext()),
             )),
             inner,
         );
@@ -331,13 +331,13 @@ fn render_gpu_panel(f: &mut Frame, app: &App, area: Rect, nf: bool, focus: Panel
             gpu.name.clone()
         };
         lines.push(Line::from(vec![
-            Span::styled(format!(" {} ", gpu_name), Style::default().fg(MAUVE).add_modifier(Modifier::BOLD)),
+            Span::styled(format!(" {} ", gpu_name), Style::default().fg(mauve()).add_modifier(Modifier::BOLD)),
         ]));
 
         // Usage
         let usage_color = usage_color(gpu.usage_pct);
         lines.push(Line::from(vec![
-            Span::styled(" Usage ", Style::default().fg(SUBTEXT)),
+            Span::styled(" Usage ", Style::default().fg(subtext())),
             Span::styled(
                 format!("{:.0}%", gpu.usage_pct),
                 Style::default().fg(usage_color),
@@ -374,12 +374,12 @@ fn render_gpu_panel(f: &mut Frame, app: &App, area: Rect, nf: bool, focus: Panel
         // Power / Clock
         if let Some(power) = gpu.power_w {
             lines.push(Line::from(vec![
-                Span::styled(format!(" ⚡ {:.0}W", power), Style::default().fg(OVERLAY)),
+                Span::styled(format!(" ⚡ {:.0}W", power), Style::default().fg(overlay())),
             ]));
         }
         if let Some(clock) = gpu.clock_mhz {
             lines.push(Line::from(vec![
-                Span::styled(format!(" ⏱ {}MHz", clock), Style::default().fg(OVERLAY)),
+                Span::styled(format!(" ⏱ {}MHz", clock), Style::default().fg(overlay())),
             ]));
         }
     }
@@ -408,29 +408,29 @@ fn render_system_disk_panel(f: &mut Frame, app: &App, area: Rect, nf: bool, focu
 
     // System info (condensed)
     lines.push(Line::from(vec![
-        Span::styled(" OS ", Style::default().fg(SUBTEXT)),
-        Span::styled(&info.os_name, Style::default().fg(TEXT)),
+        Span::styled(" OS ", Style::default().fg(subtext())),
+        Span::styled(&info.os_name, Style::default().fg(text())),
     ]));
     lines.push(Line::from(vec![
-        Span::styled(" Ker ", Style::default().fg(SUBTEXT)),
-        Span::styled(&info.kernel_version, Style::default().fg(OVERLAY)),
+        Span::styled(" Ker ", Style::default().fg(subtext())),
+        Span::styled(&info.kernel_version, Style::default().fg(overlay())),
     ]));
     lines.push(Line::from(vec![
-        Span::styled(" Host ", Style::default().fg(SUBTEXT)),
-        Span::styled(&info.hostname, Style::default().fg(OVERLAY)),
+        Span::styled(" Host ", Style::default().fg(subtext())),
+        Span::styled(&info.hostname, Style::default().fg(overlay())),
     ]));
     lines.push(Line::from(vec![
-        Span::styled(" Up ", Style::default().fg(SUBTEXT)),
-        Span::styled(&info.uptime, Style::default().fg(OVERLAY)),
+        Span::styled(" Up ", Style::default().fg(subtext())),
+        Span::styled(&info.uptime, Style::default().fg(overlay())),
     ]));
 
     // Disk I/O
     lines.push(Line::from(""));
     lines.push(Line::from(vec![
-        Span::styled(format!(" {} ", rd_icon), Style::default().fg(GREEN)),
-        Span::styled(format!("{:>12}", format_speed(dio.read_speed_bps)), Style::default().fg(GREEN)),
-        Span::styled(format!("  {} ", wr_icon), Style::default().fg(PEACH)),
-        Span::styled(format!("{:>12}", format_speed(dio.write_speed_bps)), Style::default().fg(PEACH)),
+        Span::styled(format!(" {} ", rd_icon), Style::default().fg(green())),
+        Span::styled(format!("{:>12}", format_speed(dio.read_speed_bps)), Style::default().fg(green())),
+        Span::styled(format!("  {} ", wr_icon), Style::default().fg(peach())),
+        Span::styled(format!("{:>12}", format_speed(dio.write_speed_bps)), Style::default().fg(peach())),
     ]));
 
     // Battery

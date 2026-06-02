@@ -28,19 +28,19 @@ pub fn panel_block_focused(title: &str, focused: bool) -> Block<'_> {
     if focused {
         Block::bordered()
             .border_type(BorderType::Thick)
-            .border_style(Style::default().fg(FOCUS_BORDER))
+            .border_style(Style::default().fg(focus_border()))
             .title(Line::styled(
                 format!(" {} ", title),
-                Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
+                Style::default().fg(text()).add_modifier(Modifier::BOLD),
             ))
             .title_alignment(Alignment::Center)
     } else {
         Block::bordered()
             .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(SURFACE1))
+            .border_style(Style::default().fg(surface1()))
             .title(Line::styled(
                 format!(" {} ", title),
-                Style::default().fg(SUBTEXT).add_modifier(Modifier::BOLD),
+                Style::default().fg(subtext()).add_modifier(Modifier::BOLD),
             ))
             .title_alignment(Alignment::Center)
     }
@@ -50,7 +50,7 @@ pub fn panel_block_focused(title: &str, focused: bool) -> Block<'_> {
 pub fn header_block() -> Block<'static> {
     Block::bordered()
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(SURFACE2))
+        .border_style(Style::default().fg(surface2()))
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -60,58 +60,58 @@ pub fn header_block() -> Block<'static> {
 /// Usage colour: 6-level Green → Teal → Yellow → Peach → Red → Maroon.
 pub fn usage_color(pct: f32) -> Color {
     if pct < 25.0 {
-        GREEN
+        green()
     } else if pct < 45.0 {
-        TEAL
+        teal()
     } else if pct < 60.0 {
-        YELLOW
+        yellow()
     } else if pct < 75.0 {
-        PEACH
+        peach()
     } else if pct < 85.0 {
-        RED
+        red()
     } else {
-        MAROON
+        maroon()
     }
 }
 
 /// Simple 3-level temperature colour: Green / Yellow / Red.
 pub fn temp_color(temp: f32) -> Color {
     if temp < 50.0 {
-        GREEN
+        green()
     } else if temp < 75.0 {
-        YELLOW
+        yellow()
     } else {
-        RED
+        red()
     }
 }
 
 /// Gauge colour: 5-level by ratio.
 pub fn gauge_color(ratio: f64) -> Color {
     if ratio < 0.45 {
-        GREEN
+        green()
     } else if ratio < 0.60 {
-        YELLOW
+        yellow()
     } else if ratio < 0.75 {
-        PEACH
+        peach()
     } else if ratio < 0.85 {
-        RED
+        red()
     } else {
-        MAROON
+        maroon()
     }
 }
 
 /// Battery colour: Rosewater (full) → Green → Yellow → Red → Maroon.
 pub fn battery_color(pct: f64) -> Color {
     if pct >= 95.0 {
-        ROSEWATER
+        rosewater()
     } else if pct > 50.0 {
-        GREEN
+        green()
     } else if pct > 20.0 {
-        YELLOW
+        yellow()
     } else if pct > 10.0 {
-        RED
+        red()
     } else {
-        MAROON
+        maroon()
     }
 }
 
@@ -168,7 +168,7 @@ pub fn kv_line(key: &str, val: &str, color: Color) -> Line<'static> {
             format!(" {}:", key),
             Style::default().fg(color).add_modifier(Modifier::BOLD),
         ),
-        Span::styled(format!(" {}", val), Style::default().fg(TEXT)),
+        Span::styled(format!(" {}", val), Style::default().fg(text())),
     ])
 }
 

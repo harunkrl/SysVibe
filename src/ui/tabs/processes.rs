@@ -34,7 +34,7 @@ fn render_filter_bar(f: &mut Frame, app: &App, area: Rect) {
     let block = panel_block("Filter");
 
     let is_filtering = matches!(app.mode(), AppMode::Filter);
-    let border_color = if is_filtering { PEACH } else { SURFACE1 };
+    let border_color = if is_filtering { peach() } else { surface1() };
     let block = block.border_style(Style::default().fg(border_color));
 
     let inner = block.inner(area);
@@ -51,16 +51,16 @@ fn render_filter_bar(f: &mut Frame, app: &App, area: Rect) {
 
     let text = if input.is_empty() && !is_filtering {
         Line::from(vec![
-            Span::styled(prefix, Style::default().fg(OVERLAY)),
-            Span::styled("Press '/' to filter by name...", Style::default().fg(SURFACE2)),
+            Span::styled(prefix, Style::default().fg(overlay())),
+            Span::styled("Press '/' to filter by name...", Style::default().fg(surface2())),
         ])
     } else {
         let mut spans = vec![
-            Span::styled(prefix, Style::default().fg(PEACH).add_modifier(Modifier::BOLD)),
-            Span::styled(input, Style::default().fg(TEXT)),
+            Span::styled(prefix, Style::default().fg(peach()).add_modifier(Modifier::BOLD)),
+            Span::styled(input, Style::default().fg(text())),
         ];
         if is_filtering {
-            spans.push(Span::styled("█", Style::default().fg(TEXT))); // cursor block
+            spans.push(Span::styled("█", Style::default().fg(text()))); // cursor block
         }
         Line::from(spans)
     };
@@ -93,8 +93,8 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
         }
     };
 
-    let header_base = Style::default().fg(SUBTEXT).add_modifier(Modifier::BOLD);
-    let header_active = Style::default().fg(FOCUS_BORDER).add_modifier(Modifier::BOLD);
+    let header_base = Style::default().fg(subtext()).add_modifier(Modifier::BOLD);
+    let header_active = Style::default().fg(focus_border()).add_modifier(Modifier::BOLD);
 
     let pid_style = if app.sort_by == SortBy::Pid { header_active } else { header_base };
     let name_style = if app.sort_by == SortBy::Name { header_active } else { header_base };
@@ -126,7 +126,7 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
 
         let is_selected = app.selected_pids.iter().any(|(pid, _)| *pid == p.pid);
         let prefix = if is_selected { "● " } else { "  " };
-        let name_color = if is_selected { PEACH } else { TEXT };
+        let name_color = if is_selected { peach() } else { text() };
 
         let proc_icon = if nf { icons::PROCESS_RUNNING } else { "" };
 
@@ -139,7 +139,7 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
         let m_bar = format!("{}{}", "█".repeat(m_fill.min(bar_len)), "░".repeat(bar_len.saturating_sub(m_fill)));
 
         Row::new(vec![
-            Cell::from(Span::styled(format!("{}", p.pid), Style::default().fg(OVERLAY))),
+            Cell::from(Span::styled(format!("{}", p.pid), Style::default().fg(overlay()))),
             Cell::from(Span::styled(format!("{}{}{}", prefix, proc_icon, p.name), Style::default().fg(name_color))),
             Cell::from(Line::from(vec![
                 Span::styled(format!("{:>5.1}% ", p.cpu_pct), Style::default().fg(cpu_color)),
@@ -157,8 +157,8 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
         .block(block)
         .row_highlight_style(
             Style::default()
-                .bg(SURFACE0)
-                .fg(LAVENDER)
+                .bg(surface0())
+                .fg(lavender())
                 .add_modifier(Modifier::BOLD),
         )
         .highlight_symbol(">> ");
@@ -300,7 +300,7 @@ fn render_tree_view(f: &mut Frame, app: &mut App, area: Rect) {
 
     if procs.is_empty() {
         f.render_widget(
-            Paragraph::new(Line::styled("  No processes to display", Style::default().fg(SUBTEXT))),
+            Paragraph::new(Line::styled("  No processes to display", Style::default().fg(subtext()))),
             inner,
         );
         return;
@@ -321,13 +321,13 @@ fn render_tree_view(f: &mut Frame, app: &mut App, area: Rect) {
 
     // Header
     lines.push(Line::from(vec![
-        Span::styled(" PID     ", Style::default().fg(SUBTEXT).add_modifier(Modifier::BOLD)),
-        Span::styled("NAME", Style::default().fg(SUBTEXT).add_modifier(Modifier::BOLD)),
-        Span::styled("                  CPU%   MEM%", Style::default().fg(SUBTEXT).add_modifier(Modifier::BOLD)),
+        Span::styled(" PID     ", Style::default().fg(subtext()).add_modifier(Modifier::BOLD)),
+        Span::styled("NAME", Style::default().fg(subtext()).add_modifier(Modifier::BOLD)),
+        Span::styled("                  CPU%   MEM%", Style::default().fg(subtext()).add_modifier(Modifier::BOLD)),
     ]));
     lines.push(Line::from(Span::styled(
         "─".repeat(inner.width as usize),
-        Style::default().fg(SURFACE1),
+        Style::default().fg(surface1()),
     )));
 
     let selected_idx = app.proc_table_state.selected().unwrap_or(0);
@@ -341,12 +341,12 @@ fn render_tree_view(f: &mut Frame, app: &mut App, area: Rect) {
         let mem_color = usage_color(row.mem_pct);
 
         let bg = if actual_idx == selected_idx {
-            SURFACE0
+            surface0()
         } else {
             Color::Reset
         };
-        let name_fg = if is_selected { PEACH } else { TEXT };
-        let indent_fg = SURFACE2;
+        let name_fg = if is_selected { peach() } else { text() };
+        let indent_fg = surface2();
 
         let tree_prefix = if row.indent.is_empty() {
             String::new()
@@ -362,7 +362,7 @@ fn render_tree_view(f: &mut Frame, app: &mut App, area: Rect) {
         };
 
         lines.push(Line::from(vec![
-            Span::styled(format!("{:<8}", row.pid), Style::default().fg(OVERLAY).bg(bg)),
+            Span::styled(format!("{:<8}", row.pid), Style::default().fg(overlay()).bg(bg)),
             Span::styled(tree_prefix, Style::default().fg(indent_fg).bg(bg)),
             Span::styled(
                 format!("{}{}", proc_icon, name_display),

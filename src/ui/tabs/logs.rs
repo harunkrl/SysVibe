@@ -39,11 +39,11 @@ fn render_level_filter_bar(f: &mut Frame, app: &App, area: Rect) {
     let filter = app.log_level_filter();
 
     let level_tags: Vec<(&str, bool, ratatui::style::Color)> = vec![
-        ("ERR", filter.show_errors, RED),
-        ("WRN", filter.show_warnings, YELLOW),
-        ("INF", filter.show_info, BLUE),
-        ("NTC", filter.show_notice, PEACH),
-        ("DBG", filter.show_debug, OVERLAY),
+        ("ERR", filter.show_errors, red()),
+        ("WRN", filter.show_warnings, yellow()),
+        ("INF", filter.show_info, blue()),
+        ("NTC", filter.show_notice, peach()),
+        ("DBG", filter.show_debug, overlay()),
     ];
 
     let mut spans: Vec<Span<'_>> = Vec::new();
@@ -62,7 +62,7 @@ fn render_level_filter_bar(f: &mut Frame, app: &App, area: Rect) {
             spans.push(Span::styled(
                 format!("[{}]", label),
                 Style::default()
-                    .fg(SURFACE2)
+                    .fg(surface2())
                     .add_modifier(Modifier::CROSSED_OUT),
             ));
         }
@@ -71,7 +71,7 @@ fn render_level_filter_bar(f: &mut Frame, app: &App, area: Rect) {
     // Show hint
     spans.push(Span::styled(
         "   Toggle: e=ERR  w=WRN  i=INF",
-        Style::default().fg(SUBTEXT),
+        Style::default().fg(subtext()),
     ));
 
     f.render_widget(Paragraph::new(Line::from(spans)), inner);
@@ -91,22 +91,22 @@ fn render_text_filter_bar(f: &mut Frame, app: &App, area: Rect) {
 
     let text = if input.is_empty() && !is_active {
         Line::from(vec![
-            Span::styled(format!(" {} ", search_icon), Style::default().fg(OVERLAY)),
+            Span::styled(format!(" {} ", search_icon), Style::default().fg(overlay())),
             Span::styled(
                 "Filter log messages by text...",
-                Style::default().fg(SURFACE2),
+                Style::default().fg(surface2()),
             ),
         ])
     } else {
         let mut spans = vec![
             Span::styled(
                 format!(" {} ", search_icon),
-                Style::default().fg(PEACH).add_modifier(Modifier::BOLD),
+                Style::default().fg(peach()).add_modifier(Modifier::BOLD),
             ),
-            Span::styled(input, Style::default().fg(TEXT)),
+            Span::styled(input, Style::default().fg(text())),
         ];
         if is_active {
-            spans.push(Span::styled("█", Style::default().fg(TEXT)));
+            spans.push(Span::styled("█", Style::default().fg(text())));
         }
         Line::from(spans)
     };
@@ -139,7 +139,7 @@ fn render_log_entries(f: &mut Frame, app: &App, area: Rect) {
             f.render_widget(
                 Paragraph::new(Line::styled(
                     "  No kernel logs available — requires journalctl or dmesg access",
-                    Style::default().fg(OVERLAY),
+                    Style::default().fg(overlay()),
                 )),
                 inner,
             );
@@ -147,7 +147,7 @@ fn render_log_entries(f: &mut Frame, app: &App, area: Rect) {
             f.render_widget(
                 Paragraph::new(Line::styled(
                     "  No logs match the current filter",
-                    Style::default().fg(OVERLAY),
+                    Style::default().fg(overlay()),
                 )),
                 inner,
             );
@@ -173,12 +173,12 @@ fn render_log_entries(f: &mut Frame, app: &App, area: Rect) {
         .take(visible_height)
         .map(|entry| {
             let (level_color, level_icon) = match entry.level {
-                LogLevel::Error => (RED, if nf { icons::LOG_ERROR } else { icons::fallback::LOG_ERROR }),
-                LogLevel::Warning => (YELLOW, if nf { icons::LOG_WARN } else { icons::fallback::LOG_WARN }),
-                LogLevel::Info => (BLUE, if nf { icons::LOG_INFO } else { icons::fallback::LOG_INFO }),
-                LogLevel::Notice => (PEACH, if nf { icons::LOG_WARN } else { "●" }),
-                LogLevel::Debug => (OVERLAY, if nf { icons::LOG_DEBUG } else { "●" }),
-                LogLevel::Unknown => (SUBTEXT, if nf { icons::LOG_TRACE } else { "●" }),
+                LogLevel::Error => (red(), if nf { icons::LOG_ERROR } else { icons::fallback::LOG_ERROR }),
+                LogLevel::Warning => (yellow(), if nf { icons::LOG_WARN } else { icons::fallback::LOG_WARN }),
+                LogLevel::Info => (blue(), if nf { icons::LOG_INFO } else { icons::fallback::LOG_INFO }),
+                LogLevel::Notice => (peach(), if nf { icons::LOG_WARN } else { "●" }),
+                LogLevel::Debug => (overlay(), if nf { icons::LOG_DEBUG } else { "●" }),
+                LogLevel::Unknown => (subtext(), if nf { icons::LOG_TRACE } else { "●" }),
             };
             let level_str = match entry.level {
                 LogLevel::Error => "ERR",
@@ -191,7 +191,7 @@ fn render_log_entries(f: &mut Frame, app: &App, area: Rect) {
             Line::from(vec![
                 Span::styled(
                     format!(" {} ", &entry.timestamp),
-                    Style::default().fg(OVERLAY),
+                    Style::default().fg(overlay()),
                 ),
                 Span::styled(
                     format!("{} ", level_icon),
@@ -201,7 +201,7 @@ fn render_log_entries(f: &mut Frame, app: &App, area: Rect) {
                     format!("{} ", level_str),
                     Style::default().fg(level_color).add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(&entry.message, Style::default().fg(TEXT)),
+                Span::styled(&entry.message, Style::default().fg(text())),
             ])
         })
         .collect();

@@ -17,24 +17,24 @@ use super::icons;
 
 /// Separator dot between keybinds.
 fn sep() -> Span<'static> {
-    Span::styled("  ·  ", Style::default().fg(SURFACE1))
+    Span::styled("  ·  ", Style::default().fg(surface1()))
 }
 
 /// Styled key label: `[key]` in OVERLAY.
 fn key_label(key: &str) -> Span<'static> {
-    Span::styled(format!("[{}]", key), Style::default().fg(OVERLAY))
+    Span::styled(format!("[{}]", key), Style::default().fg(overlay()))
 }
 
 /// Styled key + description pair.
 fn key_desc(key: &str, description: &str) -> Vec<Span<'static>> {
-    vec![key_label(key), Span::styled(format!(" {}", description), Style::default().fg(SUBTEXT))]
+    vec![key_label(key), Span::styled(format!(" {}", description), Style::default().fg(subtext()))]
 }
 
 /// Render the footer bar with mode-appropriate keybindings and status.
 pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
     // Status message takes priority
     if let Some(ref msg) = app.status_message {
-        let color = if msg.is_error { RED } else { GREEN };
+        let color = if msg.is_error { red() } else { green() };
         let icon = if msg.is_error {
             if app.config().nerd_fonts { icons::CROSS } else { "✗" }
         } else {
@@ -96,7 +96,7 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
                         };
                         s.push(Span::styled(
                             format!(" {} {}", search_icon, app.filter_input()),
-                            Style::default().fg(PEACH),
+                            Style::default().fg(peach()),
                         ));
                     }
                 }
@@ -108,7 +108,7 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
                         s.pop();
                         s.push(Span::styled(
                             format!(" Follow: {}", if app.config().nerd_fonts { icons::CHECK } else { "ON" }),
-                            Style::default().fg(GREEN),
+                            Style::default().fg(green()),
                         ));
                     }
                     s.push(sep());
@@ -128,40 +128,40 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
                 s.push(Span::styled("   ", Style::default()));
                 s.push(Span::styled(
                     format!("{} procs", count),
-                    Style::default().fg(SURFACE2),
+                    Style::default().fg(surface2()),
                 ));
             }
 
             s.push(Span::styled("   ", Style::default()));
             s.push(Span::styled(
                 format!("SysVibe v{}", env!("CARGO_PKG_VERSION")),
-                Style::default().fg(SURFACE2),
+                Style::default().fg(surface2()),
             ));
             s
         }
         AppMode::Help => vec![Span::styled(
             " [Esc/h] Close Help",
-            Style::default().fg(OVERLAY),
+            Style::default().fg(overlay()),
         )],
         AppMode::KillConfirm => vec![
             Span::styled(
                 " [Y] SIGTERM",
-                Style::default().fg(RED).add_modifier(Modifier::BOLD),
+                Style::default().fg(red()).add_modifier(Modifier::BOLD),
             ),
-            Span::styled(" │ ", Style::default().fg(SURFACE2)),
+            Span::styled(" │ ", Style::default().fg(surface2())),
             Span::styled(
                 "[K] SIGKILL",
-                Style::default().fg(MAROON).add_modifier(Modifier::BOLD),
+                Style::default().fg(maroon()).add_modifier(Modifier::BOLD),
             ),
-            Span::styled(" │ ", Style::default().fg(SURFACE2)),
-            Span::styled("[N/Esc] Cancel", Style::default().fg(GREEN)),
+            Span::styled(" │ ", Style::default().fg(surface2())),
+            Span::styled("[N/Esc] Cancel", Style::default().fg(green())),
         ],
         AppMode::Filter => vec![
-            Span::styled(" [Enter] Apply", Style::default().fg(OVERLAY)),
-            Span::styled(" │ ", Style::default().fg(SURFACE2)),
-            Span::styled("[Esc] Close", Style::default().fg(OVERLAY)),
-            Span::styled(" │ ", Style::default().fg(SURFACE2)),
-            Span::styled("[Backspace] Delete", Style::default().fg(OVERLAY)),
+            Span::styled(" [Enter] Apply", Style::default().fg(overlay())),
+            Span::styled(" │ ", Style::default().fg(surface2())),
+            Span::styled("[Esc] Close", Style::default().fg(overlay())),
+            Span::styled(" │ ", Style::default().fg(surface2())),
+            Span::styled("[Backspace] Delete", Style::default().fg(overlay())),
         ],
     };
 

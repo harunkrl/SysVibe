@@ -22,15 +22,15 @@ use crate::ui::helpers::centered_rect;
 pub fn render_help_modal(f: &mut Frame, area: Rect) {
     let block = Block::bordered()
         .border_type(BorderType::Thick)
-        .border_style(Style::default().fg(SUBTEXT))
+        .border_style(Style::default().fg(subtext()))
         .title(Line::styled(
             " Help ",
             Style::default()
-                .fg(LAVENDER)
+                .fg(lavender())
                 .add_modifier(Modifier::BOLD),
         ))
         .title_alignment(Alignment::Center)
-        .style(Style::default().bg(SURFACE0));
+        .style(Style::default().bg(surface0()));
 
     let popup = centered_rect(50, 70, area);
     f.render_widget(Clear, popup);
@@ -68,9 +68,9 @@ pub fn render_help_modal(f: &mut Frame, area: Rect) {
                 Span::styled("  ", Style::default()),
                 Span::styled(
                     format!("{:<18}", key),
-                    Style::default().fg(OVERLAY).add_modifier(Modifier::BOLD),
+                    Style::default().fg(overlay()).add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(desc, Style::default().fg(TEXT)),
+                Span::styled(desc, Style::default().fg(text())),
             ])
         })
         .collect();
@@ -92,15 +92,15 @@ pub fn render_kill_confirm_modal(f: &mut Frame, area: Rect, app: &App) {
 
     let block = Block::bordered()
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(RED))
+        .border_style(Style::default().fg(red()))
         .title(Line::styled(
             " [!] Confirm Kill ",
             Style::default()
-                .fg(RED)
+                .fg(red())
                 .add_modifier(Modifier::BOLD),
         ))
         .title_alignment(Alignment::Center)
-        .style(Style::default().bg(SURFACE0));
+        .style(Style::default().bg(surface0()));
 
     let selected_count = app.selected_pids.len();
 
@@ -108,21 +108,21 @@ pub fn render_kill_confirm_modal(f: &mut Frame, area: Rect, app: &App) {
         vec![
             Line::from(""),
             Line::from(vec![
-                Span::styled("  Terminate ", Style::default().fg(TEXT)),
+                Span::styled("  Terminate ", Style::default().fg(text())),
                 Span::styled(
                     format!("{} processes", selected_count),
-                    Style::default().fg(PEACH).add_modifier(Modifier::BOLD),
+                    Style::default().fg(peach()).add_modifier(Modifier::BOLD),
                 ),
-                Span::styled("?", Style::default().fg(TEXT)),
+                Span::styled("?", Style::default().fg(text())),
             ]),
             Line::from(""),
             Line::from(vec![
-                Span::styled("  [Y] ", Style::default().fg(RED).add_modifier(Modifier::BOLD)),
-                Span::styled("SIGTERM  ", Style::default().fg(SUBTEXT)),
-                Span::styled("[K] ", Style::default().fg(MAROON).add_modifier(Modifier::BOLD)),
-                Span::styled("SIGKILL  ", Style::default().fg(SUBTEXT)),
-                Span::styled("[N] ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
-                Span::styled("Cancel", Style::default().fg(SUBTEXT)),
+                Span::styled("  [Y] ", Style::default().fg(red()).add_modifier(Modifier::BOLD)),
+                Span::styled("SIGTERM  ", Style::default().fg(subtext())),
+                Span::styled("[K] ", Style::default().fg(maroon()).add_modifier(Modifier::BOLD)),
+                Span::styled("SIGKILL  ", Style::default().fg(subtext())),
+                Span::styled("[N] ", Style::default().fg(green()).add_modifier(Modifier::BOLD)),
+                Span::styled("Cancel", Style::default().fg(subtext())),
             ]),
         ]
     } else {
@@ -130,24 +130,24 @@ pub fn render_kill_confirm_modal(f: &mut Frame, area: Rect, app: &App) {
         vec![
             Line::from(""),
             Line::from(vec![
-                Span::styled("  Terminate process:", Style::default().fg(TEXT)),
+                Span::styled("  Terminate process:", Style::default().fg(text())),
             ]),
             Line::from(vec![
                 Span::styled(
                     format!("  PID {} ({})", pid, name),
                     Style::default()
-                        .fg(PEACH)
+                        .fg(peach())
                         .add_modifier(Modifier::BOLD),
                 ),
             ]),
             Line::from(""),
             Line::from(vec![
-                Span::styled("  [Y] ", Style::default().fg(RED).add_modifier(Modifier::BOLD)),
-                Span::styled("SIGTERM  ", Style::default().fg(SUBTEXT)),
-                Span::styled("[K] ", Style::default().fg(MAROON).add_modifier(Modifier::BOLD)),
-                Span::styled("SIGKILL  ", Style::default().fg(SUBTEXT)),
-                Span::styled("[N] ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
-                Span::styled("Cancel", Style::default().fg(SUBTEXT)),
+                Span::styled("  [Y] ", Style::default().fg(red()).add_modifier(Modifier::BOLD)),
+                Span::styled("SIGTERM  ", Style::default().fg(subtext())),
+                Span::styled("[K] ", Style::default().fg(maroon()).add_modifier(Modifier::BOLD)),
+                Span::styled("SIGKILL  ", Style::default().fg(subtext())),
+                Span::styled("[N] ", Style::default().fg(green()).add_modifier(Modifier::BOLD)),
+                Span::styled("Cancel", Style::default().fg(subtext())),
             ]),
         ]
     };

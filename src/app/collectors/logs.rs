@@ -48,6 +48,12 @@ impl LogCollector {
         &self.entries
     }
 
+    /// Returns a mutable reference to the internal entry buffer.
+    /// Intended for `std::mem::take` to avoid cloning during channel sends.
+    pub fn entries_mut(&mut self) -> &mut VecDeque<LogEntry> {
+        &mut self.entries
+    }
+
     /// Replace entries (used by async state updates).
     pub fn set_entries(&mut self, entries: VecDeque<LogEntry>) {
         self.entries = entries;

@@ -271,7 +271,7 @@ fn spawn_collector_tasks(tx: mpsc::Sender<StateUpdate>, config: &Config) {
             log_collector.refresh();
 
             drop(tx_logs.send(StateUpdate::Logs {
-                entries: log_collector.entries().clone(),
+                entries: std::mem::take(log_collector.entries_mut()),
             }));
         }
     });

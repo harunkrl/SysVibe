@@ -23,7 +23,7 @@ use crate::ui::widgets::sparkline::braille_line_graph;
 // Public entry point
 // ═══════════════════════════════════════════════════════════════════════
 
-pub fn render_system_tab(f: &mut Frame, app: &mut App, area: Rect) {
+pub fn render_system_tab(f: &mut Frame, app: &App, area: Rect) {
     let columns = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([

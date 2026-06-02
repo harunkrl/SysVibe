@@ -25,7 +25,7 @@ use crate::ui::widgets::sparkline::{braille_mini, braille_mirrored_graph};
 // Public entry point
 // ═══════════════════════════════════════════════════════════════════════
 
-pub fn render_hardware_tab(f: &mut Frame, app: &mut App, area: Rect) {
+pub fn render_hardware_tab(f: &mut Frame, app: &App, area: Rect) {
     let focus = app.panel_focus();
     let show_gpu = app.config().show_gpu;
 

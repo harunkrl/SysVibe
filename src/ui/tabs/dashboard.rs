@@ -21,7 +21,7 @@ use super::super::helpers::*;
 use super::super::icons;
 use super::super::widgets::sparkline;
 
-pub fn render_dashboard_tab(f: &mut Frame, app: &mut App, area: Rect) {
+pub fn render_dashboard_tab(f: &mut Frame, app: &App, area: Rect) {
     let nf = app.config().nerd_fonts;
     let focus = app.panel_focus();
 

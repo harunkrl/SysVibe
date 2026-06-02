@@ -76,6 +76,40 @@ pub enum StateUpdate {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // 0. Handle CLI arguments
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--init-config" || a == "--generate-config") {
+        match config::Config::generate_default_file() {
+            Ok(path) => {
+                println!("✓ Default config written to: {}", path.display());
+                println!("  Edit this file to customize SysVibe.");
+            }
+            Err(e) => eprintln!("Error: {}", e),
+        }
+        return Ok(());
+    }
+    if args.iter().any(|a| a == "--list-themes") {
+        println!("Available themes:");
+        for name in &["catppuccin-macchiato", "catppuccin-mocha", "dracula", "nord", "gruvbox", "tokyo-night", "one-dark"] {
+            let theme = ui::theme::Theme::built_in(name).unwrap();
+            println!("  {} — {}", name, theme.name);
+        }
+        println!("\nCustom themes can be placed in ~/.config/sysvibe/themes/<name>.toml");
+        return Ok(());
+    }
+    if args.iter().any(|a| a == "--help" || a == "-h") {
+        println!("SysVibe v{} — A visually striking system monitor TUI", env!("CARGO_PKG_VERSION"));
+        println!();
+        println!("USAGE:");
+        println!("  sysvibe [OPTIONS]");
+        println!();
+        println!("OPTIONS:");
+        println!("  --init-config      Generate default config file");
+        println!("  --list-themes      List available color themes");
+        println!("  -h, --help         Show this help message");
+        return Ok(());
+    }
+
     // 1. Load configuration
     let config = Config::load();
 
@@ -89,6 +123,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 3. Initialize application state
     let mut app = App::new(config.clone());
+
+    // 4. Apply theme from config
+    ui::palette::load_and_apply(&config.theme);
 
     // 4. Create channel for background→UI updates
     let (tx, mut rx) = mpsc::channel::<StateUpdate>(64);

@@ -9,8 +9,9 @@ use std::time::{Duration, Instant};
 // ── Application mode (state machine) ───────────────────────────────
 
 /// Represents the current interactive mode of the application.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum AppMode {
+    #[default]
     Normal,
     Help,
     KillConfirm,
@@ -205,7 +206,7 @@ pub struct GpuStats {
 }
 
 /// Log level filter mask (bitflags for toggleable filtering).
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub struct LogLevelFilter {
     pub show_errors: bool,
     pub show_warnings: bool,
@@ -213,6 +214,12 @@ pub struct LogLevelFilter {
     pub show_debug: bool,
     pub show_notice: bool,
     pub show_unknown: bool,
+}
+
+impl Default for LogLevelFilter {
+    fn default() -> Self {
+        Self::all()
+    }
 }
 
 impl LogLevelFilter {

@@ -5,6 +5,7 @@
 
 pub mod helpers;
 pub mod palette;
+pub mod theme;
 pub mod icons;
 pub mod header;
 pub mod footer;

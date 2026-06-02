@@ -1,6 +1,7 @@
-//! SysVibe — Configuration module (expanded for v0.3.0).
+//! SysVibe — Configuration module.
 //!
 //! Config loading from XDG-compliant TOML file with validation.
+//! Supports pluggable themes and auto-generation of default config.
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -14,7 +15,6 @@ pub struct Config {
     pub show_disk_io: bool,
     pub temperature_unit: String,
     pub max_processes: usize,
-    // v0.3.0 additions
     #[serde(default = "default_process_refresh")]
     pub process_refresh_rate: u64,
     #[serde(default = "default_sensor_refresh")]
@@ -29,6 +29,15 @@ pub struct Config {
     pub default_tab: String,
     #[serde(default = "default_true")]
     pub nerd_fonts: bool,
+    /// Theme name: "catppuccin-macchiato", "catppuccin-mocha", "dracula", "nord", "gruvbox", "tokyo-night", "one-dark"
+    #[serde(default = "default_theme")]
+    pub theme: String,
+    /// Enable daemon mode (TCP listener for remote monitoring).
+    #[serde(default)]
+    pub daemon_enabled: bool,
+    /// Daemon TCP port (default 7642).
+    #[serde(default = "default_daemon_port")]
+    pub daemon_port: u16,
 }
 
 fn default_process_refresh() -> u64 { 2000 }
@@ -36,7 +45,9 @@ fn default_sensor_refresh() -> u64 { 5000 }
 fn default_log_source() -> String { "auto".to_string() }
 fn default_log_max_lines() -> usize { 500 }
 fn default_true() -> bool { true }
-fn default_tab() -> String { "system".to_string() }
+fn default_tab() -> String { "dashboard".to_string() }
+fn default_theme() -> String { "catppuccin-macchiato".to_string() }
+fn default_daemon_port() -> u16 { 7642 }
 
 impl Default for Config {
     fn default() -> Self {
@@ -54,6 +65,9 @@ impl Default for Config {
             show_gpu: default_true(),
             default_tab: default_tab(),
             nerd_fonts: default_true(),
+            theme: default_theme(),
+            daemon_enabled: false,
+            daemon_port: default_daemon_port(),
         }
     }
 }
@@ -72,7 +86,43 @@ impl Config {
         Self::default()
     }
 
-    fn validate(&mut self) {
+    /// Generate a default config file at the XDG config path.
+    /// Returns the path where the file was written.
+    pub fn generate_default_file() -> Result<PathBuf, String> {
+        let path = Self::config_path();
+
+        // Create parent directory
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create config directory: {}", e))?;
+        }
+
+        let default_config = Self::default();
+        let toml_content = toml::to_string_pretty(&default_config)
+            .map_err(|e| format!("Failed to serialize config: {}", e))?;
+
+        // Add comments
+        let commented = format!(
+            "# SysVibe Configuration\n\
+             # Generated automatically — modify as needed.\n\
+             # Place at ~/.config/sysvibe/config.toml\n\
+             #\n\
+             # Available themes: catppuccin-macchiato, catppuccin-mocha,\n\
+             #   dracula, nord, gruvbox, tokyo-night, one-dark\n\
+             # Available default_tab: dashboard, system, hardware, processes, logs\n\
+             # Temperature unit: celsius or fahrenheit\n\
+             # Daemon mode: enable for remote TCP monitoring on daemon_port\n\n\
+             {}",
+            toml_content,
+        );
+
+        std::fs::write(&path, commented)
+            .map_err(|e| format!("Failed to write config: {}", e))?;
+
+        Ok(path)
+    }
+
+    pub(crate) fn validate(&mut self) {
         self.ui_tick_rate = self.ui_tick_rate.clamp(50, 5000);
         self.data_refresh_rate = self.data_refresh_rate.clamp(250, 30_000);
         self.max_processes = self.max_processes.clamp(5, 500);
@@ -83,13 +133,21 @@ impl Config {
         if lower != "celsius" && lower != "fahrenheit" {
             self.temperature_unit = "celsius".to_string();
         }
-        let valid_tabs = ["system", "hardware", "processes", "logs"];
+        let valid_tabs = ["dashboard", "system", "hardware", "processes", "logs"];
         if !valid_tabs.contains(&self.default_tab.to_lowercase().as_str()) {
-            self.default_tab = "system".to_string();
+            self.default_tab = "dashboard".to_string();
         }
+        let valid_themes = [
+            "catppuccin-macchiato", "catppuccin-mocha", "dracula",
+            "nord", "gruvbox", "tokyo-night", "one-dark",
+        ];
+        if !valid_themes.contains(&self.theme.to_lowercase().as_str()) {
+            self.theme = "catppuccin-macchiato".to_string();
+        }
+        self.daemon_port = self.daemon_port.clamp(1024, 65535);
     }
 
-    fn config_path() -> PathBuf {
+    pub fn config_path() -> PathBuf {
         dirs::config_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join("sysvibe")

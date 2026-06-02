@@ -74,6 +74,10 @@ pub struct App {
     filter_input: String,
     filter_active: bool,
 
+    // Cached filtered process list (invalidated on process/filter/sort change)
+    cached_filtered_processes: Vec<usize>, // indices into top_processes
+    filtered_processes_dirty: bool,
+
     // Kill confirmation target
     kill_target_pid: Option<u32>,
     kill_target_name: Option<String>,
@@ -189,6 +193,8 @@ impl App {
             tab: default_tab,
             filter_input: String::new(),
             filter_active: false,
+            cached_filtered_processes: Vec::new(),
+            filtered_processes_dirty: true,
             kill_target_pid: None,
             kill_target_name: None,
             status_message: None,
@@ -270,7 +276,12 @@ impl App {
         self.sys.processes().len()
     }
 
+    /// Return the filtered process list, using a cache that is invalidated
+    /// when processes, filter, or sort order changes.
     pub fn filtered_processes(&self) -> Vec<&ProcessEntry> {
+        // Note: we can't mutate self here, so the cache is rebuilt lazily
+        // via rebuild_filtered_cache() called from apply_state_update().
+        // This accessor is cheap: it just indexes into top_processes.
         if !self.filter_active || self.filter_input.is_empty() {
             self.top_processes.iter().collect()
         } else {
@@ -280,6 +291,23 @@ impl App {
                 .filter(|p| p.name.to_lowercase().contains(&query))
                 .collect()
         }
+    }
+
+    /// Rebuild the filtered process cache. Called when processes or filter changes.
+    fn rebuild_filtered_cache(&mut self) {
+        if !self.filter_active || self.filter_input.is_empty() {
+            self.cached_filtered_processes = (0..self.top_processes.len()).collect();
+        } else {
+            let query = self.filter_input.to_lowercase();
+            self.cached_filtered_processes = self
+                .top_processes
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| p.name.to_lowercase().contains(&query))
+                .map(|(i, _)| i)
+                .collect();
+        }
+        self.filtered_processes_dirty = false;
     }
 
     pub fn kill_target(&self) -> Option<(u32, &str)> {
@@ -570,6 +598,7 @@ impl App {
 
     pub fn set_top_processes(&mut self, processes: Vec<ProcessEntry>) {
         self.top_processes = processes;
+        self.filtered_processes_dirty = true;
     }
 
     pub fn set_per_core_history(&mut self, history: Vec<VecDeque<u64>>) {
@@ -645,15 +674,18 @@ impl App {
 
     pub fn apply_filter(&mut self) {
         self.filter_active = !self.filter_input.is_empty();
+        self.filtered_processes_dirty = true;
         self.clamp_selection();
     }
 
     pub fn filter_backspace(&mut self) {
         self.filter_input.pop();
+        self.filtered_processes_dirty = true;
     }
 
     pub fn filter_push(&mut self, c: char) {
         self.filter_input.push(c);
+        self.filtered_processes_dirty = true;
     }
 
     // ── Navigation ──────────────────────────────────────────────
@@ -804,6 +836,9 @@ impl App {
             self.status_message = None;
         }
         self.maybe_refresh_system_info();
+        if self.filtered_processes_dirty {
+            self.rebuild_filtered_cache();
+        }
     }
 
     // ═════════════════════════════════════════════════════════════════

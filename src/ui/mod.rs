@@ -14,9 +14,9 @@ pub mod widgets;
 
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout},
-    style::Style,
-    widgets::{Block, Borders, BorderType},
+    layout::{Constraint, Direction, Layout, Alignment},
+    style::{Style, Modifier},
+    widgets::{Block, Borders, BorderType, Paragraph},
 };
 
 use crate::app::App;
@@ -24,13 +24,30 @@ use crate::app::state::{AppMode, AppTab};
 
 /// Main UI drawing entry point.
 pub fn draw(f: &mut Frame, app: &mut App) {
+    let area = f.area();
+
+    // Minimum terminal size guard — prevents layout corruption on tiny terminals
+    const MIN_WIDTH: u16 = 60;
+    const MIN_HEIGHT: u16 = 20;
+    if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
+        let msg = format!(
+            "Terminal too small: {}x{} (min {}x{})",
+            area.width, area.height, MIN_WIDTH, MIN_HEIGHT
+        );
+        let paragraph = Paragraph::new(msg)
+            .style(Style::default().fg(palette::RED).add_modifier(Modifier::BOLD))
+            .alignment(Alignment::Center);
+        f.render_widget(paragraph, area);
+        return;
+    }
+
     let outer_block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Thick)
         .border_style(Style::default().fg(palette::SURFACE2))
         .style(Style::default().bg(palette::BASE));
-    let inner_area = outer_block.inner(f.area());
-    f.render_widget(outer_block, f.area());
+    let inner_area = outer_block.inner(area);
+    f.render_widget(outer_block, area);
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)

@@ -155,8 +155,11 @@ fn spawn_collector_tasks(tx: mpsc::Sender<StateUpdate>, config: &Config) {
     let _cpu_normalized = !config.default_tab.is_empty(); // placeholder for runtime toggle
 
     // ── Task: Tier 1+2 — CPU, Memory, Network, Disk, Processes ──
+    // Uses std::thread::spawn instead of tokio::spawn because all operations
+    // are blocking I/O (reading /proc, /sys). Running on a dedicated OS thread
+    // avoids starving the tokio runtime's event loop (crossterm poll).
     let tx_fast = tx.clone();
-    tokio::spawn(async move {
+    std::thread::spawn(move || {
         let mut sys = sysinfo::System::new_all();
         sys.refresh_cpu_all();
         sys.refresh_memory();
@@ -180,9 +183,9 @@ fn spawn_collector_tasks(tx: mpsc::Sender<StateUpdate>, config: &Config) {
             vec![std::collections::VecDeque::with_capacity(app::state::HISTORY_LEN); n]
         };
 
-        let interval = Duration::from_millis(data_refresh_ms);
+        let interval = std::time::Duration::from_millis(data_refresh_ms);
         loop {
-            tokio::time::sleep(interval).await;
+            std::thread::sleep(interval);
 
             let now = std::time::Instant::now();
             let elapsed = (now - last_tick).as_secs_f64();
@@ -223,7 +226,7 @@ fn spawn_collector_tasks(tx: mpsc::Sender<StateUpdate>, config: &Config) {
                 true, // normalized by default
             );
 
-            drop(tx_fast.send(StateUpdate::CpuMemoryNetDisk {
+            drop(tx_fast.blocking_send(StateUpdate::CpuMemoryNetDisk {
                 cpu_history: cpu_history.clone(),
                 per_core_history: per_core_history.clone(),
                 ram_used,
@@ -238,13 +241,14 @@ fn spawn_collector_tasks(tx: mpsc::Sender<StateUpdate>, config: &Config) {
     });
 
     // ── Task: Tier 3 — Sensors, Battery, GPU ──
+    // std::thread::spawn: all operations are blocking (sysfs reads, nvidia-smi)
     let tx_sensor = tx.clone();
-    tokio::spawn(async move {
+    std::thread::spawn(move || {
         let mut components = sysinfo::Components::new_with_refreshed_list();
-        let interval = Duration::from_millis(sensor_refresh_ms);
+        let interval = std::time::Duration::from_millis(sensor_refresh_ms);
 
         loop {
-            tokio::time::sleep(interval).await;
+            std::thread::sleep(interval);
 
             components.refresh(false);
             let mut temperatures = Vec::new();
@@ -252,7 +256,7 @@ fn spawn_collector_tasks(tx: mpsc::Sender<StateUpdate>, config: &Config) {
             let battery = app::collectors::sensors::read_battery();
             let gpu_stats = app::collectors::gpu::collect_gpu_stats();
 
-            drop(tx_sensor.send(StateUpdate::Sensors {
+            drop(tx_sensor.blocking_send(StateUpdate::Sensors {
                 temperatures,
                 battery,
                 gpu_stats,
@@ -261,34 +265,36 @@ fn spawn_collector_tasks(tx: mpsc::Sender<StateUpdate>, config: &Config) {
     });
 
     // ── Task: Tier 4 — Logs ──
+    // std::thread::spawn: journalctl/dmesg are blocking subprocess calls
     let tx_logs = tx.clone();
-    tokio::spawn(async move {
+    std::thread::spawn(move || {
         let mut log_collector = app::collectors::logs::LogCollector::new();
-        let interval = Duration::from_secs(5);
+        let interval = std::time::Duration::from_secs(5);
 
         loop {
-            tokio::time::sleep(interval).await;
+            std::thread::sleep(interval);
             log_collector.refresh();
 
-            drop(tx_logs.send(StateUpdate::Logs {
+            drop(tx_logs.blocking_send(StateUpdate::Logs {
                 entries: std::mem::take(log_collector.entries_mut()),
             }));
         }
     });
 
     // ── Task: Tier 5 — Disk partitions ──
+    // std::thread::spawn: sysinfo refresh and sysfs reads are blocking
     let tx_parts = tx;
-    tokio::spawn(async move {
+    std::thread::spawn(move || {
         let mut sys = sysinfo::System::new_all();
-        let interval = Duration::from_secs(10);
+        let interval = std::time::Duration::from_secs(10);
 
         loop {
-            tokio::time::sleep(interval).await;
+            std::thread::sleep(interval);
             sys.refresh_memory();
             let disks = sysinfo::Disks::new_with_refreshed_list();
             let partitions = app::collectors::disk::enumerate_partitions(&sys, &disks);
 
-            drop(tx_parts.send(StateUpdate::Partitions { partitions }));
+            drop(tx_parts.blocking_send(StateUpdate::Partitions { partitions }));
         }
     });
 }

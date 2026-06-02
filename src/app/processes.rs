@@ -4,10 +4,14 @@ use sysinfo::System;
 use super::state::{ProcessEntry, SortBy};
 
 /// Build the sorted top-N process list.
+///
+/// When `cpu_normalized` is true, CPU% is divided by num_cores (0–100% range).
+/// When false, raw CPU% is shown (0–N*100% range, per-core).
 pub fn build_process_list(
     sys: &System,
     sort_by: &SortBy,
     max_procs: usize,
+    cpu_normalized: bool,
 ) -> Vec<ProcessEntry> {
     let total_mem = sys.total_memory() as f64;
 
@@ -36,16 +40,24 @@ pub fn build_process_list(
     procs
         .iter()
         .take(max_procs.max(1))
-        .map(|(pid, p)| ProcessEntry {
-            pid: pid.as_u32(),
-            parent_pid: p.parent().map(|pp| pp.as_u32()).unwrap_or(0),
-            name: p.name().to_string_lossy().to_string(),
-            cpu_pct: p.cpu_usage() / num_cores,
-            mem_pct: if total_mem > 0.0 {
-                (p.memory() as f64 / total_mem * 100.0) as f32
+        .map(|(pid, p)| {
+            let raw_cpu = p.cpu_usage();
+            let cpu_pct = if cpu_normalized {
+                raw_cpu / num_cores
             } else {
-                0.0
-            },
+                raw_cpu
+            };
+            ProcessEntry {
+                pid: pid.as_u32(),
+                parent_pid: p.parent().map(|pp| pp.as_u32()).unwrap_or(0),
+                name: p.name().to_string_lossy().to_string(),
+                cpu_pct,
+                mem_pct: if total_mem > 0.0 {
+                    (p.memory() as f64 / total_mem * 100.0) as f32
+                } else {
+                    0.0
+                },
+            }
         })
         .collect()
 }

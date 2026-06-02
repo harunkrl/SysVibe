@@ -42,6 +42,11 @@ impl LogCollector {
         &self.entries
     }
 
+    /// Replace entries (used by async state updates).
+    pub fn set_entries(&mut self, entries: VecDeque<LogEntry>) {
+        self.entries = entries;
+    }
+
     fn refresh_journalctl(&mut self) {
         let args: Vec<&str> = if !self.initialized {
             vec!["-k", "--no-pager", "-o", "short", "-n", "200", "--no-hostname"]

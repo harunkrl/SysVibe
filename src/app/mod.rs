@@ -483,6 +483,58 @@ impl App {
     }
 
     // ═════════════════════════════════════════════════════════════════
+    // Async state setters (called from main loop with StateUpdate)
+    // ═════════════════════════════════════════════════════════════════
+
+    pub fn set_network_stats(&mut self, stats: Vec<NetworkStats>) {
+        self.network_stats = stats;
+    }
+
+    pub fn set_disk_io(&mut self, io: DiskIoStats) {
+        self.disk_io = io;
+    }
+
+    pub fn set_temperatures(&mut self, temps: Vec<SensorReading>) {
+        self.temperatures = temps;
+    }
+
+    pub fn set_battery(&mut self, bat: Option<BatteryStatus>) {
+        if let Some(ref b) = bat {
+            if let Some(w) = b.power_w {
+                let power_val = w.round() as u64;
+                if b.state == "Charging" {
+                    helpers::push_history(&mut self.battery_charge_history, power_val);
+                    helpers::push_history(&mut self.battery_power_history, 0);
+                } else {
+                    helpers::push_history(&mut self.battery_power_history, power_val);
+                    helpers::push_history(&mut self.battery_charge_history, 0);
+                }
+            }
+        }
+        self.battery = bat;
+    }
+
+    pub fn set_gpu_stats(&mut self, stats: Vec<GpuStats>) {
+        self.gpu_stats = stats;
+    }
+
+    pub fn set_log_entries(&mut self, entries: std::collections::VecDeque<LogEntry>) {
+        self.log_collector.set_entries(entries);
+    }
+
+    pub fn set_partitions(&mut self, partitions: Vec<DiskPartitionInfo>) {
+        self.cached_partitions = partitions;
+    }
+
+    pub fn set_top_processes(&mut self, processes: Vec<ProcessEntry>) {
+        self.top_processes = processes;
+    }
+
+    pub fn set_per_core_history(&mut self, history: Vec<VecDeque<u64>>) {
+        self.per_core_history = history;
+    }
+
+    // ═════════════════════════════════════════════════════════════════
     // State mutation methods (called by events module)
     // ═════════════════════════════════════════════════════════════════
 
@@ -795,6 +847,7 @@ impl App {
             &self.sys,
             &self.sort_by,
             self.config.max_processes,
+            self.cpu_normalized,
         );
 
         let len = self.top_processes.len();

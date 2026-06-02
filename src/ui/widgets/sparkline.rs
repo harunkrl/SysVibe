@@ -13,6 +13,28 @@ use std::collections::VecDeque;
 
 const BRAILLE_OFFSET: u32 = 0x2800;
 
+/// Pre-built braille lookup table, initialized lazily on first use.
+/// Each entry is the &'static str representation of the braille character
+/// at offset BRAILLE_OFFSET + index.
+/// This eliminates per-cell `char::from_u32().to_string()` heap allocations
+/// that were occurring ~800-2400 times per frame.
+static BRAILLE_CHARS: std::sync::LazyLock<[&str; 256]> = std::sync::LazyLock::new(|| {
+    let mut table = [""; 256];
+    for i in 0..256u32 {
+        let ch = char::from_u32(BRAILLE_OFFSET + i).unwrap_or(' ');
+        // Leaks are fine here: this runs exactly once and the strings live forever.
+        // Box::leak turns a heap String into &'static str.
+        table[i as usize] = Box::leak(ch.to_string().into_boxed_str());
+    }
+    table
+});
+
+/// Look up a braille character as `&'static str` by index (0..256).
+#[inline]
+fn braille(idx: usize) -> &'static str {
+    BRAILLE_CHARS.get(idx).copied().unwrap_or(" ")
+}
+
 /// Braille dot patterns for 0-8 fill levels (bottom-up).
 /// Each pair is (top_row_bits, bottom_row_bits).
 /// Legacy braille fill patterns (2-line rendering). Kept for future use.
@@ -42,8 +64,8 @@ pub fn braille_graph(data: &VecDeque<u64>, max_val: Option<u64>, color: Color) -
     for &v in data {
         let lv = ((v as f64 / max as f64) * 8.0).round() as usize;
         let (t, b) = BRAILLE_FILL[lv.min(8)];
-        top.push(char::from_u32(BRAILLE_OFFSET + t as u32).unwrap_or(' '));
-        bot.push(char::from_u32(BRAILLE_OFFSET + b as u32).unwrap_or(' '));
+        top.push_str(braille(t as usize));
+        bot.push_str(braille(b as usize));
     }
 
     vec![
@@ -65,7 +87,7 @@ pub fn braille_mini(data: &[u64], max_val: u64) -> String {
             3 => 0x46,
             _ => 0x47,
         };
-        out.push(char::from_u32(BRAILLE_OFFSET + bits).unwrap_or(' '));
+        out.push_str(braille(bits as usize));
     }
     out
 }
@@ -155,8 +177,7 @@ pub fn braille_line_graph(
                 // Which sub-pixel within this row? (0=bottom, 3=top)
                 let sp = (*lv as isize - row_bot_v as isize - 1).max(0) as usize;
                 let bits = DOT_MAP[sp.min(3)];
-                let ch = char::from_u32(BRAILLE_OFFSET + bits as u32).unwrap_or(' ');
-                spans.push(Span::styled(ch.to_string(), Style::default().fg(color)));
+                spans.push(Span::styled(braille(bits as usize), Style::default().fg(color)));
             } else {
                 spans.push(Span::raw(" "));
             }
@@ -239,8 +260,7 @@ pub fn braille_mirrored_graph(
             } else {
                 fill_val.saturating_sub(sp_low)
             };
-            let ch = char::from_u32(BRAILLE_OFFSET + UP_FILL[level]).unwrap_or(' ');
-            spans.push(Span::styled(ch.to_string(), Style::default().fg(up_color)));
+            spans.push(Span::styled(braille(UP_FILL[level] as usize), Style::default().fg(up_color)));
         }
         rows.push(Line::from(spans));
     }
@@ -271,8 +291,7 @@ pub fn braille_mirrored_graph(
             } else {
                 fill_val.saturating_sub(sp_low)
             };
-            let ch = char::from_u32(BRAILLE_OFFSET + DOWN_FILL[level]).unwrap_or(' ');
-            spans.push(Span::styled(ch.to_string(), Style::default().fg(down_color)));
+            spans.push(Span::styled(braille(DOWN_FILL[level] as usize), Style::default().fg(down_color)));
         }
         rows.push(Line::from(spans));
     }
@@ -361,13 +380,13 @@ pub fn halfblock_graph(
             let top_filled = *f_val > row_mid_v;
             let bot_filled = *f_val > row_bot_v;
 
-            let (ch, style) = match (top_filled, bot_filled) {
-                (true, true) => ('\u{2588}', Style::default().fg(color)),   // █ full block
-                (true, false) => ('\u{2580}', Style::default().fg(color)), // ▀ upper half
-                (false, true) => ('\u{2584}', Style::default().fg(color)), // ▄ lower half
-                (false, false) => (' ', Style::default()),
+            let (ch_str, style) = match (top_filled, bot_filled) {
+                (true, true) => ("\u{2588}", Style::default().fg(color)),   // █ full block
+                (true, false) => ("\u{2580}", Style::default().fg(color)), // ▀ upper half
+                (false, true) => ("\u{2584}", Style::default().fg(color)), // ▄ lower half
+                (false, false) => (" ", Style::default()),
             };
-            spans.push(Span::styled(ch.to_string(), style));
+            spans.push(Span::styled(ch_str, style));
         }
 
         rows.push(Line::from(spans));

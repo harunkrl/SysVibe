@@ -23,6 +23,7 @@ pub fn render_header(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
     let nf = app.config().nerd_fonts;
 
     let tabs = [
+        ("Dashboard", AppTab::Dashboard, icons::TAB_DASHBOARD, icons::fallback::TAB_DASHBOARD),
         ("System", AppTab::System, icons::TAB_SYSTEM, icons::fallback::TAB_SYSTEM),
         ("Hardware", AppTab::Hardware, icons::TAB_HARDWARE, icons::fallback::TAB_HARDWARE),
         ("Processes", AppTab::Processes, icons::TAB_PROCESSES, icons::fallback::TAB_PROCESSES),

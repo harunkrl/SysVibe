@@ -38,6 +38,7 @@ pub fn build_process_list(
         .take(max_procs.max(1))
         .map(|(pid, p)| ProcessEntry {
             pid: pid.as_u32(),
+            parent_pid: p.parent().map(|pp| pp.as_u32()).unwrap_or(0),
             name: p.name().to_string_lossy().to_string(),
             cpu_pct: p.cpu_usage() / num_cores,
             mem_pct: if total_mem > 0.0 {

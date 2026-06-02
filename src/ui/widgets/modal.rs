@@ -45,15 +45,20 @@ pub fn render_help_modal(f: &mut Frame, area: Rect) {
         ("[PgUp/PgDn]", "Page up / Page down"),
         ("[Home/End]", "Jump to first / last"),
         ("[x]", "Kill selected process"),
-        ("[/]", "Filter processes by name"),
+        ("[/]", "Filter (processes/logs by name)"),
         ("[Enter]", "Apply filter"),
         ("[s]", "Cycle sort (CPU > Mem > PID > Name)"),
-        ("[r]", "Refresh process list"),
+        ("[r]", "Refresh process list / logs"),
         ("[t]", "Toggle °C / °F"),
         ("[Space]", "Multi-select process"),
         ("[c]", "Clear all selections"),
         ("[[  /  ]]", "Cycle panel focus"),
         ("[f]", "Toggle log auto-follow"),
+        ("[p] / [F5]", "Toggle process tree view"),
+        ("[g]", "Toggle CPU normalized/per-core"),
+        ("[e]", "Toggle error log filter"),
+        ("[w]", "Toggle warning log filter"),
+        ("[i]", "Toggle info log filter"),
     ];
 
     let lines: Vec<Line<'_>> = keys

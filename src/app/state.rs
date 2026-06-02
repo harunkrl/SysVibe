@@ -21,6 +21,7 @@ pub enum AppMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AppTab {
     #[default]
+    Dashboard,
     System,
     Hardware,
     Processes,
@@ -146,6 +147,7 @@ pub struct BatteryStatus {
 #[derive(Debug, Clone)]
 pub struct ProcessEntry {
     pub pid: u32,
+    pub parent_pid: u32,
     pub name: String,
     pub cpu_pct: f32,
     pub mem_pct: f32,
@@ -197,6 +199,46 @@ pub struct GpuStats {
     pub vram_used_mb: u64,
     pub vram_total_mb: u64,
     pub temperature: f32,
+    pub power_w: Option<f32>,
+    pub fan_speed_pct: Option<f32>,
+    pub clock_mhz: Option<u32>,
+}
+
+/// Log level filter mask (bitflags for toggleable filtering).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct LogLevelFilter {
+    pub show_errors: bool,
+    pub show_warnings: bool,
+    pub show_info: bool,
+    pub show_debug: bool,
+    pub show_notice: bool,
+    pub show_unknown: bool,
+}
+
+impl LogLevelFilter {
+    /// Create a filter that shows everything.
+    pub fn all() -> Self {
+        Self {
+            show_errors: true,
+            show_warnings: true,
+            show_info: true,
+            show_debug: true,
+            show_notice: true,
+            show_unknown: true,
+        }
+    }
+
+    /// Check if a given log level passes the filter.
+    pub fn allows(&self, level: &LogLevel) -> bool {
+        match level {
+            LogLevel::Error => self.show_errors,
+            LogLevel::Warning => self.show_warnings,
+            LogLevel::Info => self.show_info,
+            LogLevel::Debug => self.show_debug,
+            LogLevel::Notice => self.show_notice,
+            LogLevel::Unknown => self.show_unknown,
+        }
+    }
 }
 
 /// Disk partition usage information with hardware details.

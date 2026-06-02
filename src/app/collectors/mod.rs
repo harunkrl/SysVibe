@@ -9,3 +9,4 @@ pub mod logs;
 pub mod network;
 pub mod hardware;
 pub mod sensors;
+pub mod gpu;

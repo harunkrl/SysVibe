@@ -79,9 +79,16 @@ pub struct App {
     log_collector: collectors::logs::LogCollector,
     log_follow: bool,
     log_scroll_offset: usize,
+    log_filter_input: String,
+    log_filter_active: bool,
+    log_level_filter: LogLevelFilter,
 
     // Panel focus tracking
     panel_focus: PanelFocus,
+
+    // View toggles
+    tree_view: bool,
+    cpu_normalized: bool,
 
     // Timing
     last_tick: Instant,
@@ -93,6 +100,9 @@ pub struct App {
 
     // Cached data (refreshed at lower rate)
     cached_partitions: Vec<DiskPartitionInfo>,
+
+    // Live GPU stats
+    gpu_stats: Vec<GpuStats>,
 
     // Static hardware data (fetched once on startup)
     hardware_data: collectors::hardware::HardwareData,
@@ -120,10 +130,12 @@ impl App {
         let (init_read, init_write) = collectors::disk::read_disk_bytes();
 
         let default_tab = match config.default_tab.to_lowercase().as_str() {
+            "dashboard" => AppTab::Dashboard,
+            "system" => AppTab::System,
             "hardware" => AppTab::Hardware,
             "processes" => AppTab::Processes,
             "logs" => AppTab::Logs,
-            _ => AppTab::System,
+            _ => AppTab::Dashboard,
         };
 
         let mut log_collector = collectors::logs::LogCollector::new();
@@ -163,7 +175,12 @@ impl App {
             log_collector,
             log_follow: true,
             log_scroll_offset: 0,
+            log_filter_input: String::new(),
+            log_filter_active: false,
+            log_level_filter: LogLevelFilter::all(),
             panel_focus: PanelFocus::default(),
+            tree_view: false,
+            cpu_normalized: true,
             last_tick: now,
             last_refresh: now,
 
@@ -172,6 +189,7 @@ impl App {
             last_partition_refresh: now,
             tick_count: 0,
             cached_partitions: Vec::new(),
+            gpu_stats: Vec::new(),
             hardware_data: collectors::hardware::fetch_hardware_data(),
         };
 
@@ -381,6 +399,89 @@ impl App {
         self.log_scroll_offset
     }
 
+    pub fn tree_view(&self) -> bool {
+        self.tree_view
+    }
+
+    pub fn toggle_tree_view(&mut self) {
+        self.tree_view = !self.tree_view;
+        let state = if self.tree_view { "Tree" } else { "Flat" };
+        self.set_status(format!("Process view: {}", state));
+    }
+
+    pub fn cpu_normalized(&self) -> bool {
+        self.cpu_normalized
+    }
+
+    pub fn toggle_cpu_normalized(&mut self) {
+        self.cpu_normalized = !self.cpu_normalized;
+        let state = if self.cpu_normalized { "Normalized (0-100%)" } else { "Per-Core (0-N*100%)" };
+        self.set_status(format!("CPU view: {}", state));
+    }
+
+    pub fn log_filter_input(&self) -> &str {
+        &self.log_filter_input
+    }
+
+    pub fn log_level_filter(&self) -> &LogLevelFilter {
+        &self.log_level_filter
+    }
+
+    pub fn log_filter_active(&self) -> bool {
+        self.log_filter_active
+    }
+
+    /// Returns filtered log entries based on level filter and text filter.
+    pub fn filtered_log_entries(&self) -> Vec<&LogEntry> {
+        self.log_entries()
+            .iter()
+            .filter(|e| self.log_level_filter.allows(&e.level))
+            .filter(|e| {
+                if !self.log_filter_active || self.log_filter_input.is_empty() {
+                    true
+                } else {
+                    let query = self.log_filter_input.to_lowercase();
+                    e.message.to_lowercase().contains(&query)
+                }
+            })
+            .collect()
+    }
+
+    pub fn apply_log_filter(&mut self) {
+        self.log_filter_active = !self.log_filter_input.is_empty();
+    }
+
+    pub fn log_filter_backspace(&mut self) {
+        self.log_filter_input.pop();
+    }
+
+    pub fn log_filter_push(&mut self, c: char) {
+        self.log_filter_input.push(c);
+    }
+
+    pub fn toggle_log_level_error(&mut self) {
+        self.log_level_filter.show_errors = !self.log_level_filter.show_errors;
+        let state = if self.log_level_filter.show_errors { "ON" } else { "OFF" };
+        self.set_status(format!("Error logs: {}", state));
+    }
+
+    pub fn toggle_log_level_warn(&mut self) {
+        self.log_level_filter.show_warnings = !self.log_level_filter.show_warnings;
+        let state = if self.log_level_filter.show_warnings { "ON" } else { "OFF" };
+        self.set_status(format!("Warning logs: {}", state));
+    }
+
+    pub fn toggle_log_level_info(&mut self) {
+        self.log_level_filter.show_info = !self.log_level_filter.show_info;
+        let state = if self.log_level_filter.show_info { "ON" } else { "OFF" };
+        self.set_status(format!("Info logs: {}", state));
+    }
+
+    /// GPU live stats.
+    pub fn gpu_stats(&self) -> &[GpuStats] {
+        &self.gpu_stats
+    }
+
     // ═════════════════════════════════════════════════════════════════
     // State mutation methods (called by events module)
     // ═════════════════════════════════════════════════════════════════
@@ -399,16 +500,18 @@ impl App {
 
     pub fn next_tab(&mut self) {
         self.tab = match self.tab {
+            AppTab::Dashboard => AppTab::System,
             AppTab::System => AppTab::Hardware,
             AppTab::Hardware => AppTab::Processes,
             AppTab::Processes => AppTab::Logs,
-            AppTab::Logs => AppTab::System,
+            AppTab::Logs => AppTab::Dashboard,
         };
     }
 
     pub fn prev_tab(&mut self) {
         self.tab = match self.tab {
-            AppTab::System => AppTab::Logs,
+            AppTab::Dashboard => AppTab::Logs,
+            AppTab::System => AppTab::Dashboard,
             AppTab::Hardware => AppTab::System,
             AppTab::Processes => AppTab::Hardware,
             AppTab::Logs => AppTab::Processes,
@@ -649,6 +752,9 @@ impl App {
             }
             
             self.last_sensor_refresh = now;
+
+            // GPU stats (same tier as sensors — expensive, 5s)
+            self.gpu_stats = collectors::gpu::collect_gpu_stats();
         }
 
         // ══ Tier 4: Logs (5s) ════════════════════════════════════

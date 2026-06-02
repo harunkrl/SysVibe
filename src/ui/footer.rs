@@ -55,6 +55,13 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
 
             // Contextual keybinds based on current tab
             match app.tab {
+                AppTab::Dashboard => {
+                    s.extend(key_desc("h", "Help"));
+                    s.push(sep());
+                    s.extend(key_desc("g", "CPU mode"));
+                    s.push(sep());
+                    s.extend(key_desc("q", "Quit"));
+                }
                 AppTab::System | AppTab::Hardware => {
                     s.extend(key_desc("h", "Help"));
                     s.push(sep());
@@ -71,7 +78,9 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
                     s.push(sep());
                     s.extend(key_desc("s", "Sort"));
                     s.push(sep());
-                    s.extend(key_desc("Space", "Select"));
+                    s.extend(key_desc("p", if app.tree_view() { "Flat" } else { "Tree" }));
+                    s.push(sep());
+                    s.extend(key_desc("g", if app.cpu_normalized() { "Per-Core" } else { "Norm" }));
                     s.push(sep());
                     s.extend(key_desc("x", "Kill"));
                     s.push(sep());
@@ -96,8 +105,7 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
                     s.push(sep());
                     s.extend(key_desc("f", if app.log_follow() { "Follow: ON" } else { "Follow: OFF" }));
                     if app.log_follow() {
-                        // Color the follow-on indicator green
-                        s.pop(); // remove the desc we just pushed
+                        s.pop();
                         s.push(Span::styled(
                             format!(" Follow: {}", if app.config().nerd_fonts { icons::CHECK } else { "ON" }),
                             Style::default().fg(GREEN),
@@ -105,6 +113,10 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
                     }
                     s.push(sep());
                     s.extend(key_desc("r", "Refresh"));
+                    s.push(sep());
+                    s.extend(key_desc("E", "Err"));
+                    s.extend(key_desc("W", "Wrn"));
+                    s.extend(key_desc("I", "Inf"));
                     s.push(sep());
                     s.extend(key_desc("q", "Quit"));
                 }

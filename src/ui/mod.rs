@@ -51,6 +51,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     f.render_widget(tab_block, tab_area);
 
     match app.tab {
+        AppTab::Dashboard => tabs::dashboard::render_dashboard_tab(f, app, inner_tab_area),
         AppTab::System => tabs::system::render_system_tab(f, app, inner_tab_area),
         AppTab::Hardware => tabs::hardware::render_hardware_tab(f, app, inner_tab_area),
         AppTab::Processes => tabs::processes::render_processes_tab(f, app, inner_tab_area),

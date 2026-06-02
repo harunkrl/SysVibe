@@ -12,12 +12,19 @@ use crate::app::App;
 use crate::app::state::LogLevel;
 use super::super::palette::*;
 use super::super::helpers::*;
+use super::super::icons;
 
 pub fn render_logs_tab(f: &mut Frame, app: &App, area: Rect) {
     let entries = app.log_entries();
     let count = entries.len();
-    let title = format!("Kernel Logs  ({} entries)", count);
-    let block = panel_block(&title);
+    let nf = app.config().nerd_fonts;
+
+    let title = if nf {
+        format!("{} Kernel Logs  ({} entries)", icons::TAB_LOGS, count)
+    } else {
+        format!("Kernel Logs  ({} entries)", count)
+    };
+    let block = panel_block_focused(&title, true);
     let inner = block.inner(area);
     f.render_widget(block, area);
 
@@ -48,13 +55,13 @@ pub fn render_logs_tab(f: &mut Frame, app: &App, area: Rect) {
         .skip(start)
         .take(visible_height)
         .map(|entry| {
-            let level_color = match entry.level {
-                LogLevel::Error => RED,
-                LogLevel::Warning => YELLOW,
-                LogLevel::Notice => PEACH,
-                LogLevel::Info => BLUE,
-                LogLevel::Debug => OVERLAY,
-                LogLevel::Unknown => SUBTEXT,
+            let (level_color, level_icon) = match entry.level {
+                LogLevel::Error => (RED, if nf { icons::LOG_ERROR } else { icons::fallback::LOG_ERROR }),
+                LogLevel::Warning => (YELLOW, if nf { icons::LOG_WARN } else { icons::fallback::LOG_WARN }),
+                LogLevel::Info => (BLUE, if nf { icons::LOG_INFO } else { icons::fallback::LOG_INFO }),
+                LogLevel::Notice => (PEACH, if nf { icons::LOG_WARN } else { "●" }),
+                LogLevel::Debug => (OVERLAY, if nf { icons::LOG_DEBUG } else { "●" }),
+                LogLevel::Unknown => (SUBTEXT, if nf { icons::LOG_TRACE } else { "●" }),
             };
             let level_str = match entry.level {
                 LogLevel::Error => "ERR",
@@ -68,6 +75,10 @@ pub fn render_logs_tab(f: &mut Frame, app: &App, area: Rect) {
                 Span::styled(
                     format!(" {} ", &entry.timestamp),
                     Style::default().fg(OVERLAY),
+                ),
+                Span::styled(
+                    format!("{} ", level_icon),
+                    Style::default().fg(level_color),
                 ),
                 Span::styled(
                     format!("{} ", level_str),

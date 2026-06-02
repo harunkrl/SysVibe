@@ -21,12 +21,12 @@ use crate::ui::helpers::centered_rect;
 /// Render the full-screen help modal overlay.
 pub fn render_help_modal(f: &mut Frame, area: Rect) {
     let block = Block::bordered()
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(SURFACE1))
+        .border_type(BorderType::Thick)
+        .border_style(Style::default().fg(SUBTEXT))
         .title(Line::styled(
             " Help ",
             Style::default()
-                .fg(SUBTEXT)
+                .fg(LAVENDER)
                 .add_modifier(Modifier::BOLD),
         ))
         .title_alignment(Alignment::Center)
@@ -52,6 +52,7 @@ pub fn render_help_modal(f: &mut Frame, area: Rect) {
         ("[t]", "Toggle °C / °F"),
         ("[Space]", "Multi-select process"),
         ("[c]", "Clear all selections"),
+        ("[[  /  ]]", "Cycle panel focus"),
         ("[f]", "Toggle log auto-follow"),
     ];
 

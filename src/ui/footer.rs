@@ -13,13 +13,33 @@ use ratatui::{
 use crate::app::App;
 use crate::app::state::{AppMode, AppTab};
 use super::palette::*;
+use super::icons;
+
+/// Separator dot between keybinds.
+fn sep() -> Span<'static> {
+    Span::styled("  ·  ", Style::default().fg(SURFACE1))
+}
+
+/// Styled key label: `[key]` in OVERLAY.
+fn key_label(key: &str) -> Span<'static> {
+    Span::styled(format!("[{}]", key), Style::default().fg(OVERLAY))
+}
+
+/// Styled key + description pair.
+fn key_desc(key: &str, description: &str) -> Vec<Span<'static>> {
+    vec![key_label(key), Span::styled(format!(" {}", description), Style::default().fg(SUBTEXT))]
+}
 
 /// Render the footer bar with mode-appropriate keybindings and status.
 pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
     // Status message takes priority
     if let Some(ref msg) = app.status_message {
         let color = if msg.is_error { RED } else { GREEN };
-        let icon = if msg.is_error { "✗" } else { "✓" };
+        let icon = if msg.is_error {
+            if app.config().nerd_fonts { icons::CROSS } else { "✗" }
+        } else {
+            if app.config().nerd_fonts { icons::CHECK } else { "✓" }
+        };
 
         let footer = Paragraph::new(Line::from(vec![
             Span::styled(format!(" {} ", icon), Style::default().fg(color)),
@@ -31,60 +51,73 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
 
     let spans = match app.mode() {
         AppMode::Normal => {
-            let mut s = vec![
-                Span::styled(" [q] Quit", Style::default().fg(OVERLAY)),
-                Span::styled(" │ ", Style::default().fg(SURFACE2)),
-                Span::styled("[h] Help", Style::default().fg(OVERLAY)),
-                Span::styled(" │ ", Style::default().fg(SURFACE2)),
-                Span::styled("[Tab] Switch", Style::default().fg(OVERLAY)),
-            ];
+            let mut s = Vec::new();
 
-            // Tab-specific shortcuts
+            // Contextual keybinds based on current tab
             match app.tab {
+                AppTab::System | AppTab::Hardware => {
+                    s.extend(key_desc("h", "Help"));
+                    s.push(sep());
+                    s.extend(key_desc("t", "Temp unit"));
+                    s.push(sep());
+                    s.extend(key_desc("q", "Quit"));
+                    s.push(sep());
+                    s.extend(key_desc("[/]", "Focus panel"));
+                }
                 AppTab::Processes => {
-                    s.extend_from_slice(&[
-                        Span::styled(" │ ", Style::default().fg(SURFACE2)),
-                        Span::styled("[↑↓] Nav", Style::default().fg(OVERLAY)),
-                        Span::styled(" │ ", Style::default().fg(SURFACE2)),
-                        Span::styled("[x] Kill", Style::default().fg(RED)),
-                        Span::styled(" │ ", Style::default().fg(SURFACE2)),
-                        Span::styled("[/] Filter", Style::default().fg(OVERLAY)),
-                        Span::styled(" │ ", Style::default().fg(SURFACE2)),
-                        Span::styled(
-                            format!("[s] Sort: {:?}", app.sort_by),
-                            Style::default().fg(OVERLAY),
-                        ),
-                    ]);
-                    let count = app.total_process_count();
-                    s.push(Span::styled("   ", Style::default()));
-                    s.push(Span::styled(
-                        format!("{} procs", count),
-                        Style::default().fg(SURFACE2),
-                    ));
+                    s.extend(key_desc("h", "Help"));
+                    s.push(sep());
+                    s.extend(key_desc("/", "Filter"));
+                    s.push(sep());
+                    s.extend(key_desc("s", "Sort"));
+                    s.push(sep());
+                    s.extend(key_desc("Space", "Select"));
+                    s.push(sep());
+                    s.extend(key_desc("x", "Kill"));
+                    s.push(sep());
+                    s.extend(key_desc("q", "Quit"));
+
+                    // Show filter state if active
+                    if app.filter_input().len() > 0 {
+                        s.push(sep());
+                        let search_icon = if app.config().nerd_fonts {
+                            icons::SEARCH
+                        } else {
+                            icons::fallback::SEARCH
+                        };
+                        s.push(Span::styled(
+                            format!(" {} {}", search_icon, app.filter_input()),
+                            Style::default().fg(PEACH),
+                        ));
+                    }
                 }
                 AppTab::Logs => {
-                    s.extend_from_slice(&[
-                        Span::styled(" │ ", Style::default().fg(SURFACE2)),
-                        Span::styled("[↑↓] Scroll", Style::default().fg(OVERLAY)),
-                        Span::styled(" │ ", Style::default().fg(SURFACE2)),
-                        Span::styled(
-                            if app.log_follow() { "[f] Follow: ON" } else { "[f] Follow: OFF" },
-                            Style::default().fg(if app.log_follow() { GREEN } else { OVERLAY }),
-                        ),
-                    ]);
+                    s.extend(key_desc("h", "Help"));
+                    s.push(sep());
+                    s.extend(key_desc("f", if app.log_follow() { "Follow: ON" } else { "Follow: OFF" }));
+                    if app.log_follow() {
+                        // Color the follow-on indicator green
+                        s.pop(); // remove the desc we just pushed
+                        s.push(Span::styled(
+                            format!(" Follow: {}", if app.config().nerd_fonts { icons::CHECK } else { "ON" }),
+                            Style::default().fg(GREEN),
+                        ));
+                    }
+                    s.push(sep());
+                    s.extend(key_desc("r", "Refresh"));
+                    s.push(sep());
+                    s.extend(key_desc("q", "Quit"));
                 }
-                AppTab::Hardware => {
-                    s.extend_from_slice(&[
-                        Span::styled(" │ ", Style::default().fg(SURFACE2)),
-                        Span::styled("[t] Temp °C/°F", Style::default().fg(OVERLAY)),
-                    ]);
-                }
-                AppTab::System => {
-                    s.extend_from_slice(&[
-                        Span::styled(" │ ", Style::default().fg(SURFACE2)),
-                        Span::styled("[t] Temp °C/°F", Style::default().fg(OVERLAY)),
-                    ]);
-                }
+            }
+
+            // Right-aligned process count for Processes tab
+            if app.tab == AppTab::Processes {
+                let count = app.total_process_count();
+                s.push(Span::styled("   ", Style::default()));
+                s.push(Span::styled(
+                    format!("{} procs", count),
+                    Style::default().fg(SURFACE2),
+                ));
             }
 
             s.push(Span::styled("   ", Style::default()));

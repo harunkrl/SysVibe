@@ -12,6 +12,7 @@ use crate::app::App;
 use crate::app::state::{AppMode, SortBy};
 use super::super::palette::*;
 use super::super::helpers::*;
+use super::super::icons;
 
 pub fn render_processes_tab(f: &mut Frame, app: &mut App, area: Rect) {
     let rows = Layout::default()
@@ -33,7 +34,13 @@ fn render_filter_bar(f: &mut Frame, app: &App, area: Rect) {
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    let prefix = if is_filtering { " 🔎 > " } else { " 🔎 " };
+    let nf = app.config().nerd_fonts;
+    let search_icon = if nf { icons::SEARCH } else { icons::fallback::SEARCH };
+    let prefix = if is_filtering {
+        format!(" {} > ", search_icon)
+    } else {
+        format!(" {} ", search_icon)
+    };
     let input = app.filter_input();
 
     let text = if input.is_empty() && !is_filtering {
@@ -57,21 +64,46 @@ fn render_filter_bar(f: &mut Frame, app: &App, area: Rect) {
 
 fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
     let procs = app.filtered_processes();
-    let title = format!("Processes  ({}/{})", procs.len(), app.total_process_count());
-    let block = panel_block(&title);
+    let nf = app.config().nerd_fonts;
 
-    let sort_str = |col: SortBy| -> &'static str {
-        if app.sort_by == col { " ▼" } else { "" }
+    let title = if nf {
+        format!("{} Processes  ({}/{})", icons::TAB_PROCESSES, procs.len(), app.total_process_count())
+    } else {
+        format!("Processes  ({}/{})", procs.len(), app.total_process_count())
+    };
+    let block = panel_block_focused(&title, true);
+
+    // Sort direction indicator
+    let sort_indicator = |col: SortBy| -> String {
+        if app.sort_by == col {
+            if nf {
+                format!(" {}", icons::SORT_DOWN)
+            } else {
+                " ▼".to_string()
+            }
+        } else {
+            String::new()
+        }
     };
 
-    let header_style = Style::default().fg(SUBTEXT).add_modifier(Modifier::BOLD);
+    let header_base = Style::default().fg(SUBTEXT).add_modifier(Modifier::BOLD);
+    let header_active = Style::default().fg(FOCUS_BORDER).add_modifier(Modifier::BOLD);
+
+    let pid_style = if app.sort_by == SortBy::Pid { header_active } else { header_base };
+    let name_style = if app.sort_by == SortBy::Name { header_active } else { header_base };
+    let cpu_style = if app.sort_by == SortBy::Cpu { header_active } else { header_base };
+    let mem_style = if app.sort_by == SortBy::Mem { header_active } else { header_base };
+
+    let pid_icon = if nf { icons::PROCESS } else { "#" };
+    let name_icon = if nf { icons::SORT } else { "" };
+
     let header = Row::new(vec![
-        format!("PID{}", sort_str(SortBy::Pid)),
-        format!("NAME{}", sort_str(SortBy::Name)),
-        format!("CPU%{}", sort_str(SortBy::Cpu)),
-        format!("MEM%{}", sort_str(SortBy::Mem)),
+        Span::styled(format!("{}PID{}", pid_icon, sort_indicator(SortBy::Pid)), pid_style),
+        Span::styled(format!("{}NAME{}", name_icon, sort_indicator(SortBy::Name)), name_style),
+        Span::styled(format!("CPU%{}", sort_indicator(SortBy::Cpu)), cpu_style),
+        Span::styled(format!("MEM%{}", sort_indicator(SortBy::Mem)), mem_style),
     ])
-    .style(header_style)
+    .style(Style::default())
     .bottom_margin(1);
 
     let widths = [
@@ -89,6 +121,9 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
         let prefix = if is_selected { "● " } else { "  " };
         let name_color = if is_selected { PEACH } else { TEXT };
 
+        // Process state icon
+        let proc_icon = if nf { icons::PROCESS_RUNNING } else { "" };
+
         // Visual mini-bars
         let bar_len = 6;
         let c_fill = ((p.cpu_pct / 100.0) * bar_len as f32).round() as usize;
@@ -99,7 +134,7 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
 
         Row::new(vec![
             Cell::from(Span::styled(format!("{}", p.pid), Style::default().fg(OVERLAY))),
-            Cell::from(Span::styled(format!("{}{}", prefix, p.name), Style::default().fg(name_color))),
+            Cell::from(Span::styled(format!("{}{}{}", prefix, proc_icon, p.name), Style::default().fg(name_color))),
             Cell::from(Line::from(vec![
                 Span::styled(format!("{:>5.1}% ", p.cpu_pct), Style::default().fg(cpu_color)),
                 Span::styled(c_bar, Style::default().fg(cpu_color)),

@@ -37,6 +37,50 @@ pub enum SortBy {
     Name,
 }
 
+/// Tracks which panel within a tab is focused.
+/// Used for focus-state highlighting (Tab / Shift+Tab to cycle).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PanelFocus {
+    #[default]
+    Panel1,
+    Panel2,
+    Panel3,
+    Panel4,
+    Panel5,
+    Panel6,
+}
+
+impl PanelFocus {
+    /// Cycle to the next panel.
+    pub fn next(self) -> Self {
+        match self {
+            Self::Panel1 => Self::Panel2,
+            Self::Panel2 => Self::Panel3,
+            Self::Panel3 => Self::Panel4,
+            Self::Panel4 => Self::Panel5,
+            Self::Panel5 => Self::Panel6,
+            Self::Panel6 => Self::Panel1,
+        }
+    }
+
+    /// Cycle to the previous panel.
+    pub fn prev(self) -> Self {
+        match self {
+            Self::Panel1 => Self::Panel6,
+            Self::Panel2 => Self::Panel1,
+            Self::Panel3 => Self::Panel2,
+            Self::Panel4 => Self::Panel3,
+            Self::Panel5 => Self::Panel4,
+            Self::Panel6 => Self::Panel5,
+        }
+    }
+
+    /// Helper: returns true if this panel index is the focused one.
+    pub fn is_focused(self, target: Self) -> bool {
+        self == target
+    }
+}
+
 // ── Data-transfer types (consumed by ui) ───────────────────────────
 
 /// Static system information (OS, kernel, hostname, etc.).

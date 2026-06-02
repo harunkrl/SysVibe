@@ -5,6 +5,7 @@
 
 pub mod helpers;
 pub mod palette;
+pub mod icons;
 pub mod header;
 pub mod footer;
 pub mod tabs;
@@ -13,7 +14,8 @@ pub mod widgets;
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout},
-    widgets::{Block, Borders},
+    style::Style,
+    widgets::{Block, Borders, BorderType},
 };
 
 use crate::app::App;
@@ -21,6 +23,14 @@ use crate::app::state::{AppMode, AppTab};
 
 /// Main UI drawing entry point.
 pub fn draw(f: &mut Frame, app: &mut App) {
+    let outer_block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Thick)
+        .border_style(Style::default().fg(palette::SURFACE2))
+        .style(Style::default().bg(palette::BASE));
+    let inner_area = outer_block.inner(f.area());
+    f.render_widget(outer_block, f.area());
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -28,7 +38,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             Constraint::Min(0),    // Main content
             Constraint::Length(1), // Footer
         ])
-        .split(f.area());
+        .split(inner_area);
 
     // 1. Header
     header::render_header(f, app, chunks[0]);

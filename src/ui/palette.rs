@@ -29,3 +29,11 @@ pub const OVERLAY: Color = Color::Rgb(128, 135, 162);
 pub const SURFACE0: Color = Color::Rgb(54, 58, 79);
 pub const SURFACE1: Color = Color::Rgb(73, 77, 100);
 pub const SURFACE2: Color = Color::Rgb(91, 96, 120);
+pub const BASE: Color = Color::Rgb(30, 30, 46);     // Catppuccin Macchiato base
+pub const MANTLE: Color = Color::Rgb(24, 24, 37);   // Catppuccin Macchiato mantle
+pub const CRUST: Color = Color::Rgb(17, 17, 27);   // Catppuccin Macchiato crust
+
+// Focus / highlight colors for active panel borders
+pub const FOCUS_BORDER: Color = LAVENDER;           // Active panel border
+pub const FOCUS_BORDER_ALT: Color = MAUVE;         // Alternate active panel border
+pub const FOCUS_TAB: Color = MAUVE;                // Active tab indicator

@@ -18,14 +18,32 @@ use super::palette::*;
 
 /// Unified panel block: SURFACE1 borders (muted), SUBTEXT title.
 pub fn panel_block(title: &str) -> Block<'_> {
-    Block::bordered()
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(SURFACE1))
-        .title(Line::styled(
-            format!(" {} ", title),
-            Style::default().fg(SUBTEXT).add_modifier(Modifier::BOLD),
-        ))
-        .title_alignment(Alignment::Center)
+    panel_block_focused(title, false)
+}
+
+/// Panel block with optional focus-state highlighting.
+/// When `focused` is true, uses LAVENDER border + Thick border type.
+/// When false, uses SURFACE1 border + Rounded type (default muted look).
+pub fn panel_block_focused(title: &str, focused: bool) -> Block<'_> {
+    if focused {
+        Block::bordered()
+            .border_type(BorderType::Thick)
+            .border_style(Style::default().fg(FOCUS_BORDER))
+            .title(Line::styled(
+                format!(" {} ", title),
+                Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
+            ))
+            .title_alignment(Alignment::Center)
+    } else {
+        Block::bordered()
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(SURFACE1))
+            .title(Line::styled(
+                format!(" {} ", title),
+                Style::default().fg(SUBTEXT).add_modifier(Modifier::BOLD),
+            ))
+            .title_alignment(Alignment::Center)
+    }
 }
 
 /// Header block: slightly brighter border to mark the top chrome.

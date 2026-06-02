@@ -80,6 +80,9 @@ pub struct App {
     log_follow: bool,
     log_scroll_offset: usize,
 
+    // Panel focus tracking
+    panel_focus: PanelFocus,
+
     // Timing
     last_tick: Instant,
     last_refresh: Instant,
@@ -160,6 +163,7 @@ impl App {
             log_collector,
             log_follow: true,
             log_scroll_offset: 0,
+            panel_focus: PanelFocus::default(),
             last_tick: now,
             last_refresh: now,
 
@@ -207,6 +211,18 @@ impl App {
 
     pub fn should_quit(&self) -> bool {
         self.should_quit
+    }
+
+    pub fn panel_focus(&self) -> PanelFocus {
+        self.panel_focus
+    }
+
+    pub fn cycle_panel_focus(&mut self, forward: bool) {
+        self.panel_focus = if forward {
+            self.panel_focus.next()
+        } else {
+            self.panel_focus.prev()
+        };
     }
 
     pub fn total_process_count(&self) -> usize {

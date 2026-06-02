@@ -284,6 +284,103 @@ pub fn braille_mirrored_graph(
     rows
 }
 
+/// Render a **half-block** area graph using Unicode half-block characters.
+///
+/// Uses `'▀'` (upper half) and `'▄'` (lower half) for 2-pixel vertical
+/// resolution per terminal row. This gives a denser, more "pixelated"
+/// look compared to Braille and works well for larger panels.
+///
+/// - `area_height` terminal rows → `(area_height * 2)` logical pixel rows
+/// - Data is resampled to fill `area_width`
+/// - Returns lines with Y-axis scale labels on the left
+#[allow(dead_code)]
+pub fn halfblock_graph(
+    data: &VecDeque<u64>,
+    area_width: u16,
+    area_height: u16,
+    color: Color,
+    scale_unit: &str,
+) -> Vec<Line<'static>> {
+    if data.is_empty() || area_width < 10 || area_height < 2 {
+        return Vec::new();
+    }
+
+    let data_vec: Vec<u64> = data.iter().copied().collect();
+    let peak = data_vec.iter().copied().max().unwrap_or(1) as f64;
+    let y_max = dynamic_ceiling(peak);
+
+    let label_w = format!("{:.0}{}", y_max, scale_unit).len() + 1;
+    let graph_w = (area_width as usize).saturating_sub(label_w);
+    let graph_h = area_height as usize;
+
+    if graph_w < 2 || graph_h < 2 {
+        return Vec::new();
+    }
+
+    let samples = resample(&data_vec, graph_w);
+
+    // Total vertical resolution: 2 sub-pixels per row (upper + lower half-block)
+    let total_v = graph_h * 2;
+
+    // Compute fill level for each column (in sub-pixel units, 0 = bottom)
+    let fill: Vec<usize> = samples
+        .iter()
+        .map(|&val| {
+            let v = ((val as f64 / y_max) * total_v as f64).round() as usize;
+            v.min(total_v)
+        })
+        .collect();
+
+    let mut rows: Vec<Line<'static>> = Vec::new();
+
+    // Render from top (row 0) to bottom (last row)
+    // Each terminal row has 2 sub-pixels: top-half (▀ foreground) and bottom-half (▄ foreground)
+    // We use '▀' with fg=color for filled top, bg=color for filled bottom,
+    // and ' ' for empty. Actually, simpler approach:
+    // For each row (top to bottom), we have 2 sub-rows.
+    // We combine them into single characters using ▀, ▄, █, and space.
+
+    for row in 0..graph_h {
+        let row_top_v = total_v - row * 2;       // top sub-pixel boundary (exclusive)
+        let row_mid_v = total_v - row * 2 - 1;   // middle boundary
+        let row_bot_v = total_v - (row + 1) * 2;  // bottom boundary (inclusive)
+
+        let mut spans: Vec<Span<'static>> = Vec::with_capacity(label_w + graph_w);
+
+        // Y-axis label
+        let label_text = if row == 0 {
+            let v = (y_max * (row_top_v as f64 / total_v as f64)).round() as u64;
+            format!("{:>width$} ", format!("{}{}", v, scale_unit), width = label_w)
+        } else if row == graph_h / 2 {
+            let v = (y_max * 0.5).round() as u64;
+            format!("{:>width$} ", format!("{}{}", v, scale_unit), width = label_w)
+        } else if row == graph_h - 1 {
+            format!("{:>width$} ", format!("0{}", scale_unit), width = label_w)
+        } else {
+            " ".repeat(label_w)
+        };
+        spans.push(Span::styled(label_text, Style::default().fg(Color::DarkGray)));
+
+        for col in 0..graph_w {
+            let f = fill[col];
+            let top_filled = f > row_mid_v;
+            let bot_filled = f > row_bot_v;
+
+            let (ch, style) = match (top_filled, bot_filled) {
+                (true, true) => ('\u{2588}', Style::default().fg(color)),   // █ full block
+                (true, false) => ('\u{2580}', Style::default().fg(color)), // ▀ upper half
+                (false, true) => ('\u{2584}', Style::default().fg(color)), // ▄ lower half
+                (false, false) => (' ', Style::default()),
+            };
+            spans.push(Span::styled(ch.to_string(), style));
+        }
+
+        rows.push(Line::from(spans));
+    }
+
+    rows
+}
+
 /// Compute dynamic Y-axis ceiling: round `peak` up to the next multiple of 5.
 /// Minimum ceiling is 5. Steps: 5, 10, 15, 20, 25, 30, ...
 #[allow(dead_code)]

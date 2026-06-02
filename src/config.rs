@@ -27,6 +27,8 @@ pub struct Config {
     pub show_gpu: bool,
     #[serde(default = "default_tab")]
     pub default_tab: String,
+    #[serde(default = "default_true")]
+    pub nerd_fonts: bool,
 }
 
 fn default_process_refresh() -> u64 { 2000 }
@@ -51,6 +53,7 @@ impl Default for Config {
             log_max_lines: default_log_max_lines(),
             show_gpu: default_true(),
             default_tab: default_tab(),
+            nerd_fonts: default_true(),
         }
     }
 }

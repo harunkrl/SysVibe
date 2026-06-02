@@ -32,6 +32,9 @@ fn handle_normal_key(app: &mut App, code: KeyCode, _mods: KeyModifiers) {
     match code {
         KeyCode::Tab => app.next_tab(),
         KeyCode::BackTab => app.prev_tab(),
+        // Panel focus cycling within the current tab
+        KeyCode::Char('[') => app.cycle_panel_focus(false),
+        KeyCode::Char(']') => app.cycle_panel_focus(true),
         KeyCode::Char('q') | KeyCode::Esc => app.quit(),
         KeyCode::Char('h') | KeyCode::Char('?') => app.set_mode(AppMode::Help),
         KeyCode::Char('/') => app.set_mode(AppMode::Filter),

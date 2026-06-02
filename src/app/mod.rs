@@ -472,15 +472,18 @@ impl App {
 
     /// Returns filtered log entries based on level filter and text filter.
     pub fn filtered_log_entries(&self) -> Vec<&LogEntry> {
+        let query = if self.log_filter_active && !self.log_filter_input.is_empty() {
+            Some(self.log_filter_input.to_lowercase())
+        } else {
+            None
+        };
         self.log_entries()
             .iter()
             .filter(|e| self.log_level_filter.allows(&e.level))
             .filter(|e| {
-                if !self.log_filter_active || self.log_filter_input.is_empty() {
-                    true
-                } else {
-                    let query = self.log_filter_input.to_lowercase();
-                    e.message.to_lowercase().contains(&query)
+                match &query {
+                    Some(q) => e.message.to_lowercase().contains(q.as_str()),
+                    None => true,
                 }
             })
             .collect()

@@ -17,7 +17,7 @@ use crate::app::state::PanelFocus;
 use crate::ui::helpers::*;
 use crate::ui::icons;
 use crate::ui::palette::*;
-use crate::ui::widgets::sparkline::braille_line_graph;
+use crate::ui::widgets::sparkline::halfblock_graph;
 
 // ═══════════════════════════════════════════════════════════════════════
 // Public entry point
@@ -414,11 +414,10 @@ fn render_battery(f: &mut Frame, area: Rect, app: &App) {
         // Graph body
         let graph_area = sections[idx];
         if graph_area.height >= 3 && graph_area.width > 12 {
-            let rows = braille_line_graph(
+            let rows = halfblock_graph(
                 &app.battery_power_history,
                 graph_area.width,
                 graph_area.height,
-                yellow(),
                 yellow(),
                 "W",
             );

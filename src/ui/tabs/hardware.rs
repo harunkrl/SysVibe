@@ -19,7 +19,7 @@ use crate::app::state::PanelFocus;
 use crate::ui::helpers::*;
 use crate::ui::icons;
 use crate::ui::palette::*;
-use crate::ui::widgets::sparkline::{braille_mini, braille_mirrored_graph};
+use crate::ui::widgets::sparkline::{braille_mini, braille_mirrored_graph, braille_line_graph};
 
 // ═══════════════════════════════════════════════════════════════════════
 // Public entry point
@@ -291,6 +291,34 @@ fn render_network_panel(f: &mut Frame, area: Rect, app: &App, focused: bool) {
 
     // ── Compact speed summary per interface ────────────────────
     let mut lines: Vec<Line<'static>> = Vec::new();
+
+    // ── Local IP (from first interface) ────────────────────────
+    let local_ip = stats
+        .iter()
+        .find_map(|ns| ns.local_ip.as_deref());
+    if let Some(ip) = local_ip {
+        lines.push(Line::from(vec![
+            Span::styled(" Local  ", Style::default().fg(subtext()).add_modifier(Modifier::BOLD)),
+            Span::styled(ip.to_string(), Style::default().fg(text())),
+        ]));
+    }
+
+    // ── Public IP ─────────────────────────────────────────────
+    match app.public_ip() {
+        Some(ip) => {
+            lines.push(Line::from(vec![
+                Span::styled(" Public ", Style::default().fg(subtext()).add_modifier(Modifier::BOLD)),
+                Span::styled(ip, Style::default().fg(text())),
+            ]));
+        }
+        None => {
+            lines.push(Line::from(vec![
+                Span::styled(" Public ", Style::default().fg(subtext()).add_modifier(Modifier::BOLD)),
+                Span::styled("resolving...", Style::default().fg(overlay())),
+            ]));
+        }
+    }
+
     for ns in stats {
         lines.push(Line::from(vec![
             Span::styled(
@@ -466,9 +494,17 @@ fn render_temperature_panel(f: &mut Frame, area: Rect, app: &App, focused: bool)
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    let mut lines: Vec<Line<'static>> = Vec::new();
+    // Split into left (sensor text) and right (CPU temp chart)
+    let cols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(inner);
 
-    // ── Temperature sensors ────────────────────────────────────
+    let left = cols[0];
+    let right = cols[1];
+
+    // ── Left: Temperature sensors ──────────────────────────────
+    let mut lines: Vec<Line<'static>> = Vec::new();
     let temps = app.temperatures();
     for sensor in temps.iter().take(8) {
         let color = temp_color(sensor.temp_c);
@@ -503,6 +539,50 @@ fn render_temperature_panel(f: &mut Frame, area: Rect, app: &App, focused: bool)
         )));
     }
 
-    let para = Paragraph::new(lines);
-    f.render_widget(para, inner);
+    f.render_widget(Paragraph::new(lines), left);
+
+    // ── Right: CPU temperature line chart ──────────────────────
+    // Find the CPU/Core/Package temperature sensor
+    let cpu_sensor = temps.iter().find(|s| {
+        let label_lower = s.label.to_lowercase();
+        label_lower.contains("cpu")
+            || label_lower.contains("core")
+            || label_lower.contains("package")
+            || label_lower.contains("tdie")
+            || label_lower.contains("tctl")
+    });
+
+    if let Some(sensor) = cpu_sensor {
+        if !sensor.history.is_empty() && right.width >= 10 && right.height >= 3 {
+            // Pick color based on current temperature
+            let chart_color = temp_color(sensor.temp_c);
+
+            let rows = braille_line_graph(
+                &sensor.history,
+                right.width,
+                right.height,
+                chart_color,
+                Color::default(), // fill color (unused by line graph)
+                "°C",
+            );
+            f.render_widget(Paragraph::new(rows), right);
+        } else if right.width >= 10 && right.height >= 2 {
+            // Not enough history data yet
+            f.render_widget(
+                Paragraph::new(Line::from(Span::styled(
+                    "  Collecting CPU temp data...",
+                    Style::default().fg(overlay()),
+                ))),
+                right,
+            );
+        }
+    } else if right.width >= 10 && right.height >= 2 {
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                "  No CPU sensor found",
+                Style::default().fg(overlay()),
+            ))),
+            right,
+        );
+    }
 }

@@ -18,6 +18,26 @@ pub fn resolve_local_ip() -> Option<String> {
     Some(socket.local_addr().ok()?.ip().to_string())
 }
 
+/// Resolve the public IP address using a fallback curl command.
+/// Uses `curl -s --max-time 3` to query an external service.
+pub fn resolve_public_ip() -> Option<String> {
+    let output = std::process::Command::new("curl")
+        .args(["-s", "--max-time", "3", "https://api.ipify.org"])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let ip = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if ip.len() <= 45 && ip.parse::<std::net::IpAddr>().is_ok() {
+        Some(ip)
+    } else {
+        None
+    }
+}
+
 /// Refresh network interface speeds and history.
 ///
 /// For every non-loopback interface, computes the byte-rate delta since the

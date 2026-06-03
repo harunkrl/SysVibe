@@ -9,7 +9,7 @@
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Gauge, Paragraph},
 };
@@ -81,13 +81,12 @@ fn render_cpu_graph(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: Pane
     let avg_pct = current_pct.min(100.0);
     let cpu_color = usage_color(avg_pct as f32);
 
-    // Draw braille graph
-    let graph_lines = sparkline::braille_line_graph(
+    // Draw halfblock graph (btop-style filled area chart)
+    let graph_lines = sparkline::halfblock_graph(
         cpu_lines,
         inner.width,
         inner.height.saturating_sub(1), // leave 1 row for label
         cpu_color,
-        surface0(),
         "%",
     );
 
@@ -128,6 +127,14 @@ fn render_memory_panel(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: P
     let cpu_pct = app.cpu_history.back().copied().unwrap_or(0) as f32;
     let cpu_color = usage_color(cpu_pct);
 
+    // CPU inline bar (10 chars)
+    let bar_len: usize = 10;
+    let filled = ((cpu_pct / 100.0) * bar_len as f32).round() as usize;
+    let filled = filled.min(bar_len);
+    let empty = bar_len - filled;
+    let bar_filled = "\u{2588}".repeat(filled);
+    let bar_empty = "\u{2591}".repeat(empty);
+
     // Load average
     let info = app.system_info();
 
@@ -138,6 +145,8 @@ fn render_memory_panel(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: P
                 format!("{:.1}%", cpu_pct),
                 Style::default().fg(cpu_color).add_modifier(Modifier::BOLD),
             ),
+            Span::styled(format!(" {}", bar_filled), Style::default().fg(cpu_color)),
+            Span::styled(bar_empty, Style::default().fg(surface2())),
         ]),
         Line::from(""),
         Line::from(vec![
@@ -322,6 +331,8 @@ fn render_gpu_panel(f: &mut Frame, app: &App, area: Rect, nf: bool, focus: Panel
     }
 
     let mut lines: Vec<Line<'_>> = Vec::new();
+    let mut vram_gauges: Vec<(usize, f64, Color)> = Vec::new(); // (row_index, ratio, color)
+    let mut line_idx = 0usize;
 
     for gpu in gpu_stats.iter() {
         // GPU name
@@ -333,6 +344,7 @@ fn render_gpu_panel(f: &mut Frame, app: &App, area: Rect, nf: bool, focus: Panel
         lines.push(Line::from(vec![
             Span::styled(format!(" {} ", gpu_name), Style::default().fg(mauve()).add_modifier(Modifier::BOLD)),
         ]));
+        line_idx += 1;
 
         // Usage
         let usage_color = usage_color(gpu.usage_pct);
@@ -343,8 +355,9 @@ fn render_gpu_panel(f: &mut Frame, app: &App, area: Rect, nf: bool, focus: Panel
                 Style::default().fg(usage_color),
             ),
         ]));
+        line_idx += 1;
 
-        // VRAM
+        // VRAM text
         let vram_ratio = if gpu.vram_total_mb > 0 {
             gpu.vram_used_mb as f64 / gpu.vram_total_mb as f64
         } else {
@@ -357,6 +370,12 @@ fn render_gpu_panel(f: &mut Frame, app: &App, area: Rect, nf: bool, focus: Panel
                 Style::default().fg(vram_color),
             ),
         ]));
+        line_idx += 1;
+
+        // VRAM gauge bar (separate row)
+        vram_gauges.push((line_idx, vram_ratio, vram_color));
+        lines.push(Line::from("")); // placeholder row for the gauge
+        line_idx += 1;
 
         // Temperature
         if gpu.temperature > 0.0 {
@@ -369,6 +388,7 @@ fn render_gpu_panel(f: &mut Frame, app: &App, area: Rect, nf: bool, focus: Panel
                     Style::default().fg(temp_color),
                 ),
             ]));
+            line_idx += 1;
         }
 
         // Power / Clock
@@ -376,15 +396,35 @@ fn render_gpu_panel(f: &mut Frame, app: &App, area: Rect, nf: bool, focus: Panel
             lines.push(Line::from(vec![
                 Span::styled(format!(" ⚡ {:.0}W", power), Style::default().fg(overlay())),
             ]));
+            line_idx += 1;
         }
         if let Some(clock) = gpu.clock_mhz {
             lines.push(Line::from(vec![
                 Span::styled(format!(" ⏱ {}MHz", clock), Style::default().fg(overlay())),
             ]));
+            line_idx += 1;
         }
     }
 
+    // Render paragraph first, then overlay VRAM gauges at tracked row positions
     f.render_widget(Paragraph::new(lines), inner);
+
+    for (row, ratio, color) in &vram_gauges {
+        let gauge_y = inner.y + *row as u16;
+        let gauge_area = Rect {
+            x: inner.x,
+            y: gauge_y,
+            width: inner.width,
+            height: 1,
+        };
+        if gauge_area.bottom() <= inner.bottom() {
+            let gauge = Gauge::default()
+                .gauge_style(Style::default().fg(*color).bg(surface0()))
+                .ratio(ratio.min(1.0))
+                .label(format!("{:.0}%", ratio * 100.0));
+            f.render_widget(gauge, gauge_area);
+        }
+    }
 }
 
 fn render_system_disk_panel(f: &mut Frame, app: &App, area: Rect, nf: bool, focus: PanelFocus) {

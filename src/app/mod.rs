@@ -10,6 +10,7 @@ pub mod events;
 pub mod processes;
 
 use std::collections::{HashMap, VecDeque};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use crossterm::event::Event;
@@ -50,6 +51,8 @@ pub struct App {
     prev_network_bytes: HashMap<String, (u64, u64)>,
     /// Cached local IP address (resolved once at startup).
     local_ip: Option<String>,
+    /// Cached public IP address (resolved lazily in the background).
+    public_ip: Arc<Mutex<Option<String>>>,
     network_stats: Vec<NetworkStats>,
 
     // Disk I/O
@@ -182,6 +185,7 @@ impl App {
             cached_swap_total: init_swap_total,
             prev_network_bytes,
             local_ip: collectors::network::resolve_local_ip(),
+            public_ip: Arc::new(Mutex::new(None)),
             network_stats: Vec::new(),
             disk_io: DiskIoStats::default(),
             prev_disk_bytes: (init_read, init_write),
@@ -239,6 +243,10 @@ impl App {
             let disks = sysinfo::Disks::new_with_refreshed_list();
             app.cached_partitions = collectors::disk::enumerate_partitions(&app.sys, &disks);
         }
+
+        // Spawn background public IP resolution
+        app.spawn_public_ip_resolve();
+
         app
     }
 
@@ -355,6 +363,25 @@ impl App {
 
     pub fn network_stats(&self) -> &[NetworkStats] {
         &self.network_stats
+    }
+
+    pub fn public_ip(&self) -> Option<String> {
+        self.public_ip.lock().ok().and_then(|g| g.clone())
+    }
+
+    /// Spawn a background thread to resolve the public IP (if not already resolved).
+    pub fn spawn_public_ip_resolve(&self) {
+        let shared = Arc::clone(&self.public_ip);
+        let already = self.public_ip.lock().ok().map(|g| g.is_some()).unwrap_or(false);
+        if already {
+            return;
+        }
+        std::thread::spawn(move || {
+            let ip = collectors::network::resolve_public_ip();
+            if let Ok(mut guard) = shared.lock() {
+                *guard = ip;
+            }
+        });
     }
 
     pub fn temperatures(&self) -> &[SensorReading] {
@@ -867,6 +894,10 @@ impl App {
         self.maybe_refresh_system_info();
         if self.filtered_processes_dirty {
             self.rebuild_filtered_cache();
+        }
+        // Retry public IP resolution every ~20 ticks if still unresolved
+        if self.tick_count % 20 == 0 {
+            self.spawn_public_ip_resolve();
         }
     }
 

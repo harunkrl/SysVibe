@@ -237,8 +237,8 @@ pub fn braille_line_graph(
         spans.push(Span::styled(label_text, Style::default().fg(Color::DarkGray)));
 
         // For each column, render the accumulated braille pattern
-        for col in 0..graph_w {
-            let bits = grid[col];
+        for bits in grid.iter().take(graph_w) {
+            let bits = *bits;
             if bits != 0 {
                 spans.push(Span::styled(braille(bits as usize), Style::default().fg(color)));
             } else {

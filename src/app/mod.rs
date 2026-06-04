@@ -896,7 +896,7 @@ impl App {
             self.rebuild_filtered_cache();
         }
         // Retry public IP resolution every ~20 ticks if still unresolved
-        if self.tick_count % 20 == 0 {
+        if self.tick_count.is_multiple_of(20) {
             self.spawn_public_ip_resolve();
         }
     }

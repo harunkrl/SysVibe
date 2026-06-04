@@ -5,3 +5,4 @@ pub mod system;
 pub mod hardware;
 pub mod processes;
 pub mod logs;
+pub mod gpu;

@@ -38,6 +38,66 @@ pub struct Config {
     /// Daemon TCP port (default 7642).
     #[serde(default = "default_daemon_port")]
     pub daemon_port: u16,
+
+    // ── Widget visibility toggles ─────────────────────────────────
+    /// Show CPU history graph on dashboard.
+    #[serde(default = "default_true")]
+    pub show_cpu_graph: bool,
+    /// Show per-core CPU usage.
+    #[serde(default = "default_true")]
+    pub show_per_core: bool,
+    /// Show memory panel.
+    #[serde(default = "default_true")]
+    pub show_memory: bool,
+    /// Show network panel.
+    #[serde(default = "default_true")]
+    pub show_network: bool,
+    /// Show processes panel.
+    #[serde(default = "default_true")]
+    pub show_processes: bool,
+    /// Show temperature sensors panel.
+    #[serde(default = "default_true")]
+    pub show_temperatures: bool,
+    /// Show battery panel.
+    #[serde(default = "default_true")]
+    pub show_battery: bool,
+    /// Show logs tab.
+    #[serde(default = "default_true")]
+    pub show_logs: bool,
+
+    // ── Alert thresholds ──────────────────────────────────────────
+    /// CPU usage alert threshold (0–100). None = disabled.
+    #[serde(default)]
+    pub cpu_alert_threshold: Option<f32>,
+    /// Memory usage alert threshold (0–100). None = disabled.
+    #[serde(default)]
+    pub memory_alert_threshold: Option<f32>,
+    /// Temperature alert threshold in °C. None = disabled.
+    #[serde(default)]
+    pub temperature_alert_threshold: Option<f32>,
+    /// Disk usage alert threshold (0–100). None = disabled.
+    #[serde(default)]
+    pub disk_alert_threshold: Option<f32>,
+
+    // ── Per-widget refresh rate overrides ─────────────────────────
+    /// CPU refresh interval in ms. None = use data_refresh_rate.
+    #[serde(default)]
+    pub cpu_refresh_ms: Option<u64>,
+    /// Network refresh interval in ms. None = use data_refresh_rate.
+    #[serde(default)]
+    pub network_refresh_ms: Option<u64>,
+    /// Disk refresh interval in ms. None = use data_refresh_rate.
+    #[serde(default)]
+    pub disk_refresh_ms: Option<u64>,
+    /// Process refresh interval in ms. None = use process_refresh_rate.
+    #[serde(default)]
+    pub process_refresh_ms: Option<u64>,
+    /// Sensor refresh interval in ms. None = use sensor_refresh_rate.
+    #[serde(default)]
+    pub sensor_refresh_ms: Option<u64>,
+    /// GPU refresh interval in ms. None = use sensor_refresh_rate.
+    #[serde(default)]
+    pub gpu_refresh_ms: Option<u64>,
 }
 
 fn default_process_refresh() -> u64 { 2000 }
@@ -68,6 +128,27 @@ impl Default for Config {
             theme: default_theme(),
             daemon_enabled: false,
             daemon_port: default_daemon_port(),
+            // Widget visibility
+            show_cpu_graph: default_true(),
+            show_per_core: default_true(),
+            show_memory: default_true(),
+            show_network: default_true(),
+            show_processes: default_true(),
+            show_temperatures: default_true(),
+            show_battery: default_true(),
+            show_logs: default_true(),
+            // Alert thresholds
+            cpu_alert_threshold: None,
+            memory_alert_threshold: None,
+            temperature_alert_threshold: None,
+            disk_alert_threshold: None,
+            // Refresh rate overrides
+            cpu_refresh_ms: None,
+            network_refresh_ms: None,
+            disk_refresh_ms: None,
+            process_refresh_ms: None,
+            sensor_refresh_ms: None,
+            gpu_refresh_ms: None,
         }
     }
 }
@@ -111,7 +192,13 @@ impl Config {
              #   dracula, nord, gruvbox, tokyo-night, one-dark\n\
              # Available default_tab: dashboard, system, hardware, processes, logs\n\
              # Temperature unit: celsius or fahrenheit\n\
-             # Daemon mode: enable for remote TCP monitoring on daemon_port\n\n\
+             # Daemon mode: enable for remote TCP monitoring on daemon_port\n\
+             #\n\
+             # Widget visibility (show_*) — set to false to hide specific widgets\n\
+             # Alert thresholds — set a value (0-100 for %, degrees for temperature)\n\
+             #   to trigger footer warnings when exceeded. Leave unset/null to disable.\n\
+             # Refresh overrides — per-widget refresh interval in ms. Leave unset/null\n\
+             #   to use the default tier intervals.\n\n\
              {}",
             toml_content,
         );
@@ -133,7 +220,7 @@ impl Config {
         if lower != "celsius" && lower != "fahrenheit" {
             self.temperature_unit = "celsius".to_string();
         }
-        let valid_tabs = ["dashboard", "system", "hardware", "processes", "logs"];
+        let valid_tabs = ["dashboard", "system", "hardware", "processes", "logs", "gpu"];
         if !valid_tabs.contains(&self.default_tab.to_lowercase().as_str()) {
             self.default_tab = "dashboard".to_string();
         }
@@ -145,6 +232,40 @@ impl Config {
             self.theme = "catppuccin-macchiato".to_string();
         }
         self.daemon_port = self.daemon_port.clamp(1024, 65535);
+
+        // Validate alert thresholds
+        if let Some(t) = self.cpu_alert_threshold {
+            self.cpu_alert_threshold = Some(t.clamp(0.0, 100.0));
+        }
+        if let Some(t) = self.memory_alert_threshold {
+            self.memory_alert_threshold = Some(t.clamp(0.0, 100.0));
+        }
+        if let Some(t) = self.temperature_alert_threshold {
+            self.temperature_alert_threshold = Some(t.clamp(0.0, 150.0));
+        }
+        if let Some(t) = self.disk_alert_threshold {
+            self.disk_alert_threshold = Some(t.clamp(0.0, 100.0));
+        }
+
+        // Validate refresh overrides
+        if let Some(ms) = self.cpu_refresh_ms {
+            self.cpu_refresh_ms = Some(ms.clamp(250, 30_000));
+        }
+        if let Some(ms) = self.network_refresh_ms {
+            self.network_refresh_ms = Some(ms.clamp(250, 30_000));
+        }
+        if let Some(ms) = self.disk_refresh_ms {
+            self.disk_refresh_ms = Some(ms.clamp(250, 30_000));
+        }
+        if let Some(ms) = self.process_refresh_ms {
+            self.process_refresh_ms = Some(ms.clamp(500, 30_000));
+        }
+        if let Some(ms) = self.sensor_refresh_ms {
+            self.sensor_refresh_ms = Some(ms.clamp(1000, 60_000));
+        }
+        if let Some(ms) = self.gpu_refresh_ms {
+            self.gpu_refresh_ms = Some(ms.clamp(1000, 60_000));
+        }
     }
 
     pub fn config_path() -> PathBuf {
@@ -152,5 +273,145 @@ impl Config {
             .unwrap_or_else(|| PathBuf::from("."))
             .join("sysvibe")
             .join("config.toml")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_config_values() {
+        let cfg = Config::default();
+        assert_eq!(cfg.ui_tick_rate, 250);
+        assert_eq!(cfg.data_refresh_rate, 1000);
+        assert!(cfg.show_braille_graphs);
+        assert!(cfg.show_disk_io);
+        assert_eq!(cfg.temperature_unit, "celsius");
+        assert_eq!(cfg.max_processes, 50);
+        assert_eq!(cfg.process_refresh_rate, 2000);
+        assert_eq!(cfg.sensor_refresh_rate, 5000);
+        assert_eq!(cfg.log_source, "auto");
+        assert_eq!(cfg.log_max_lines, 500);
+        assert!(cfg.show_gpu);
+        assert_eq!(cfg.default_tab, "dashboard");
+        assert!(cfg.nerd_fonts);
+        assert_eq!(cfg.theme, "catppuccin-macchiato");
+        assert!(!cfg.daemon_enabled);
+        assert_eq!(cfg.daemon_port, 7642);
+    }
+
+    #[test]
+    fn test_config_validate_clamps() {
+        let mut cfg = Config {
+            ui_tick_rate: 1,
+            data_refresh_rate: 10,
+            max_processes: 0,
+            process_refresh_rate: 100,
+            sensor_refresh_rate: 500,
+            log_max_lines: 1,
+            daemon_port: 80,
+            ..Config::default()
+        };
+        cfg.validate();
+        assert_eq!(cfg.ui_tick_rate, 50);          // clamped to min
+        assert_eq!(cfg.data_refresh_rate, 250);     // clamped to min
+        assert_eq!(cfg.max_processes, 5);           // clamped to min
+        assert_eq!(cfg.process_refresh_rate, 500);  // clamped to min
+        assert_eq!(cfg.sensor_refresh_rate, 1000);  // clamped to min
+        assert_eq!(cfg.log_max_lines, 50);          // clamped to min
+        assert_eq!(cfg.daemon_port, 1024);          // clamped to min
+    }
+
+    #[test]
+    fn test_config_validate_clamps_upper() {
+        let mut cfg = Config {
+            ui_tick_rate: 99999,
+            data_refresh_rate: 99999,
+            max_processes: 99999,
+            process_refresh_rate: 99999,
+            sensor_refresh_rate: 99999,
+            log_max_lines: 99999,
+            daemon_port: 65535,
+            ..Config::default()
+        };
+        cfg.validate();
+        assert_eq!(cfg.ui_tick_rate, 5000);
+        assert_eq!(cfg.data_refresh_rate, 30_000);
+        assert_eq!(cfg.max_processes, 500);
+        assert_eq!(cfg.process_refresh_rate, 30_000);
+        assert_eq!(cfg.sensor_refresh_rate, 60_000);
+        assert_eq!(cfg.log_max_lines, 5000);
+        // daemon_port at max stays at max
+        assert_eq!(cfg.daemon_port, 65535);
+    }
+
+    #[test]
+    fn test_config_invalid_temperature_unit() {
+        let mut cfg = Config {
+            temperature_unit: "kelvin".to_string(),
+            ..Config::default()
+        };
+        cfg.validate();
+        assert_eq!(cfg.temperature_unit, "celsius");
+    }
+
+    #[test]
+    fn test_config_valid_temperature_units() {
+        for unit in &["celsius", "fahrenheit", "Celsius", "Fahrenheit", "CELSIUS"] {
+            let mut cfg = Config {
+                temperature_unit: unit.to_string(),
+                ..Config::default()
+            };
+            cfg.validate();
+            assert_eq!(cfg.temperature_unit.to_lowercase(), unit.to_lowercase());
+        }
+    }
+
+    #[test]
+    fn test_config_invalid_tab() {
+        let mut cfg = Config {
+            default_tab: "nonexistent".to_string(),
+            ..Config::default()
+        };
+        cfg.validate();
+        assert_eq!(cfg.default_tab, "dashboard");
+    }
+
+    #[test]
+    fn test_config_valid_tabs() {
+        for tab in &["dashboard", "system", "hardware", "processes", "logs", "gpu"] {
+            let mut cfg = Config {
+                default_tab: tab.to_string(),
+                ..Config::default()
+            };
+            cfg.validate();
+            assert_eq!(cfg.default_tab, *tab);
+        }
+    }
+
+    #[test]
+    fn test_config_invalid_theme() {
+        let mut cfg = Config {
+            theme: "nonexistent-theme".to_string(),
+            ..Config::default()
+        };
+        cfg.validate();
+        assert_eq!(cfg.theme, "catppuccin-macchiato");
+    }
+
+    #[test]
+    fn test_config_valid_themes() {
+        for theme in &[
+            "catppuccin-macchiato", "catppuccin-mocha", "dracula",
+            "nord", "gruvbox", "tokyo-night", "one-dark",
+        ] {
+            let mut cfg = Config {
+                theme: theme.to_string(),
+                ..Config::default()
+            };
+            cfg.validate();
+            assert_eq!(cfg.theme, *theme);
+        }
     }
 }

@@ -27,37 +27,102 @@ use crate::ui::widgets::sparkline::{braille_mini, braille_mirrored_graph, braill
 
 pub fn render_hardware_tab(f: &mut Frame, app: &App, area: Rect) {
     let focus = app.panel_focus();
+    let cfg = app.config();
 
-    // 3-row asymmetric layout: CPU+Memory / Network+Disk / Temperature
+    // Build layout rows dynamically based on visibility
+    let mut row_constraints: Vec<Constraint> = Vec::new();
+    let mut has_row1 = false; // CPU + Memory
+    let mut has_row2 = false; // Network + Disk I/O
+    let mut has_row3 = false; // Temperature
+
+    if cfg.show_cpu_graph || cfg.show_memory {
+        row_constraints.push(Constraint::Percentage(35));
+        has_row1 = true;
+    }
+    if cfg.show_network || cfg.show_disk_io {
+        row_constraints.push(Constraint::Percentage(35));
+        has_row2 = true;
+    }
+    if cfg.show_temperatures {
+        row_constraints.push(Constraint::Percentage(30));
+        has_row3 = true;
+    }
+
+    if row_constraints.is_empty() {
+        row_constraints.push(Constraint::Min(0));
+    }
+
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage(35),
-            Constraint::Percentage(35),
-            Constraint::Percentage(30),
-        ])
+        .constraints(row_constraints)
         .split(area);
 
-    // Row 1: CPU Info | Memory
-    let row1 = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(rows[0]);
+    let mut row_idx = 0usize;
 
-    render_cpu_panel(f, row1[0], app, focus == PanelFocus::Panel1);
-    render_memory_panel(f, row1[1], app, focus == PanelFocus::Panel2);
+    // Row 1: CPU Info | Memory
+    if has_row1 {
+        let row = rows[row_idx];
+        row_idx += 1;
+
+        let mut col_constraints: Vec<Constraint> = Vec::new();
+        let has_cpu = cfg.show_cpu_graph;
+        let has_mem = cfg.show_memory;
+        if has_cpu && has_mem {
+            col_constraints.push(Constraint::Percentage(50));
+            col_constraints.push(Constraint::Percentage(50));
+        } else {
+            col_constraints.push(Constraint::Percentage(100));
+        }
+
+        let cols = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints(col_constraints)
+            .split(row);
+
+        let mut col = 0usize;
+        if has_cpu {
+            render_cpu_panel(f, cols[col], app, focus == PanelFocus::Panel1);
+            col += 1;
+        }
+        if has_mem {
+            render_memory_panel(f, cols[col], app, focus == PanelFocus::Panel2);
+        }
+    }
 
     // Row 2: Network | Disk I/O
-    let row2 = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(rows[1]);
+    if has_row2 {
+        let row = rows[row_idx];
+        row_idx += 1;
 
-    render_network_panel(f, row2[0], app, focus == PanelFocus::Panel3);
-    render_disk_io_panel(f, row2[1], app, focus == PanelFocus::Panel4);
+        let mut col_constraints: Vec<Constraint> = Vec::new();
+        let has_net = cfg.show_network;
+        let has_disk = cfg.show_disk_io;
+        if has_net && has_disk {
+            col_constraints.push(Constraint::Percentage(50));
+            col_constraints.push(Constraint::Percentage(50));
+        } else {
+            col_constraints.push(Constraint::Percentage(100));
+        }
 
-    // Row 3: Temperature (full width — GPU static info is on System tab)
-    render_temperature_panel(f, rows[2], app, focus == PanelFocus::Panel5);
+        let cols = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints(col_constraints)
+            .split(row);
+
+        let mut col = 0usize;
+        if has_net {
+            render_network_panel(f, cols[col], app, focus == PanelFocus::Panel3);
+            col += 1;
+        }
+        if has_disk {
+            render_disk_io_panel(f, cols[col], app, focus == PanelFocus::Panel4);
+        }
+    }
+
+    // Row 3: Temperature (full width)
+    if has_row3 {
+        render_temperature_panel(f, rows[row_idx], app, focus == PanelFocus::Panel5);
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════

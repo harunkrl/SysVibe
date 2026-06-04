@@ -27,6 +27,7 @@ pub enum AppTab {
     Hardware,
     Processes,
     Logs,
+    Gpu,
 }
 
 /// Process table sort order.
@@ -309,3 +310,114 @@ pub const MAX_LOG_LINES: usize = 500;
 
 /// Convenience Result type for the application.
 pub type AppResult<T> = Result<T, Box<dyn std::error::Error>>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_app_tab_default() {
+        let tab = AppTab::default();
+        assert_eq!(tab, AppTab::Dashboard);
+    }
+
+    #[test]
+    fn test_panel_focus_cycle_next() {
+        let p = PanelFocus::Panel1;
+        assert_eq!(p.next(), PanelFocus::Panel2);
+        assert_eq!(p.next().next(), PanelFocus::Panel3);
+        assert_eq!(p.next().next().next(), PanelFocus::Panel4);
+        assert_eq!(p.next().next().next().next(), PanelFocus::Panel5);
+        assert_eq!(p.next().next().next().next().next(), PanelFocus::Panel6);
+        // Full cycle back to Panel1
+        assert_eq!(
+            PanelFocus::Panel6.next(),
+            PanelFocus::Panel1
+        );
+    }
+
+    #[test]
+    fn test_panel_focus_cycle_prev() {
+        assert_eq!(PanelFocus::Panel1.prev(), PanelFocus::Panel6);
+        assert_eq!(PanelFocus::Panel2.prev(), PanelFocus::Panel1);
+        assert_eq!(PanelFocus::Panel3.prev(), PanelFocus::Panel2);
+        assert_eq!(PanelFocus::Panel4.prev(), PanelFocus::Panel3);
+        assert_eq!(PanelFocus::Panel5.prev(), PanelFocus::Panel4);
+        assert_eq!(PanelFocus::Panel6.prev(), PanelFocus::Panel5);
+    }
+
+    #[test]
+    fn test_panel_focus_round_trip() {
+        let start = PanelFocus::Panel1;
+        let mut current = start;
+        for _ in 0..6 {
+            current = current.next();
+        }
+        assert_eq!(current, start);
+
+        let mut current = start;
+        for _ in 0..6 {
+            current = current.prev();
+        }
+        assert_eq!(current, start);
+    }
+
+    #[test]
+    fn test_panel_focus_is_focused() {
+        let p = PanelFocus::Panel3;
+        assert!(p.is_focused(PanelFocus::Panel3));
+        assert!(!p.is_focused(PanelFocus::Panel1));
+    }
+
+    #[test]
+    fn test_log_level_filter_default_shows_all() {
+        let filter = LogLevelFilter::default();
+        assert!(filter.show_errors);
+        assert!(filter.show_warnings);
+        assert!(filter.show_info);
+        assert!(filter.show_debug);
+        assert!(filter.show_notice);
+        assert!(filter.show_unknown);
+    }
+
+    #[test]
+    fn test_log_level_filter_allows_all_levels() {
+        let filter = LogLevelFilter::all();
+        assert!(filter.allows(&LogLevel::Error));
+        assert!(filter.allows(&LogLevel::Warning));
+        assert!(filter.allows(&LogLevel::Info));
+        assert!(filter.allows(&LogLevel::Debug));
+        assert!(filter.allows(&LogLevel::Notice));
+        assert!(filter.allows(&LogLevel::Unknown));
+    }
+
+    #[test]
+    fn test_log_level_filter_selective() {
+        let filter = LogLevelFilter {
+            show_errors: true,
+            show_warnings: false,
+            show_info: false,
+            show_debug: false,
+            show_notice: false,
+            show_unknown: false,
+        };
+        assert!(filter.allows(&LogLevel::Error));
+        assert!(!filter.allows(&LogLevel::Warning));
+        assert!(!filter.allows(&LogLevel::Info));
+        assert!(!filter.allows(&LogLevel::Debug));
+        assert!(!filter.allows(&LogLevel::Notice));
+        assert!(!filter.allows(&LogLevel::Unknown));
+    }
+
+    #[test]
+    fn test_sort_by_default() {
+        let sort = SortBy::default();
+        assert_eq!(sort, SortBy::Cpu);
+    }
+
+    #[test]
+    fn test_app_mode_default() {
+        let mode = AppMode::default();
+        assert_eq!(mode, AppMode::Normal);
+    }
+}

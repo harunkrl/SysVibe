@@ -99,7 +99,7 @@ pub fn read_battery() -> Option<BatteryStatus> {
 }
 
 /// Clean raw sensor labels into human-readable names.
-fn clean_sensor_label(raw: &str) -> String {
+pub(crate) fn clean_sensor_label(raw: &str) -> String {
     let lower = raw.to_lowercase();
     let trimmed = raw.trim();
 
@@ -180,5 +180,60 @@ fn clean_sensor_label(raw: &str) -> String {
     match chars.next() {
         None => raw.into(),
         Some(f) => f.to_uppercase().collect::<String>() + chars.as_str(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_clean_sensor_label_tctl() {
+        assert_eq!(clean_sensor_label("Tctl"), "CPU");
+        assert_eq!(clean_sensor_label("tdie"), "CPU");
+    }
+
+    #[test]
+    fn test_clean_sensor_label_package() {
+        assert_eq!(clean_sensor_label("Package id 0"), "CPU Package");
+        assert_eq!(clean_sensor_label("pkg temp"), "CPU Package");
+    }
+
+    #[test]
+    fn test_clean_sensor_label_nvme() {
+        assert_eq!(clean_sensor_label("NVMe"), "NVMe");
+        assert_eq!(clean_sensor_label("Composite"), "NVMe Composite");
+    }
+
+    #[test]
+    fn test_clean_sensor_label_gpu() {
+        assert_eq!(clean_sensor_label("GPU"), "GPU");
+        assert_eq!(clean_sensor_label("edge"), "GPU");
+    }
+
+    #[test]
+    fn test_clean_sensor_label_generic_sensor_filtered() {
+        // Generic "sensor 3" and "temp3" hit the generic filter (no specific match)
+        assert_eq!(clean_sensor_label("sensor 3"), "");
+        assert_eq!(clean_sensor_label("temp3"), "");
+        // "sensor 1" and "temp1" match the specific mapping to "CPU Temp 1"
+        assert_eq!(clean_sensor_label("sensor 1"), "CPU Temp 1");
+        assert_eq!(clean_sensor_label("temp1"), "CPU Temp 1");
+    }
+
+    #[test]
+    fn test_clean_sensor_label_wifi() {
+        assert_eq!(clean_sensor_label("iwlwifi"), "WiFi");
+        assert_eq!(clean_sensor_label("wlan0"), "WiFi");
+    }
+
+    #[test]
+    fn test_clean_sensor_label_title_case_fallback() {
+        assert_eq!(clean_sensor_label("some_custom"), "Some custom");
+    }
+
+    #[test]
+    fn test_clean_sensor_label_empty() {
+        assert_eq!(clean_sensor_label(""), "");
     }
 }

@@ -24,33 +24,73 @@ use super::super::widgets::sparkline;
 pub fn render_dashboard_tab(f: &mut Frame, app: &App, area: Rect) {
     let nf = app.config().nerd_fonts;
     let focus = app.panel_focus();
+    let cfg = app.config();
 
-    // Main layout: Top CPU graph, Middle 3-col, Bottom 2-col
+    // Determine which dashboard sections are visible
+    let show_cpu = cfg.show_cpu_graph;
+    let show_mem = cfg.show_memory;
+    let show_proc = cfg.show_processes;
+    let show_net = cfg.show_network;
+    let show_gpu = cfg.show_gpu;
+
+    // Count visible middle sections for layout
+    let mid_count = [&show_mem, &show_proc, &show_net].iter().filter(|&&v| *v).count().max(1);
+    let mid_pct = 100 / mid_count as u16;
+
+    // Build vertical rows dynamically based on visibility
+    let mut row_constraints: Vec<Constraint> = Vec::new();
+    if show_cpu {
+        row_constraints.push(Constraint::Percentage(40)); // CPU graph
+    }
+    if show_mem || show_proc || show_net {
+        row_constraints.push(Constraint::Percentage(30)); // Middle row
+    }
+    row_constraints.push(Constraint::Percentage(30)); // Bottom row (system+disk always visible)
+
+    if row_constraints.is_empty() {
+        row_constraints.push(Constraint::Min(0));
+    }
+
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage(40), // CPU graph
-            Constraint::Percentage(30), // RAM | Processes | Network
-            Constraint::Percentage(30), // GPU | System + Disk
-        ])
+        .constraints(row_constraints)
         .split(area);
 
+    let mut row_idx = 0usize;
+
     // ═══ Top: CPU History Graph ════════════════════════════════════
-    render_cpu_graph(f, app, rows[0], nf, focus);
+    if show_cpu {
+        render_cpu_graph(f, app, rows[row_idx], nf, focus);
+        row_idx += 1;
+    }
 
     // ═══ Middle: 3 columns ═════════════════════════════════════════
-    let mid_cols = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(30), // RAM/Swap
-            Constraint::Percentage(40), // Top processes
-            Constraint::Percentage(30), // Network
-        ])
-        .split(rows[1]);
+    if show_mem || show_proc || show_net {
+        let mut mid_constraints: Vec<Constraint> = Vec::new();
+        if show_mem { mid_constraints.push(Constraint::Percentage(mid_pct)); }
+        if show_proc { mid_constraints.push(Constraint::Percentage(mid_pct)); }
+        if show_net { mid_constraints.push(Constraint::Percentage(mid_pct)); }
 
-    render_memory_panel(f, app, mid_cols[0], nf, focus);
-    render_top_processes(f, app, mid_cols[1], nf, focus);
-    render_network_panel(f, app, mid_cols[2], nf, focus);
+        let mid_cols = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints(mid_constraints)
+            .split(rows[row_idx]);
+
+        let mut col = 0usize;
+        if show_mem {
+            render_memory_panel(f, app, mid_cols[col], nf, focus);
+            col += 1;
+        }
+        if show_proc {
+            render_top_processes(f, app, mid_cols[col], nf, focus);
+            col += 1;
+        }
+        if show_net {
+            render_network_panel(f, app, mid_cols[col], nf, focus);
+        }
+
+        row_idx += 1;
+    }
 
     // ═══ Bottom: 2 columns ═════════════════════════════════════════
     let bot_cols = Layout::default()
@@ -59,9 +99,11 @@ pub fn render_dashboard_tab(f: &mut Frame, app: &App, area: Rect) {
             Constraint::Percentage(40), // GPU
             Constraint::Percentage(60), // System + Disk
         ])
-        .split(rows[2]);
+        .split(rows[row_idx]);
 
-    render_gpu_panel(f, app, bot_cols[0], nf, focus);
+    if show_gpu {
+        render_gpu_panel(f, app, bot_cols[0], nf, focus);
+    }
     render_system_disk_panel(f, app, bot_cols[1], nf, focus);
 }
 
@@ -474,7 +516,9 @@ fn render_system_disk_panel(f: &mut Frame, app: &App, area: Rect, nf: bool, focu
     ]));
 
     // Battery
-    if let Some(bat) = battery {
+    if app.config().show_battery
+        && let Some(bat) = battery
+    {
         let bat_color = battery_color(bat.percentage);
         let bat_icon = if nf { icons::BATTERY } else { "⚡" };
         lines.push(Line::from(""));

@@ -121,12 +121,18 @@ pub struct App {
     // Live GPU stats
     gpu_stats: Vec<GpuStats>,
 
+    /// GPU tab scroll offset (for multi-GPU navigation).
+    gpu_scroll: usize,
+
     // Static hardware data (fetched once on startup)
     hardware_data: collectors::hardware::HardwareData,
 
     // Cached SystemInfo (rebuilt every ~10s; avoids 14+ String allocs per frame)
     cached_system_info: SystemInfo,
     last_system_info_refresh: Instant,
+
+    // Active alert messages (computed each tick from config thresholds)
+    active_alerts: Vec<String>,
 }
 
 impl App {
@@ -156,6 +162,7 @@ impl App {
             "hardware" => AppTab::Hardware,
             "processes" => AppTab::Processes,
             "logs" => AppTab::Logs,
+            "gpu" => AppTab::Gpu,
             _ => AppTab::Dashboard,
         };
 
@@ -226,9 +233,11 @@ impl App {
             tick_count: 0,
             cached_partitions: Vec::new(),
             gpu_stats: Vec::new(),
+            gpu_scroll: 0,
             hardware_data: collectors::hardware::fetch_hardware_data(),
             cached_system_info: SystemInfo::default(),
             last_system_info_refresh: Instant::now() - std::time::Duration::from_secs(60),
+            active_alerts: Vec::new(),
         };
         app.cached_system_info = app.build_system_info();
 
@@ -607,6 +616,26 @@ impl App {
         &self.gpu_stats
     }
 
+    /// GPU scroll offset for multi-GPU navigation.
+    pub fn gpu_scroll(&self) -> usize {
+        self.gpu_scroll
+    }
+
+    /// Scroll GPU list down.
+    pub fn gpu_scroll_down(&mut self) {
+        let max = self.gpu_stats.len().saturating_sub(1);
+        if self.gpu_scroll < max {
+            self.gpu_scroll += 1;
+        }
+    }
+
+    /// Scroll GPU list up.
+    pub fn gpu_scroll_up(&mut self) {
+        if self.gpu_scroll > 0 {
+            self.gpu_scroll -= 1;
+        }
+    }
+
     // ═════════════════════════════════════════════════════════════════
     // Async state setters (called from main loop with StateUpdate)
     // ═════════════════════════════════════════════════════════════════
@@ -690,17 +719,19 @@ impl App {
             AppTab::System => AppTab::Hardware,
             AppTab::Hardware => AppTab::Processes,
             AppTab::Processes => AppTab::Logs,
-            AppTab::Logs => AppTab::Dashboard,
+            AppTab::Logs => AppTab::Gpu,
+            AppTab::Gpu => AppTab::Dashboard,
         };
     }
 
     pub fn prev_tab(&mut self) {
         self.tab = match self.tab {
-            AppTab::Dashboard => AppTab::Logs,
+            AppTab::Dashboard => AppTab::Gpu,
             AppTab::System => AppTab::Dashboard,
             AppTab::Hardware => AppTab::System,
             AppTab::Processes => AppTab::Hardware,
             AppTab::Logs => AppTab::Processes,
+            AppTab::Gpu => AppTab::Logs,
         };
     }
 
@@ -747,6 +778,10 @@ impl App {
     // ── Navigation ──────────────────────────────────────────────
 
     pub fn navigate_down(&mut self) {
+        if self.tab == AppTab::Gpu {
+            self.gpu_scroll_down();
+            return;
+        }
         let len = self.filtered_processes().len();
         if len == 0 { return; }
         let i = self.proc_table_state.selected()
@@ -755,6 +790,10 @@ impl App {
     }
 
     pub fn navigate_up(&mut self) {
+        if self.tab == AppTab::Gpu {
+            self.gpu_scroll_up();
+            return;
+        }
         let len = self.filtered_processes().len();
         if len == 0 { return; }
         let i = self.proc_table_state.selected()
@@ -899,6 +938,63 @@ impl App {
         if self.tick_count.is_multiple_of(20) {
             self.spawn_public_ip_resolve();
         }
+        // Check alert thresholds every ~4 ticks (~1s)
+        if self.tick_count.is_multiple_of(4) {
+            self.check_alerts();
+        }
+    }
+
+    /// Check configured alert thresholds against current metric values.
+    fn check_alerts(&mut self) {
+        let mut alerts = Vec::new();
+
+        // CPU alert
+        if let Some(threshold) = self.config.cpu_alert_threshold {
+            let cpu_pct = self.cpu_history.back().copied().unwrap_or(0) as f32;
+            if cpu_pct >= threshold {
+                alerts.push(format!("\u{26a0} CPU {:.0}% >= {:.0}%", cpu_pct, threshold));
+            }
+        }
+
+        // Memory alert
+        if let Some(threshold) = self.config.memory_alert_threshold {
+            let ram_total = self.cached_ram_total as f64;
+            if ram_total > 0.0 {
+                let mem_pct = (self.cached_ram_used as f64 / ram_total * 100.0) as f32;
+                if mem_pct >= threshold {
+                    alerts.push(format!("\u{26a0} RAM {:.0}% >= {:.0}%", mem_pct, threshold));
+                }
+            }
+        }
+
+        // Temperature alert (max sensor)
+        if let Some(threshold) = self.config.temperature_alert_threshold
+            && let Some(max_temp) = self.temperatures.iter().map(|s| s.temp_c).reduce(f32::max)
+            && max_temp >= threshold
+        {
+            alerts.push(format!("\u{26a0} Temp {:.0}°C >= {:.0}°C", max_temp, threshold));
+        }
+
+        // Disk usage alert (max partition usage)
+        if let Some(threshold) = self.config.disk_alert_threshold
+            && let Some(max_usage) = self.cached_partitions.iter().map(|p| {
+                if p.total_bytes > 0 {
+                    p.used_bytes as f32 / p.total_bytes as f32 * 100.0
+                } else {
+                    0.0
+                }
+            }).reduce(f32::max)
+            && max_usage >= threshold
+        {
+            alerts.push(format!("\u{26a0} Disk {:.0}% >= {:.0}%", max_usage, threshold));
+        }
+
+        self.active_alerts = alerts;
+    }
+
+    /// Return the current list of active alert messages.
+    pub fn active_alerts(&self) -> &[String] {
+        &self.active_alerts
     }
 
     // ═════════════════════════════════════════════════════════════════
@@ -1030,5 +1126,41 @@ impl App {
     pub fn refresh_logs(&mut self) {
         self.log_collector.refresh();
         self.last_log_refresh = std::time::Instant::now();
+    }
+
+    /// Export current system state to file (JSON or CSV).
+    /// Sets a status message with the result path or an error.
+    pub fn export_snapshot(&mut self) {
+        use collectors::export::{self, ExportFormat};
+
+        let format = ExportFormat::Json;
+        let cpu_overall = self.cpu_history.back().copied().unwrap_or(0) as f64;
+        let per_core = self.per_core_usage();
+        let (ram_used, ram_total) = self.ram_usage();
+        let (swap_used, swap_total) = self.swap_usage();
+
+        let snapshot = export::build_snapshot(
+            &self.cached_system_info,
+            cpu_overall,
+            &per_core,
+            ram_used,
+            ram_total,
+            swap_used,
+            swap_total,
+            &self.network_stats,
+            &self.disk_io,
+            &self.cached_partitions,
+            &self.gpu_stats,
+            &self.top_processes,
+        );
+
+        match export::export_to_file(&snapshot, format) {
+            Ok(path) => {
+                self.set_status(format!("Exported to {}", path.display()));
+            }
+            Err(e) => {
+                self.set_error(format!("Export failed: {}", e));
+            }
+        }
     }
 }

@@ -78,11 +78,22 @@ fn handle_normal_key(app: &mut App, code: KeyCode, _mods: KeyModifiers) {
         KeyCode::Char('g') => {
             if app.tab == AppTab::Dashboard || app.tab == AppTab::Hardware {
                 app.toggle_cpu_normalized();
+            } else if app.tab == AppTab::Gpu {
+                // No-op on GPU tab for 'g' key
             }
+        }
+        KeyCode::Char('7') => {
+            app.set_tab(AppTab::Gpu);
+        }
+        KeyCode::Char('E') => {
+            // Export current state to file
+            app.export_snapshot();
         }
         KeyCode::Char('e') => {
             if app.tab == AppTab::Logs {
                 app.toggle_log_level_error();
+            } else {
+                app.export_snapshot();
             }
         }
         KeyCode::Char('w') => {
@@ -199,19 +210,20 @@ fn handle_mouse(app: &mut App, mouse: crossterm::event::MouseEvent) {
                 // Click in header area — approximate tab positions
                 let col = mouse.column as usize;
                 // Tabs are centered, each ~15 chars wide with separators
-                // Rough mapping: find which quarter of the center area was clicked
-                let total_tab_width = 75; // approximate total width of tab bar (5 tabs)
+                // Rough mapping: find which segment of the center area was clicked
+                let total_tab_width = 90; // approximate total width of tab bar (6 tabs)
                 let terminal_width: usize = 120; // reasonable assumption
                 let start = terminal_width.saturating_sub(total_tab_width) / 2;
                 if col >= start && col < start + total_tab_width {
                     let relative = col - start;
-                    let tab_segment = total_tab_width / 5;
+                    let tab_segment = total_tab_width / 6;
                     match relative / tab_segment {
                         0 => app.set_tab(AppTab::Dashboard),
                         1 => app.set_tab(AppTab::System),
                         2 => app.set_tab(AppTab::Hardware),
                         3 => app.set_tab(AppTab::Processes),
                         4 => app.set_tab(AppTab::Logs),
+                        5 => app.set_tab(AppTab::Gpu),
                         _ => {}
                     }
                 }

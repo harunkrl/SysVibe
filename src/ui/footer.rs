@@ -30,7 +30,7 @@ fn key_desc(key: &str, description: &str) -> Vec<Span<'static>> {
     vec![key_label(key), Span::styled(format!(" {}", description), Style::default().fg(subtext()))]
 }
 
-/// Render the footer bar with mode-appropriate keybindings and status.
+/// Render the footer bar with mode-appropriate keybindings, status, and alerts.
 pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
     // Status message takes priority
     if let Some(ref msg) = app.status_message {
@@ -46,6 +46,26 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
             Span::styled(&msg.text, Style::default().fg(color)),
         ]));
         f.render_widget(footer, area);
+        return;
+    }
+
+    // Alert warnings (if any thresholds are exceeded)
+    let alerts = app.active_alerts();
+    if !alerts.is_empty() {
+        let alert_icon = if app.config().nerd_fonts { icons::WARNING } else { "⚠" };
+        let mut spans: Vec<Span<'static>> = vec![
+            Span::styled(
+                format!(" {} ", alert_icon),
+                Style::default().fg(yellow()).add_modifier(Modifier::BOLD),
+            ),
+        ];
+        for (i, alert) in alerts.iter().enumerate() {
+            if i > 0 {
+                spans.push(Span::styled("  ", Style::default()));
+            }
+            spans.push(Span::styled(alert.clone(), Style::default().fg(yellow())));
+        }
+        f.render_widget(Paragraph::new(Line::from(spans)), area);
         return;
     }
 
@@ -117,6 +137,15 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
                     s.extend(key_desc("E", "Err"));
                     s.extend(key_desc("W", "Wrn"));
                     s.extend(key_desc("I", "Inf"));
+                    s.push(sep());
+                    s.extend(key_desc("q", "Quit"));
+                }
+                AppTab::Gpu => {
+                    s.extend(key_desc("h", "Help"));
+                    s.push(sep());
+                    s.extend(key_desc("t", "Temp unit"));
+                    s.push(sep());
+                    s.extend(key_desc("↑/↓", "Scroll GPU"));
                     s.push(sep());
                     s.extend(key_desc("q", "Quit"));
                 }

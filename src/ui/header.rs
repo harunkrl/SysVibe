@@ -28,6 +28,7 @@ pub fn render_header(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
         ("Hardware", AppTab::Hardware, icons::TAB_HARDWARE, icons::fallback::TAB_HARDWARE),
         ("Processes", AppTab::Processes, icons::TAB_PROCESSES, icons::fallback::TAB_PROCESSES),
         ("Logs", AppTab::Logs, icons::TAB_LOGS, icons::fallback::TAB_LOGS),
+        ("GPU", AppTab::Gpu, icons::GPU, icons::fallback::GPU),
     ];
     let mut tab_spans: Vec<Span<'_>> = Vec::new();
     for (i, (name, tab, nf_icon, fb_icon)) in tabs.iter().enumerate() {

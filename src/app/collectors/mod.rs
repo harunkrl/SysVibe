@@ -5,6 +5,7 @@
 
 pub mod cpu;
 pub mod disk;
+pub mod export;
 pub mod logs;
 pub mod network;
 pub mod hardware;

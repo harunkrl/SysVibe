@@ -24,6 +24,8 @@ use crate::ui::widgets::sparkline::halfblock_graph;
 // ═══════════════════════════════════════════════════════════════════════
 
 pub fn render_system_tab(f: &mut Frame, app: &App, area: Rect) {
+    let cfg = app.config();
+
     let columns = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
@@ -35,16 +37,20 @@ pub fn render_system_tab(f: &mut Frame, app: &App, area: Rect) {
     // ── Left column: OS Info (full height) ───────────────────
     render_os_info(f, columns[0], app);
 
-    // ── Right column: Battery (top, compact) + Disk Partitions (bottom) ──
-    let right_rows = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Min(8),
-            Constraint::Percentage(60),
-        ])
-        .split(columns[1]);
-    render_battery(f, right_rows[0], app);
-    render_disk_partitions(f, right_rows[1], app);
+    // ── Right column: Battery (if visible) + Disk Partitions ──
+    if cfg.show_battery {
+        let right_rows = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Min(8),
+                Constraint::Percentage(60),
+            ])
+            .split(columns[1]);
+        render_battery(f, right_rows[0], app);
+        render_disk_partitions(f, right_rows[1], app);
+    } else {
+        render_disk_partitions(f, columns[1], app);
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════

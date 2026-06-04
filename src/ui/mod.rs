@@ -74,6 +74,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         AppTab::Hardware => tabs::hardware::render_hardware_tab(f, app, inner_tab_area),
         AppTab::Processes => tabs::processes::render_processes_tab(f, app, inner_tab_area),
         AppTab::Logs => tabs::logs::render_logs_tab(f, app, inner_tab_area),
+        AppTab::Gpu => tabs::gpu::render_gpu_tab(f, app, inner_tab_area),
     }
 
     // 3. Footer

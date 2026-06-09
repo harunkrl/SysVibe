@@ -105,6 +105,9 @@ pub struct App {
     // Panel focus tracking
     panel_focus: PanelFocus,
 
+    // Tab hit regions for mouse click detection
+    tab_hit_regions: Vec<crate::app::state::TabRectEntry>,
+
     // View toggles
     tree_view: bool,
     cpu_normalized: bool,
@@ -224,6 +227,7 @@ impl App {
             log_filter_active: false,
             log_level_filter: LogLevelFilter::all(),
             panel_focus: PanelFocus::default(),
+            tab_hit_regions: Vec::new(),
             tree_view: false,
             cpu_normalized: true,
             last_tick: now,
@@ -287,6 +291,14 @@ impl App {
 
     pub fn panel_focus(&self) -> PanelFocus {
         self.panel_focus
+    }
+
+    pub fn set_tab_hit_regions(&mut self, regions: Vec<crate::app::state::TabRectEntry>) {
+        self.tab_hit_regions = regions;
+    }
+
+    pub fn tab_hit_regions(&self) -> &[crate::app::state::TabRectEntry] {
+        &self.tab_hit_regions
     }
 
     pub fn cycle_panel_focus(&mut self, forward: bool) {
@@ -522,8 +534,19 @@ impl App {
     pub fn toggle_tree_view(&mut self) {
         self.tree_view = !self.tree_view;
         self.tree_dirty = true;
+        // Reset selection when toggling view mode
+        self.proc_table_state.select(Some(0));
         let state = if self.tree_view { "Tree" } else { "Flat" };
         self.set_status(format!("Process view: {}", state));
+    }
+
+    /// Returns the number of items in the current process view (flat or tree).
+    fn process_list_len(&self) -> usize {
+        if self.tree_view {
+            self.cached_tree_rows.len()
+        } else {
+            self.filtered_processes().len()
+        }
     }
 
     /// Get the cached tree rows (rebuilt when dirty).
@@ -598,6 +621,23 @@ impl App {
 
     pub fn log_filter_push(&mut self, c: char) {
         self.log_filter_input.push(c);
+    }
+
+    /// Delete the last word from the log filter input (Ctrl+W behavior).
+    pub fn log_filter_delete_word(&mut self) {
+        while self.log_filter_input.ends_with(' ') {
+            self.log_filter_input.pop();
+        }
+        if let Some(pos) = self.log_filter_input.rfind(' ') {
+            self.log_filter_input.truncate(pos);
+        } else {
+            self.log_filter_input.clear();
+        }
+    }
+
+    /// Clear the entire log filter input (Ctrl+U behavior).
+    pub fn log_filter_clear_line(&mut self) {
+        self.log_filter_input.clear();
     }
 
     pub fn toggle_log_level_error(&mut self) {
@@ -717,11 +757,14 @@ impl App {
     }
 
     pub fn set_tab(&mut self, tab: AppTab) {
-        self.tab = tab;
+        if self.tab != tab {
+            self.tab = tab;
+            self.panel_focus = PanelFocus::Panel1;
+        }
     }
 
     pub fn next_tab(&mut self) {
-        self.tab = match self.tab {
+        let next = match self.tab {
             AppTab::Dashboard => AppTab::System,
             AppTab::System => AppTab::Hardware,
             AppTab::Hardware => AppTab::Processes,
@@ -729,10 +772,11 @@ impl App {
             AppTab::Logs => AppTab::Gpu,
             AppTab::Gpu => AppTab::Dashboard,
         };
+        self.set_tab(next);
     }
 
     pub fn prev_tab(&mut self) {
-        self.tab = match self.tab {
+        let prev = match self.tab {
             AppTab::Dashboard => AppTab::Gpu,
             AppTab::System => AppTab::Dashboard,
             AppTab::Hardware => AppTab::System,
@@ -740,6 +784,7 @@ impl App {
             AppTab::Logs => AppTab::Processes,
             AppTab::Gpu => AppTab::Logs,
         };
+        self.set_tab(prev);
     }
 
     pub fn toggle_log_follow(&mut self) {
@@ -782,6 +827,25 @@ impl App {
         self.filtered_processes_dirty = true;
     }
 
+    /// Delete the last word from the filter input (Ctrl+W behavior).
+    pub fn filter_delete_word(&mut self) {
+        while self.filter_input.ends_with(' ') {
+            self.filter_input.pop();
+        }
+        if let Some(pos) = self.filter_input.rfind(' ') {
+            self.filter_input.truncate(pos);
+        } else {
+            self.filter_input.clear();
+        }
+        self.filtered_processes_dirty = true;
+    }
+
+    /// Clear the entire filter input (Ctrl+U behavior).
+    pub fn filter_clear_line(&mut self) {
+        self.filter_input.clear();
+        self.filtered_processes_dirty = true;
+    }
+
     // ── Navigation ──────────────────────────────────────────────
 
     pub fn navigate_down(&mut self) {
@@ -789,7 +853,7 @@ impl App {
             self.gpu_scroll_down();
             return;
         }
-        let len = self.filtered_processes().len();
+        let len = self.process_list_len();
         if len == 0 { return; }
         let i = self.proc_table_state.selected()
             .map_or(0, |i| if i + 1 < len { i + 1 } else { 0 });
@@ -801,7 +865,7 @@ impl App {
             self.gpu_scroll_up();
             return;
         }
-        let len = self.filtered_processes().len();
+        let len = self.process_list_len();
         if len == 0 { return; }
         let i = self.proc_table_state.selected()
             .map_or(0, |i| if i > 0 { i - 1 } else { len - 1 });
@@ -809,7 +873,7 @@ impl App {
     }
 
     pub fn navigate_page_down(&mut self) {
-        let len = self.filtered_processes().len();
+        let len = self.process_list_len();
         if len == 0 { return; }
         let current = self.proc_table_state.selected().unwrap_or(0);
         let target = (current + 20).min(len - 1);
@@ -817,7 +881,7 @@ impl App {
     }
 
     pub fn navigate_page_up(&mut self) {
-        let len = self.filtered_processes().len();
+        let len = self.process_list_len();
         if len == 0 { return; }
         let current = self.proc_table_state.selected().unwrap_or(0);
         let target = current.saturating_sub(20);
@@ -825,21 +889,21 @@ impl App {
     }
 
     pub fn navigate_home(&mut self) {
-        let len = self.filtered_processes().len();
+        let len = self.process_list_len();
         if len > 0 {
             self.proc_table_state.select(Some(0));
         }
     }
 
     pub fn navigate_end(&mut self) {
-        let len = self.filtered_processes().len();
+        let len = self.process_list_len();
         if len > 0 {
             self.proc_table_state.select(Some(len - 1));
         }
     }
 
     fn clamp_selection(&mut self) {
-        let len = self.filtered_processes().len();
+        let len = self.process_list_len();
         if len == 0 {
             self.proc_table_state.select(None);
             return;

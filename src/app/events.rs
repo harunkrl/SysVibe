@@ -173,10 +173,10 @@ fn handle_kill_confirm_key(app: &mut App, code: KeyCode) {
 
 // ── Filter mode ─────────────────────────────────────────────────
 
-fn handle_filter_key(app: &mut App, code: KeyCode, _mods: KeyModifiers) {
-    match code {
-        KeyCode::Esc | KeyCode::Enter => {
-            // Route filter apply based on active tab
+fn handle_filter_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
+    match (code, mods) {
+        // Escape / Enter — apply and exit filter mode
+        (KeyCode::Esc, _) | (KeyCode::Enter, _) => {
             if app.tab == AppTab::Logs {
                 app.apply_log_filter();
             } else {
@@ -184,14 +184,33 @@ fn handle_filter_key(app: &mut App, code: KeyCode, _mods: KeyModifiers) {
             }
             app.set_mode(AppMode::Normal);
         }
-        KeyCode::Backspace => {
+        // Ctrl+W or Ctrl+Backspace — delete last word
+        (KeyCode::Char('w'), KeyModifiers::CONTROL)
+        | (KeyCode::Backspace, KeyModifiers::CONTROL) => {
+            if app.tab == AppTab::Logs {
+                app.log_filter_delete_word();
+            } else {
+                app.filter_delete_word();
+            }
+        }
+        // Ctrl+U — clear entire line
+        (KeyCode::Char('u'), KeyModifiers::CONTROL) => {
+            if app.tab == AppTab::Logs {
+                app.log_filter_clear_line();
+            } else {
+                app.filter_clear_line();
+            }
+        }
+        // Normal Backspace — delete last char
+        (KeyCode::Backspace, _) => {
             if app.tab == AppTab::Logs {
                 app.log_filter_backspace();
             } else {
                 app.filter_backspace();
             }
         }
-        KeyCode::Char(c) => {
+        // Normal character input
+        (KeyCode::Char(c), KeyModifiers::NONE) | (KeyCode::Char(c), KeyModifiers::SHIFT) => {
             if app.tab == AppTab::Logs {
                 app.log_filter_push(c);
             } else {
@@ -208,24 +227,11 @@ fn handle_mouse(app: &mut App, mouse: crossterm::event::MouseEvent) {
     match mouse.kind {
         MouseEventKind::Down(MouseButton::Left) => {
             if mouse.row <= 2 {
-                // Click in header area — approximate tab positions
-                let col = mouse.column as usize;
-                // Tabs are centered, each ~15 chars wide with separators
-                // Rough mapping: find which segment of the center area was clicked
-                let total_tab_width = 90; // approximate total width of tab bar (6 tabs)
-                let terminal_width: usize = 120; // reasonable assumption
-                let start = terminal_width.saturating_sub(total_tab_width) / 2;
-                if col >= start && col < start + total_tab_width {
-                    let relative = col - start;
-                    let tab_segment = total_tab_width / 6;
-                    match relative / tab_segment {
-                        0 => app.set_tab(AppTab::Dashboard),
-                        1 => app.set_tab(AppTab::System),
-                        2 => app.set_tab(AppTab::Hardware),
-                        3 => app.set_tab(AppTab::Processes),
-                        4 => app.set_tab(AppTab::Logs),
-                        5 => app.set_tab(AppTab::Gpu),
-                        _ => {}
+                let col = mouse.column;
+                for region in app.tab_hit_regions() {
+                    if col >= region.x_start && col <= region.x_end {
+                        app.set_tab(region.tab);
+                        break;
                     }
                 }
             }

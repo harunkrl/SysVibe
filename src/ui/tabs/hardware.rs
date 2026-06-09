@@ -217,114 +217,120 @@ fn render_memory_panel(f: &mut Frame, area: Rect, app: &App, focused: bool) {
     let ram_color = gauge_color(ram_ratio);
     let swap_color = gauge_color(swap_ratio);
 
-    let mut lines: Vec<Line<'static>> = Vec::new();
-    // Track gauge rows: (line_index, ratio, color, label)
-    let mut gauge_slots: Vec<(usize, f64, Color, String)> = Vec::new();
+    // ── Layout: split inner rect into sections ────────────────
+    // RAM header (1) + RAM gauge (1) + breakdown (2) + spacing (1) +
+    // SWAP section (1 header + 1 gauge, or 1 line)
+    let has_swap = swap_total > 0.0;
+    let swap_section_height = if has_swap { 2u16 } else { 1u16 };
 
-    // ── RAM header with total ──────────────────────────────────
-    lines.push(Line::from(vec![
-        Span::styled(" RAM ", Style::default().fg(blue()).add_modifier(Modifier::BOLD)),
-        Span::styled(
-            format!("{:.1} / {:.1} GiB", used, total),
-            Style::default().fg(text()),
-        ),
-    ]));
+    let sections = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1), // RAM header
+            Constraint::Length(1), // RAM gauge
+            Constraint::Length(2), // Breakdown lines
+            Constraint::Length(1), // Spacing
+            Constraint::Length(swap_section_height), // SWAP section
+        ])
+        .split(inner);
 
-    // RAM gauge (placeholder row — Gauge overlay will replace it)
-    gauge_slots.push((
-        lines.len(),
-        ram_ratio,
-        ram_color,
-        format!("{:.1}%", ram_ratio * 100.0),
-    ));
-    lines.push(Line::raw(""));
-
-    // Breakdown with clean, properly aligned labels (Fix 3: was using `{::>width$}` filling with colons)
-    let label_w = 8;
-    let value_w = 10;
-    lines.push(Line::from(vec![
-        Span::styled(
-            format!(" {:>width$}", "Used", width = label_w),
-            Style::default().fg(peach()),
-        ),
-        Span::styled(
-            format!("{:>width$} / {:.1} GiB", format_bytes(mem.used_bytes), total, width = value_w),
-            Style::default().fg(text()),
-        ),
-    ]));
-    lines.push(Line::from(vec![
-        Span::styled(
-            format!(" {:>width$}", "Cache", width = label_w),
-            Style::default().fg(mauve()),
-        ),
-        Span::styled(
-            format!("{:>width$}", format_bytes(mem.cached_bytes), width = value_w),
-            Style::default().fg(text()),
-        ),
-        Span::styled(
-            format!("  {:>width$}", "Avail", width = label_w - 2),
-            Style::default().fg(green()),
-        ),
-        Span::styled(
-            format!("{:>width$}", format_bytes(mem.free_bytes), width = value_w - 2),
-            Style::default().fg(text()),
-        ),
-    ]));
-
-    lines.push(Line::raw("")); // spacing
-
-    // ── SWAP ───────────────────────────────────────────────────
-    if swap_total > 0.0 {
-        lines.push(Line::from(vec![
+    // ── RAM header ────────────────────────────────────────
+    f.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled(" RAM ", Style::default().fg(blue()).add_modifier(Modifier::BOLD)),
             Span::styled(
-                " SWAP ",
-                Style::default().fg(mauve()).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!("{:.1} / {:.1} GiB", swap_used, swap_total),
+                format!("{:.1} / {:.1} GiB", used, total),
                 Style::default().fg(text()),
             ),
-        ]));
-        gauge_slots.push((
-            lines.len(),
-            swap_ratio,
-            swap_color,
-            format!("{:.1}%", swap_ratio * 100.0),
+        ])),
+        sections[0],
+    );
+
+    // ── RAM gauge ─────────────────────────────────────────
+    let ram_gauge = Gauge::default()
+        .gauge_style(Style::default().fg(ram_color).bg(surface0()))
+        .ratio(ram_ratio.clamp(0.0, 1.0))
+        .label(Span::styled(
+            format!("{:.1}%", ram_ratio * 100.0),
+            Style::default().fg(text()).add_modifier(Modifier::BOLD),
         ));
-        lines.push(Line::raw("")); // gauge row
-    } else {
-        lines.push(Line::from(vec![
+    f.render_widget(ram_gauge, sections[1]);
+
+    // ── Breakdown ─────────────────────────────────────────
+    let label_w = 8;
+    let value_w = 10;
+    let breakdown_lines = vec![
+        Line::from(vec![
             Span::styled(
-                " SWAP ",
-                Style::default().fg(mauve()).add_modifier(Modifier::BOLD),
+                format!(" {:>width$}", "Used", width = label_w),
+                Style::default().fg(peach()),
             ),
-            Span::styled("Disabled / No Swap", Style::default().fg(overlay())),
-        ]));
-    }
+            Span::styled(
+                format!("{:>width$} / {:.1} GiB", format_bytes(mem.used_bytes), total, width = value_w),
+                Style::default().fg(text()),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled(
+                format!(" {:>width$}", "Cache", width = label_w),
+                Style::default().fg(mauve()),
+            ),
+            Span::styled(
+                format!("{:>width$}", format_bytes(mem.cached_bytes), width = value_w),
+                Style::default().fg(text()),
+            ),
+            Span::styled(
+                format!("  {:>width$}", "Avail", width = label_w - 2),
+                Style::default().fg(green()),
+            ),
+            Span::styled(
+                format!("{:>width$}", format_bytes(mem.free_bytes), width = value_w - 2),
+                Style::default().fg(text()),
+            ),
+        ]),
+    ];
+    f.render_widget(Paragraph::new(breakdown_lines), sections[2]);
 
-    // Render text (no wrap — prevents gauge misalignment)
-    let para = Paragraph::new(lines);
-    f.render_widget(para, inner);
+    // ── SWAP section ──────────────────────────────────────
+    if has_swap {
+        let swap_sub = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(1), Constraint::Length(1)])
+            .split(sections[4]);
 
-    // Overlay Gauge widgets onto placeholder rows
-    for (row_idx, ratio, color, label) in gauge_slots {
-        let y = inner.y + row_idx as u16;
-        if y < inner.y + inner.height {
-            let gauge_area = Rect {
-                x: inner.x + 1,
-                y,
-                width: inner.width.saturating_sub(2),
-                height: 1,
-            };
-            let gauge = Gauge::default()
-                .gauge_style(Style::default().fg(color).bg(surface0()))
-                .ratio(ratio.clamp(0.0, 1.0))
-                .label(Span::styled(
-                    label,
-                    Style::default().fg(text()).add_modifier(Modifier::BOLD),
-                ));
-            f.render_widget(gauge, gauge_area);
-        }
+        f.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled(
+                    " SWAP ",
+                    Style::default().fg(mauve()).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!("{:.1} / {:.1} GiB", swap_used, swap_total),
+                    Style::default().fg(text()),
+                ),
+            ])),
+            swap_sub[0],
+        );
+
+        let swap_gauge = Gauge::default()
+            .gauge_style(Style::default().fg(swap_color).bg(surface0()))
+            .ratio(swap_ratio.clamp(0.0, 1.0))
+            .label(Span::styled(
+                format!("{:.1}%", swap_ratio * 100.0),
+                Style::default().fg(text()).add_modifier(Modifier::BOLD),
+            ));
+        f.render_widget(swap_gauge, swap_sub[1]);
+    } else {
+        f.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled(
+                    " SWAP ",
+                    Style::default().fg(mauve()).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled("Disabled / No Swap", Style::default().fg(overlay())),
+            ])),
+            sections[4],
+        );
     }
 }
 

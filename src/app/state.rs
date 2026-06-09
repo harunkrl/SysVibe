@@ -6,6 +6,17 @@
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
+// ── Tab hit-testing (mouse click regions) ───────────────────────────
+
+/// Records the x-coordinate range of a rendered tab in the header.
+/// Used for accurate mouse click detection.
+#[derive(Debug, Clone, Copy)]
+pub struct TabRectEntry {
+    pub tab: AppTab,
+    pub x_start: u16,
+    pub x_end: u16,
+}
+
 // ── Application mode (state machine) ───────────────────────────────
 
 /// Represents the current interactive mode of the application.

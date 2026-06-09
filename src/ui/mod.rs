@@ -31,7 +31,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     const MIN_HEIGHT: u16 = 20;
     if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
         let msg = format!(
-            "Terminal too small: {}x{} (min {}x{})",
+            "Terminal too small: {}x{}\nMinimum required: {}x{}\nResize your terminal window to continue.",
             area.width, area.height, MIN_WIDTH, MIN_HEIGHT
         );
         let paragraph = Paragraph::new(msg)
@@ -60,6 +60,10 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
     // 1. Header
     header::render_header(f, app, chunks[0]);
+
+    // Calculate tab hit regions after header render for mouse click detection
+    let hit_regions = header::calculate_tab_hit_regions(chunks[0], app);
+    app.set_tab_hit_regions(hit_regions);
 
     // 2. Main content area (tab routing)
     // We add a subtle bottom border to the tab content to separate it from the footer

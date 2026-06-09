@@ -9,7 +9,7 @@
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Gauge, Paragraph},
 };
@@ -272,11 +272,7 @@ fn render_top_processes(f: &mut Frame, app: &App, area: Rect, nf: bool, focus: P
         let cpu_color = usage_color(proc_entry.cpu_pct);
         let mem_color = usage_color(proc_entry.mem_pct);
 
-        let name = if proc_entry.name.len() > 14 {
-            format!("{}...", &proc_entry.name[..11])
-        } else {
-            format!("{:<14}", proc_entry.name)
-        };
+        let name = truncate_str(&format!("{:<14}", proc_entry.name), 14);
 
         lines.push(Line::from(vec![
             Span::styled(format!("{:<8}", proc_entry.pid), Style::default().fg(overlay())),
@@ -372,10 +368,32 @@ fn render_gpu_panel(f: &mut Frame, app: &App, area: Rect, nf: bool, focus: Panel
         return;
     }
 
-    let mut lines: Vec<Line<'_>> = Vec::new();
-    let mut vram_gauges: Vec<(usize, f64, Color)> = Vec::new(); // (row_index, ratio, color)
-    let mut line_idx = 0usize;
+    // ── Build dynamic layout constraints for each GPU section ──
+    // Each GPU: name(1) + usage(1) + vram text(1) + vram gauge(1) +
+    //           optional: temp(1), power(1), clock(1)
+    let mut constraints: Vec<Constraint> = Vec::new();
+    for gpu in gpu_stats.iter() {
+        constraints.push(Constraint::Length(1)); // name
+        constraints.push(Constraint::Length(1)); // usage
+        constraints.push(Constraint::Length(1)); // vram text
+        constraints.push(Constraint::Length(1)); // vram gauge
+        if gpu.temperature > 0.0 {
+            constraints.push(Constraint::Length(1)); // temp
+        }
+        if gpu.power_w.is_some() {
+            constraints.push(Constraint::Length(1)); // power
+        }
+        if gpu.clock_mhz.is_some() {
+            constraints.push(Constraint::Length(1)); // clock
+        }
+    }
 
+    let sections = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(&constraints)
+        .split(inner);
+
+    let mut idx = 0;
     for gpu in gpu_stats.iter() {
         // GPU name
         let gpu_name = if gpu.name.len() > (inner.width as usize - 4) {
@@ -383,21 +401,27 @@ fn render_gpu_panel(f: &mut Frame, app: &App, area: Rect, nf: bool, focus: Panel
         } else {
             gpu.name.clone()
         };
-        lines.push(Line::from(vec![
-            Span::styled(format!(" {} ", gpu_name), Style::default().fg(mauve()).add_modifier(Modifier::BOLD)),
-        ]));
-        line_idx += 1;
+        f.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled(format!(" {} ", gpu_name), Style::default().fg(mauve()).add_modifier(Modifier::BOLD)),
+            ])),
+            sections[idx],
+        );
+        idx += 1;
 
         // Usage
         let usage_color = usage_color(gpu.usage_pct);
-        lines.push(Line::from(vec![
-            Span::styled(" Usage ", Style::default().fg(subtext())),
-            Span::styled(
-                format!("{:.0}%", gpu.usage_pct),
-                Style::default().fg(usage_color),
-            ),
-        ]));
-        line_idx += 1;
+        f.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled(" Usage ", Style::default().fg(subtext())),
+                Span::styled(
+                    format!("{:.0}%", gpu.usage_pct),
+                    Style::default().fg(usage_color),
+                ),
+            ])),
+            sections[idx],
+        );
+        idx += 1;
 
         // VRAM text
         let vram_ratio = if gpu.vram_total_mb > 0 {
@@ -406,65 +430,62 @@ fn render_gpu_panel(f: &mut Frame, app: &App, area: Rect, nf: bool, focus: Panel
             0.0
         };
         let vram_color = gauge_color(vram_ratio);
-        lines.push(Line::from(vec![
-            Span::styled(
-                format!(" VRAM {}/{}M", gpu.vram_used_mb, gpu.vram_total_mb),
-                Style::default().fg(vram_color),
-            ),
-        ]));
-        line_idx += 1;
+        f.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled(
+                    format!(" VRAM {}/{}M", gpu.vram_used_mb, gpu.vram_total_mb),
+                    Style::default().fg(vram_color),
+                ),
+            ])),
+            sections[idx],
+        );
+        idx += 1;
 
-        // VRAM gauge bar (separate row)
-        vram_gauges.push((line_idx, vram_ratio, vram_color));
-        lines.push(Line::from("")); // placeholder row for the gauge
-        line_idx += 1;
+        // VRAM gauge (direct render — no overlay)
+        let vram_gauge = Gauge::default()
+            .gauge_style(Style::default().fg(vram_color).bg(surface0()))
+            .ratio(vram_ratio.min(1.0))
+            .label(format!("{:.0}%", vram_ratio * 100.0));
+        f.render_widget(vram_gauge, sections[idx]);
+        idx += 1;
 
         // Temperature
         if gpu.temperature > 0.0 {
             let temp_color = temp_color(gpu.temperature);
             let temp_icon = if nf { icons::TEMP } else { "" };
-            lines.push(Line::from(vec![
-                Span::styled(format!(" {} ", temp_icon), Style::default().fg(temp_color)),
-                Span::styled(
-                    format!("{:.0}°C", gpu.temperature),
-                    Style::default().fg(temp_color),
-                ),
-            ]));
-            line_idx += 1;
+            f.render_widget(
+                Paragraph::new(Line::from(vec![
+                    Span::styled(format!(" {} ", temp_icon), Style::default().fg(temp_color)),
+                    Span::styled(
+                        format!("{:.0}°C", gpu.temperature),
+                        Style::default().fg(temp_color),
+                    ),
+                ])),
+                sections[idx],
+            );
+            idx += 1;
         }
 
-        // Power / Clock
+        // Power
         if let Some(power) = gpu.power_w {
-            lines.push(Line::from(vec![
-                Span::styled(format!(" ⚡ {:.0}W", power), Style::default().fg(overlay())),
-            ]));
-            line_idx += 1;
+            f.render_widget(
+                Paragraph::new(Line::from(vec![
+                    Span::styled(format!(" ⚡ {:.0}W", power), Style::default().fg(overlay())),
+                ])),
+                sections[idx],
+            );
+            idx += 1;
         }
+
+        // Clock
         if let Some(clock) = gpu.clock_mhz {
-            lines.push(Line::from(vec![
-                Span::styled(format!(" ⏱ {}MHz", clock), Style::default().fg(overlay())),
-            ]));
-            line_idx += 1;
-        }
-    }
-
-    // Render paragraph first, then overlay VRAM gauges at tracked row positions
-    f.render_widget(Paragraph::new(lines), inner);
-
-    for (row, ratio, color) in &vram_gauges {
-        let gauge_y = inner.y + *row as u16;
-        let gauge_area = Rect {
-            x: inner.x,
-            y: gauge_y,
-            width: inner.width,
-            height: 1,
-        };
-        if gauge_area.bottom() <= inner.bottom() {
-            let gauge = Gauge::default()
-                .gauge_style(Style::default().fg(*color).bg(surface0()))
-                .ratio(ratio.min(1.0))
-                .label(format!("{:.0}%", ratio * 100.0));
-            f.render_widget(gauge, gauge_area);
+            f.render_widget(
+                Paragraph::new(Line::from(vec![
+                    Span::styled(format!(" ⏱ {}MHz", clock), Style::default().fg(overlay())),
+                ])),
+                sections[idx],
+            );
+            idx += 1;
         }
     }
 }

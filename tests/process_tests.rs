@@ -1,6 +1,6 @@
 //! Tests for process management functions.
 
-use sysvibe::app::state::{ProcessEntry, SortBy};
+use sysvibe::app::state::SortBy;
 use sysvibe::app::processes::{build_process_list, kill_process, kill_process_force};
 use sysinfo::System;
 

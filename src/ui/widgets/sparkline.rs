@@ -209,8 +209,10 @@ pub fn braille_line_graph(
 
     // Draw the last point if there's only one column or to ensure the
     // rightmost data point is plotted.
-    if !line_v.is_empty() {
-        set_dot(&mut grid, line_v.len() - 1, *line_v.last().unwrap());
+    if !line_v.is_empty()
+        && let Some(&last_val) = line_v.last()
+    {
+        set_dot(&mut grid, line_v.len() - 1, last_val);
     }
 
     // ── Render rows from the grid ──────────────────────────────

@@ -12,6 +12,7 @@ use serde::Serialize;
 use super::super::state::{
     DiskIoStats, DiskPartitionInfo, GpuStats, NetworkStats, ProcessEntry, SystemInfo,
 };
+use super::super::error::{AppError, AppResult};
 
 // ── Serializable export snapshot ────────────────────────────────────
 
@@ -214,18 +215,17 @@ pub fn build_snapshot(
 ///
 /// Tries JSON first, then CSV as fallback (or vice versa depending on `format`).
 /// The second attempt is only needed if the chosen format fails for some reason.
-pub fn export_to_file(snapshot: &ExportSnapshot, format: ExportFormat) -> Result<PathBuf, String> {
+pub fn export_to_file(snapshot: &ExportSnapshot, format: ExportFormat) -> AppResult<PathBuf> {
     let dir = ensure_export_dir()?;
     let filename = format_timestamped_filename(format.extension());
     let path = dir.join(&filename);
 
     let content = match format {
-        ExportFormat::Json => serde_json::to_string_pretty(snapshot)
-            .map_err(|e| format!("JSON serialization failed: {}", e))?,
+        ExportFormat::Json => serde_json::to_string_pretty(snapshot)?,
         ExportFormat::Csv => snapshot_to_csv(snapshot),
     };
 
-    fs::write(&path, content).map_err(|e| format!("Write failed: {}", e))?;
+    fs::write(&path, content)?;
 
     Ok(path)
 }
@@ -234,11 +234,10 @@ pub fn export_to_file(snapshot: &ExportSnapshot, format: ExportFormat) -> Result
 // ── Helpers ─────────────────────────────────────────────────────────
 
 /// Ensure `$XDG_DATA_DIR/sysvibe/exports/` exists.
-fn ensure_export_dir() -> Result<PathBuf, String> {
-    let base = dirs::data_dir().ok_or_else(|| "Cannot determine XDG data directory".to_string())?;
+fn ensure_export_dir() -> AppResult<PathBuf> {
+    let base = dirs::data_dir().ok_or_else(|| AppError::export("Cannot determine XDG data directory"))?;
     let export_dir = base.join("sysvibe").join("exports");
-    fs::create_dir_all(&export_dir)
-        .map_err(|e| format!("Cannot create export directory: {}", e))?;
+    fs::create_dir_all(&export_dir)?;
     Ok(export_dir)
 }
 

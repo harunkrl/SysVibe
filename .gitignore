@@ -20,3 +20,7 @@ target/
 # Project specific
 error.log
 .DS_Store
+
+# Agent Analysis Reports
+*_report.md
+*REPORT*.md

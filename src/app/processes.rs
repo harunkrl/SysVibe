@@ -2,6 +2,7 @@
 
 use sysinfo::System;
 use super::state::{ProcessEntry, SortBy};
+use super::error::{AppError, AppResult};
 
 /// Build the sorted top-N process list.
 ///
@@ -63,35 +64,35 @@ pub fn build_process_list(
 }
 
 /// Send SIGTERM to a process.
-pub fn kill_process(pid: u32) -> Result<(), String> {
+pub fn kill_process(pid: u32) -> AppResult<()> {
     let output = std::process::Command::new("kill")
         .arg(format!("{}", pid))
         .output()
-        .map_err(|e| format!("Kill error: {}", e))?;
+        .map_err(|e| AppError::command("kill", e.to_string()))?;
 
     if output.status.success() {
         Ok(())
     } else {
-        Err(format!(
-            "Kill failed: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
+        Err(AppError::command(
+            "kill",
+            String::from_utf8_lossy(&output.stderr).trim(),
         ))
     }
 }
 
 /// Send SIGKILL (force kill) to a process.
-pub fn kill_process_force(pid: u32) -> Result<(), String> {
+pub fn kill_process_force(pid: u32) -> AppResult<()> {
     let output = std::process::Command::new("kill")
         .args(["-9", &format!("{}", pid)])
         .output()
-        .map_err(|e| format!("Kill -9 error: {}", e))?;
+        .map_err(|e| AppError::command("kill -9", e.to_string()))?;
 
     if output.status.success() {
         Ok(())
     } else {
-        Err(format!(
-            "Kill -9 failed: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
+        Err(AppError::command(
+            "kill -9",
+            String::from_utf8_lossy(&output.stderr).trim(),
         ))
     }
 }

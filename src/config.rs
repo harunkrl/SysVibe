@@ -169,18 +169,16 @@ impl Config {
 
     /// Generate a default config file at the XDG config path.
     /// Returns the path where the file was written.
-    pub fn generate_default_file() -> Result<PathBuf, String> {
+    pub fn generate_default_file() -> Result<PathBuf, Box<dyn std::error::Error>> {
         let path = Self::config_path();
 
         // Create parent directory
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create config directory: {}", e))?;
+            std::fs::create_dir_all(parent)?;
         }
 
         let default_config = Self::default();
-        let toml_content = toml::to_string_pretty(&default_config)
-            .map_err(|e| format!("Failed to serialize config: {}", e))?;
+        let toml_content = toml::to_string_pretty(&default_config)?;
 
         // Add comments
         let commented = format!(
@@ -203,8 +201,7 @@ impl Config {
             toml_content,
         );
 
-        std::fs::write(&path, commented)
-            .map_err(|e| format!("Failed to write config: {}", e))?;
+        std::fs::write(&path, commented)?;
 
         Ok(path)
     }

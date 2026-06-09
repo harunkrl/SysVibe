@@ -9,7 +9,6 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Cell, Paragraph, Row, Table},
 };
-
 use crate::app::App;
 use crate::app::state::{AppMode, ProcessEntry, SortBy};
 use super::super::palette::*;
@@ -71,14 +70,28 @@ fn render_filter_bar(f: &mut Frame, app: &App, area: Rect) {
 fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
     let procs = app.filtered_processes();
     let nf = app.config().nerd_fonts;
+    let total_procs = procs.len();
 
     let view_label = if app.tree_view() { "Tree" } else { "Flat" };
     let title = if nf {
-        format!("{} Processes [{}] ({}/{})", icons::TAB_PROCESSES, view_label, procs.len(), app.total_process_count())
+        format!("{} Processes [{}] ({}/{})", icons::TAB_PROCESSES, view_label, total_procs, app.total_process_count())
     } else {
-        format!("Processes [{}] ({}/{})", view_label, procs.len(), app.total_process_count())
+        format!("Processes [{}] ({}/{})", view_label, total_procs, app.total_process_count())
     };
     let block = panel_block_focused(&title, true);
+
+    // ── Virtual scrolling: only render the visible viewport ──
+    // Reserve 3 lines for block borders + header (header row + bottom_margin=1)
+    let inner = block.inner(area);
+    let visible_height = inner.height.saturating_sub(3) as usize; // header takes 2+1 lines
+    let visible_height = visible_height.max(1);
+
+    // Calculate viewport window
+    let selected = app.proc_table_state.selected().unwrap_or(0);
+    let scroll_offset = calculate_scroll_offset(selected, total_procs, visible_height);
+
+    let visible_end = (scroll_offset + visible_height).min(total_procs);
+    let visible_procs = &procs[scroll_offset..visible_end];
 
     // Sort direction indicator
     let sort_indicator = |col: SortBy| -> String {
@@ -120,7 +133,9 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
         Constraint::Length(10),
     ];
 
-    let rows = procs.iter().enumerate().map(|(row_idx, p)| {
+    // Only build rows for the visible slice (virtual scrolling)
+    let rows = visible_procs.iter().enumerate().map(|(local_idx, p)| {
+        let row_idx = scroll_offset + local_idx;
         let cpu_color = usage_color(p.cpu_pct);
         let mem_color = usage_color(p.mem_pct);
 
@@ -130,7 +145,7 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
 
         let proc_icon = if nf { icons::PROCESS_RUNNING } else { "" };
 
-        // Zebra striping: alternate rows get a subtle Surface0 background
+        // Zebra striping based on absolute row index
         let row_bg = if row_idx % 2 == 1 {
             surface0()
         } else {
@@ -171,6 +186,55 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
         .highlight_symbol("> ");
 
     f.render_stateful_widget(table, area, &mut app.proc_table_state);
+
+    // ── Viewport indicator (mini scrollbar) ──
+    if total_procs > visible_height {
+        render_scroll_indicator(f, inner, scroll_offset, total_procs, visible_height);
+    }
+}
+
+/// Calculate the scroll offset so the selected item is always visible.
+fn calculate_scroll_offset(selected: usize, total: usize, viewport: usize) -> usize {
+    if total <= viewport {
+        return 0;
+    }
+    // Keep selected item visible with 1-row margin at top/bottom
+    let offset = if selected < 1 {
+        0
+    } else if selected >= total.saturating_sub(1) {
+        total.saturating_sub(viewport)
+    } else if selected < viewport {
+        0
+    } else {
+        selected.saturating_sub(viewport / 2)
+    };
+    offset.min(total.saturating_sub(viewport))
+}
+
+/// Render a minimal vertical scroll indicator on the right edge.
+fn render_scroll_indicator(f: &mut Frame, area: Rect, offset: usize, total: usize, viewport: usize) {
+    if total == 0 || viewport == 0 || area.width == 0 || area.height == 0 {
+        return;
+    }
+
+    let track_height = area.height as usize;
+    let thumb_size = ((viewport * track_height) / total).max(1);
+    let thumb_pos = ((offset * track_height) / total).min(track_height.saturating_sub(thumb_size));
+
+    for y in 0..track_height {
+        let is_thumb = y >= thumb_pos && y < thumb_pos + thumb_size;
+        let ch = if is_thumb { "┃" } else { "│" };
+        let color = if is_thumb { lavender() } else { surface1() };
+
+        let span = Span::styled(ch, Style::default().fg(color));
+        let x = area.right().saturating_sub(1);
+        if x < f.area().width {
+            f.render_widget(
+                Paragraph::new(Line::from(span)),
+                Rect::new(x, area.top() + y as u16, 1, 1),
+            );
+        }
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════

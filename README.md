@@ -17,8 +17,8 @@
 |---|---|---|
 | 🎨 | **Catppuccin Macchiato palette** | Muted borders, neon data colors, full terminal transparency |
 | 📊 | **Braille graphs** | Sparklines, line charts, and mirrored heartbeat graphs — all braille-rendered |
-| ⚡ | **Low CPU overhead** | Tiered refresh: CPU/Memory every tick, sensors every 5s, processes manual-only |
-| 🖥️ | **Deep hardware integration** | Motherboard (DMI/SysFS), GPU (`lspci`), RAM details (`lshw`/`dmidecode`/heuristic) |
+| ⚡ | **Low CPU overhead** | Native async event stream + virtual scrolling + tiered refresh (CPU/Memory fast, sensors slow) |
+| 🖥️ | **Deep hardware integration** | Motherboard (DMI/SysFS), GPU (NVIDIA/AMD/Intel), RAM details (`lshw`/`dmidecode`) |
 | 🔍 | **Process manager** | Sort, filter, multi-select, and kill processes with confirmation modal |
 | 📋 | **Kernel log viewer** | Real-time logs via `journalctl`/`dmesg` with color-coded severity |
 | 🖱️ | **Mouse support** | Click tabs, scroll process list |
@@ -47,11 +47,11 @@
 - Disk I/O with read/write speeds and IOPS
 
 ### Processes Tab
+- Virtual scrolling for ultra-fast rendering of 1000+ processes
 - Sortable process table (CPU / Memory / PID / Name)
 - Real-time search/filter
 - Multi-select with `Space`
 - Safe kill with `[Y/N]` confirmation modal
-- Manual refresh with `r` key
 
 ### Logs Tab
 - Kernel log viewer with `journalctl` / `dmesg`
@@ -70,6 +70,12 @@ cd SysVibe
 ```
 
 This compiles the project and creates a desktop shortcut so you can launch SysVibe from your application menu.
+
+### Uninstallation
+
+```bash
+./uninstall.sh
+```
 
 ### Manual Install via Cargo
 

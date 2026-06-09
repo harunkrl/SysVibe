@@ -4,6 +4,7 @@
 //! from the various collector modules.
 
 pub mod state;
+pub mod error;
 pub mod helpers;
 pub mod collectors;
 pub mod events;
@@ -19,6 +20,7 @@ use sysinfo::{Components, Networks, ProcessesToUpdate, System};
 
 use crate::config::Config;
 use state::*;
+use error::AppResult;
 
 // ═══════════════════════════════════════════════════════════════════════
 // App struct
@@ -348,6 +350,11 @@ impl App {
     #[allow(dead_code)]
     pub fn per_core_history(&self, idx: usize) -> Option<&VecDeque<u64>> {
         self.per_core_history.get(idx)
+    }
+
+    /// Mutable access to a single per-core history (for push_history in apply_state_update).
+    pub fn per_core_history_mut(&mut self, idx: usize) -> Option<&mut VecDeque<u64>> {
+        self.per_core_history.get_mut(idx)
     }
 
     pub fn num_cores(&self) -> usize {
@@ -906,7 +913,7 @@ impl App {
         let signal = if force { "SIGKILL" } else { "SIGTERM" };
         match result {
             Ok(()) => self.set_status(format!("Sent {} → PID {} ({})", signal, pid, name)),
-            Err(e) => self.set_error(e),
+            Err(e) => self.set_error(e.to_string()),
         }
 
         self.kill_target_pid = None;

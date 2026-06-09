@@ -14,13 +14,14 @@ mod ui;
 
 use app::App;
 use config::Config;
-use std::{io, time::Duration};
+use std::io;
 
 use crossterm::{
-    event::{self, Event},
+    event::{self, EventStream},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use futures_util::StreamExt;
 use ratatui::{backend::CrosstermBackend, Terminal};
 use tokio::sync::mpsc;
 
@@ -31,16 +32,23 @@ use tokio::sync::mpsc;
 /// Represents an update from a background data collection task.
 #[derive(Debug)]
 pub enum StateUpdate {
-    /// Tier 1+2: CPU, Memory, Network, Disk, Processes (every ~1s)
-    CpuMemoryNetDisk {
-        cpu_history: std::collections::VecDeque<u64>,
-        per_core_history: Vec<std::collections::VecDeque<u64>>,
+    /// Tier 1+2: CPU, Memory, Network, Disk (every ~250ms)
+    /// Only carries instantaneous values — history is maintained on the
+    /// App (UI) side via `push_history`. This keeps the channel payload
+    /// lightweight and avoids cloning or draining history buffers.
+    FastMetrics {
+        cpu_usage: u64,
+        per_core_usage: Vec<u64>,
         ram_used: u64,
         ram_total: u64,
         swap_used: u64,
         swap_total: u64,
         network_stats: Vec<app::state::NetworkStats>,
         disk_io: app::state::DiskIoStats,
+    },
+
+    /// Tier 1b: Process list (every ~process_refresh_rate, decoupled from fast metrics)
+    Processes {
         processes: Vec<app::state::ProcessEntry>,
     },
 
@@ -83,8 +91,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if args.iter().any(|a| a == "--list-themes") {
         println!("Available themes:");
         for name in &["catppuccin-macchiato", "catppuccin-mocha", "dracula", "nord", "gruvbox", "tokyo-night", "one-dark"] {
-            let theme = ui::theme::Theme::built_in(name).unwrap();
-            println!("  {} — {}", name, theme.name);
+            if let Some(theme) = ui::theme::Theme::built_in(name) {
+                println!("  {} — {}", name, theme.name);
+            } else {
+                println!("  {} — (failed to load)", name);
+            }
         }
         println!("\nCustom themes can be placed in ~/.config/sysvibe/themes/<name>.toml");
         return Ok(());
@@ -151,13 +162,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn spawn_collector_tasks(tx: mpsc::Sender<StateUpdate>, config: &Config) {
     let data_refresh_ms = config.data_refresh_rate;
     let sensor_refresh_ms = config.sensor_refresh_rate;
+    let process_refresh_ms = config.process_refresh_rate;
     let max_procs = config.max_processes;
     let _cpu_normalized = !config.default_tab.is_empty(); // placeholder for runtime toggle
 
-    // ── Task: Tier 1+2 — CPU, Memory, Network, Disk, Processes ──
+    // ── Task: Tier 1+2 — CPU, Memory, Network, Disk (fast metrics only) ──
     // Uses std::thread::spawn instead of tokio::spawn because all operations
     // are blocking I/O (reading /proc, /sys). Running on a dedicated OS thread
-    // avoids starving the tokio runtime's event loop (crossterm poll).
+    // avoids starving the tokio runtime's event loop (crossterm EventStream).
+    //
+    // NOTE: Process collection has been moved to its own dedicated task
+    // (Tier 1b) to avoid the expensive `refresh_processes` call blocking
+    // the fast metrics loop.
     let tx_fast = tx.clone();
     std::thread::spawn(move || {
         let mut sys = sysinfo::System::new_all();
@@ -176,13 +192,6 @@ fn spawn_collector_tasks(tx: mpsc::Sender<StateUpdate>, config: &Config) {
         let mut prev_disk_bytes = (prev_disk_read, prev_disk_write);
         let mut last_tick = std::time::Instant::now();
 
-        let mut cpu_history: std::collections::VecDeque<u64> =
-            std::collections::VecDeque::with_capacity(app::state::HISTORY_LEN);
-        let mut per_core_history: Vec<std::collections::VecDeque<u64>> = {
-            let n = sys.cpus().len().max(1);
-            vec![std::collections::VecDeque::with_capacity(app::state::HISTORY_LEN); n]
-        };
-
         let interval = std::time::Duration::from_millis(data_refresh_ms);
         loop {
             std::thread::sleep(interval);
@@ -194,7 +203,8 @@ fn spawn_collector_tasks(tx: mpsc::Sender<StateUpdate>, config: &Config) {
 
             // CPU + Memory
             sys.refresh_cpu_all();
-            app::collectors::cpu::refresh_cpu(&sys, &mut cpu_history, &mut per_core_history);
+            let cpu_usage = sys.global_cpu_usage() as u64;
+            let per_core_usage: Vec<u64> = sys.cpus().iter().map(|c| c.cpu_usage() as u64).collect();
             sys.refresh_memory();
 
             let ram_used = sys.used_memory();
@@ -217,7 +227,31 @@ fn spawn_collector_tasks(tx: mpsc::Sender<StateUpdate>, config: &Config) {
             let mut disk_io = app::state::DiskIoStats::default();
             app::collectors::disk::refresh_disk(&mut disk_io, &mut prev_disk_bytes, elapsed);
 
-            // Processes
+            drop(tx_fast.blocking_send(StateUpdate::FastMetrics {
+                cpu_usage,
+                per_core_usage,
+                ram_used,
+                ram_total,
+                swap_used,
+                swap_total,
+                network_stats,
+                disk_io,
+            }));
+        }
+    });
+
+    // ── Task: Tier 1b — Process list (decoupled from fast metrics) ──
+    // Process refresh is the most expensive sysinfo call (scans all of /proc).
+    // By separating it from Tier 1+2, fast metrics (CPU, RAM, net, disk) stay
+    // responsive while the process list updates at a lower, configurable rate.
+    let tx_proc = tx.clone();
+    std::thread::spawn(move || {
+        let mut sys = sysinfo::System::new_all();
+        let interval = std::time::Duration::from_millis(process_refresh_ms);
+
+        loop {
+            std::thread::sleep(interval);
+
             sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
             let processes = app::processes::build_process_list(
                 &sys,
@@ -226,17 +260,7 @@ fn spawn_collector_tasks(tx: mpsc::Sender<StateUpdate>, config: &Config) {
                 true, // normalized by default
             );
 
-            drop(tx_fast.blocking_send(StateUpdate::CpuMemoryNetDisk {
-                cpu_history: cpu_history.clone(),
-                per_core_history: per_core_history.clone(),
-                ram_used,
-                ram_total,
-                swap_used,
-                swap_total,
-                network_stats,
-                disk_io,
-                processes,
-            }));
+            drop(tx_proc.blocking_send(StateUpdate::Processes { processes }));
         }
     });
 
@@ -308,40 +332,28 @@ async fn run_async_app<B: ratatui::backend::Backend>(
     app: &mut App,
     rx: &mut mpsc::Receiver<StateUpdate>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut needs_redraw = true;
+    // Native-async crossterm event stream — replaces the old
+    // `tokio::task::spawn_blocking(poll)` approach which created unnecessary
+    // thread-pool churn on every iteration.
+    let mut events = EventStream::new();
 
     loop {
-        // Draw if needed
-        if needs_redraw {
-            terminal.draw(|f| ui::draw(f, app))?;
-            needs_redraw = false;
-        }
+        // Always draw — state updates and events arrive asynchronously,
+        // so each iteration of this loop produces a fresh frame.
+        terminal.draw(|f| ui::draw(f, app))?;
 
-        // Use tokio::select! to handle both terminal events and state updates
+        // Use tokio::select! to handle both terminal events and state updates.
+        // The EventStream yields crossterm events as they arrive without polling
+        // a thread-pool — zero overhead when idle.
         tokio::select! {
-            // Branch 1: Crossterm terminal events (non-blocking poll)
-            event_result = tokio::task::spawn_blocking(|| {
-                crossterm::event::poll(Duration::from_millis(50))
-                    .and_then(|has_event| {
-                        if has_event {
-                            crossterm::event::read()
-                        } else {
-                            Ok(Event::FocusGained) // no-op placeholder for "no event"
-                        }
-                    })
-            }) => {
-                match event_result {
-                    Ok(Ok(event)) => {
-                        match event {
-                            Event::FocusGained => {}
-                            _ => {
-                                app.handle_event(event)?;
-                                needs_redraw = true;
-                            }
-                        }
+            // Branch 1: Crossterm terminal events (native-async)
+            maybe_event = events.next() => {
+                match maybe_event {
+                    Some(Ok(event)) => {
+                        app.handle_event(event)?;
                     }
-                    Ok(Err(e)) => return Err(e.into()),
-                    Err(e) => return Err(e.into()),
+                    Some(Err(e)) => return Err(e.into()),
+                    None => return Ok(()), // stream exhausted (terminal closed)
                 }
             }
 
@@ -350,7 +362,6 @@ async fn run_async_app<B: ratatui::backend::Backend>(
                 match update {
                     Some(state_update) => {
                         apply_state_update(app, state_update);
-                        needs_redraw = true;
                     }
                     None => return Ok(()),
                 }
@@ -369,22 +380,36 @@ async fn run_async_app<B: ratatui::backend::Backend>(
 /// Apply a state update from a background collector to the App.
 fn apply_state_update(app: &mut App, update: StateUpdate) {
     match update {
-        StateUpdate::CpuMemoryNetDisk {
-            cpu_history,
-            per_core_history,
+        StateUpdate::FastMetrics {
+            cpu_usage,
+            per_core_usage,
             ram_used,
             ram_total,
             swap_used,
             swap_total,
             network_stats,
             disk_io,
-            processes,
         } => {
-            app.cpu_history = cpu_history;
-            app.set_per_core_history(per_core_history);
+            // Push instantaneous CPU values into App-maintained history
+            app::helpers::push_history(&mut app.cpu_history, cpu_usage);
+
+            // Resize per-core history if core count changed
+            if app.num_cores() != per_core_usage.len() {
+                app.set_per_core_history(
+                    vec![std::collections::VecDeque::with_capacity(app::state::HISTORY_LEN); per_core_usage.len()]
+                );
+            }
+            for (i, &usage) in per_core_usage.iter().enumerate() {
+                if let Some(history) = app.per_core_history_mut(i) {
+                    app::helpers::push_history(history, usage);
+                }
+            }
+
             app.set_ram_swap(ram_used, ram_total, swap_used, swap_total);
             app.set_network_stats(network_stats);
             app.set_disk_io(disk_io);
+        }
+        StateUpdate::Processes { processes } => {
             app.set_top_processes(processes);
         }
         StateUpdate::Sensors {

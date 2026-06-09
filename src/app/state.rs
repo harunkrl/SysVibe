@@ -308,9 +308,6 @@ pub const MAX_LOG_LINES: usize = 500;
 
 // ── Error alias ─────────────────────────────────────────────────────
 
-/// Convenience Result type for the application.
-pub type AppResult<T> = Result<T, Box<dyn std::error::Error>>;
-
 #[cfg(test)]
 mod tests {
     use super::*;

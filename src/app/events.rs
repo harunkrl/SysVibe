@@ -5,7 +5,8 @@
 use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind};
 
 use super::App;
-use super::state::{AppMode, AppTab, SortBy, AppResult};
+use super::state::{AppMode, AppTab, SortBy};
+use super::error::AppResult;
 
 /// Top-level event dispatcher.
 pub fn handle_event(app: &mut App, event: Event) -> AppResult<()> {

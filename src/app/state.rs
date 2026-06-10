@@ -282,6 +282,70 @@ pub struct DiskPartitionInfo {
     pub rpm: Option<u32>,
 }
 
+// ── Hardware data types (shared across platforms) ─────────────────
+
+/// Static hardware information fetched once on application startup.
+#[derive(Debug, Clone, Default)]
+pub struct HardwareData {
+    /// Motherboard / platform details.
+    pub motherboard: MotherboardInfo,
+    /// Detected GPU(s).
+    pub gpus: Vec<GpuInfo>,
+    /// Detailed RAM / memory information.
+    pub ram: RamInfo,
+}
+
+/// Motherboard (or laptop system board) details from DMI/SysFS.
+#[derive(Debug, Clone, Default)]
+pub struct MotherboardInfo {
+    /// Board vendor (e.g. "Lenovo", "ASUSTeK COMPUTER INC.").
+    pub vendor: Option<String>,
+    /// Board / product name (e.g. "20XWCTO1WW", "ROG STRIX B550-F GAMING").
+    pub name: Option<String>,
+    /// Board version / revision.
+    pub version: Option<String>,
+    /// BIOS / UEFI vendor.
+    pub bios_vendor: Option<String>,
+    /// BIOS / UEFI version string.
+    pub bios_version: Option<String>,
+    /// BIOS release date.
+    pub bios_date: Option<String>,
+    /// System vendor (may differ from board vendor on laptops).
+    pub sys_vendor: Option<String>,
+    /// Product name (e.g. "ThinkPad X1 Carbon Gen 9").
+    pub product_name: Option<String>,
+}
+
+/// A single detected GPU.
+#[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
+pub struct GpuInfo {
+    /// Cleaned GPU model name.
+    pub model: String,
+    /// PCI slot address (e.g. "01:00.0").
+    pub pci_slot: Option<String>,
+    /// Device type: "VGA", "3D", or "Display".
+    pub dev_type: String,
+    /// Driver in use (from SysFS, if discoverable).
+    pub driver: Option<String>,
+}
+
+/// Detailed RAM information beyond what sysinfo provides.
+#[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
+pub struct RamInfo {
+    /// Total physical memory in bytes.
+    pub total_bytes: u64,
+    /// Hardware memory speed in MT/s (e.g. 3200, 4800).
+    pub speed_mt: Option<u32>,
+    /// Memory type (e.g. "DDR4", "DDR5", "LPDDR4X").
+    pub mem_type: Option<String>,
+    /// Number of populated DIMM slots detected.
+    pub dimm_count: Option<u32>,
+    /// Form factor for each DIMM (e.g. "SODIMM", "DIMM").
+    pub form_factor: Option<String>,
+}
+
 /// Memory usage breakdown (used / buffers / cached / free).
 #[derive(Debug, Clone, Default)]
 #[allow(dead_code)]

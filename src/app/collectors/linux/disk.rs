@@ -6,8 +6,8 @@
 
 use std::fs;
 use sysinfo::{Disks, System};
-use super::super::helpers::push_history;
-use super::super::state::{DiskIoStats, DiskPartitionInfo};
+use crate::app::helpers::push_history;
+use crate::app::state::{DiskIoStats, DiskPartitionInfo};
 
 /// Read aggregate disk bytes from `/proc/diskstats`.
 #[allow(dead_code)]

@@ -130,7 +130,7 @@ pub struct App {
     gpu_scroll: usize,
 
     // Static hardware data (fetched once on startup)
-    hardware_data: collectors::hardware::HardwareData,
+    hardware_data: state::HardwareData,
 
     // Cached SystemInfo (rebuilt every ~10s; avoids 14+ String allocs per frame)
     cached_system_info: SystemInfo,
@@ -251,7 +251,7 @@ impl App {
         app.refresh_top_processes();
         app.components.refresh(false);
         collectors::sensors::refresh_temperatures(&app.components, &mut app.temperatures);
-        app.battery = collectors::sensors::read_battery();
+        app.battery = collectors::battery::read_battery();
 
         // Initial disk partition cache
         {
@@ -511,7 +511,7 @@ impl App {
     }
 
     /// Static hardware data (motherboard, GPU, RAM details) - fetched once.
-    pub fn hardware_data(&self) -> &collectors::hardware::HardwareData {
+    pub fn hardware_data(&self) -> &state::HardwareData {
         &self.hardware_data
     }
 
@@ -1100,7 +1100,7 @@ impl App {
         if self.last_sensor_refresh.elapsed().as_millis() >= sensor_interval as u128 {
             self.components.refresh(false);
             collectors::sensors::refresh_temperatures(&self.components, &mut self.temperatures);
-            self.battery = collectors::sensors::read_battery();
+            self.battery = collectors::battery::read_battery();
 
             if let Some(ref bat) = self.battery
                 && let Some(w) = bat.power_w

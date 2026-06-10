@@ -277,7 +277,7 @@ fn spawn_collector_tasks(tx: mpsc::Sender<StateUpdate>, config: &Config) {
             components.refresh(false);
             let mut temperatures = Vec::new();
             app::collectors::sensors::refresh_temperatures(&components, &mut temperatures);
-            let battery = app::collectors::sensors::read_battery();
+            let battery = app::collectors::battery::read_battery();
             let gpu_stats = app::collectors::gpu::collect_gpu_stats();
 
             drop(tx_sensor.blocking_send(StateUpdate::Sensors {

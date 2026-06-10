@@ -4,10 +4,16 @@
 //! (CPU, network, disk, sensors, kernel logs).
 
 pub mod cpu;
-pub mod disk;
 pub mod export;
-pub mod logs;
 pub mod network;
-pub mod hardware;
 pub mod sensors;
-pub mod gpu;
+
+#[cfg(not(target_os = "android"))]
+pub mod linux;
+#[cfg(not(target_os = "android"))]
+pub use linux::*;
+
+#[cfg(target_os = "android")]
+pub mod android;
+#[cfg(target_os = "android")]
+pub use android::*;

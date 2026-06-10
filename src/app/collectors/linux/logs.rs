@@ -2,7 +2,7 @@
 
 use std::collections::VecDeque;
 use std::process::Command;
-use super::super::state::{LogEntry, LogLevel, MAX_LOG_LINES};
+use crate::app::state::{LogEntry, LogLevel, MAX_LOG_LINES};
 
 /// Collector for kernel log entries.
 pub struct LogCollector {

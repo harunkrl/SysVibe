@@ -41,6 +41,7 @@ pub enum StateUpdate {
         per_core_usage: Vec<u64>,
         ram_used: u64,
         ram_total: u64,
+        ram_free: u64,
         swap_used: u64,
         swap_total: u64,
         network_stats: Vec<app::state::NetworkStats>,
@@ -50,6 +51,7 @@ pub enum StateUpdate {
     /// Tier 1b: Process list (every ~process_refresh_rate, decoupled from fast metrics)
     Processes {
         processes: Vec<app::state::ProcessEntry>,
+        total: usize,
     },
 
     /// Tier 3: Sensors, battery, GPU (every ~5s)
@@ -209,6 +211,7 @@ fn spawn_collector_tasks(tx: mpsc::Sender<StateUpdate>, config: &Config) {
 
             let ram_used = sys.used_memory();
             let ram_total = sys.total_memory();
+            let ram_free = sys.free_memory();
             let swap_used = sys.used_swap();
             let swap_total = sys.total_swap();
 
@@ -232,6 +235,7 @@ fn spawn_collector_tasks(tx: mpsc::Sender<StateUpdate>, config: &Config) {
                 per_core_usage,
                 ram_used,
                 ram_total,
+                ram_free,
                 swap_used,
                 swap_total,
                 network_stats,
@@ -260,7 +264,8 @@ fn spawn_collector_tasks(tx: mpsc::Sender<StateUpdate>, config: &Config) {
                 true, // normalized by default
             );
 
-            drop(tx_proc.blocking_send(StateUpdate::Processes { processes }));
+            let total = sys.processes().len();
+            drop(tx_proc.blocking_send(StateUpdate::Processes { processes, total }));
         }
     });
 
@@ -385,6 +390,7 @@ fn apply_state_update(app: &mut App, update: StateUpdate) {
             per_core_usage,
             ram_used,
             ram_total,
+            ram_free,
             swap_used,
             swap_total,
             network_stats,
@@ -405,12 +411,12 @@ fn apply_state_update(app: &mut App, update: StateUpdate) {
                 }
             }
 
-            app.set_ram_swap(ram_used, ram_total, swap_used, swap_total);
+            app.set_ram_swap(ram_used, ram_total, ram_free, swap_used, swap_total);
             app.set_network_stats(network_stats);
             app.set_disk_io(disk_io);
         }
-        StateUpdate::Processes { processes } => {
-            app.set_top_processes(processes);
+        StateUpdate::Processes { processes, total } => {
+            app.set_top_processes(processes, total);
         }
         StateUpdate::Sensors {
             temperatures,

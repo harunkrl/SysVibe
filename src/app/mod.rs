@@ -46,6 +46,7 @@ pub struct App {
     // Cached memory values (updated by async collectors)
     cached_ram_used: u64,
     cached_ram_total: u64,
+    cached_ram_free: u64,
     cached_swap_used: u64,
     cached_swap_total: u64,
 
@@ -69,6 +70,7 @@ pub struct App {
 
     // Processes
     top_processes: Vec<ProcessEntry>,
+    total_process_count_fresh: usize,
     pub proc_table_state: TableState,
     pub tab: AppTab,
     pub sort_by: SortBy,
@@ -78,6 +80,10 @@ pub struct App {
     // Filter state
     filter_input: String,
     filter_active: bool,
+
+    // Command palette state
+    command_input: String,
+    command_selected: usize,
 
     // Cached filtered process list (invalidated on process/filter/sort change)
     cached_filtered_processes: Vec<usize>, // indices into top_processes
@@ -174,6 +180,7 @@ impl App {
         // Cache memory values before moving sys into Self
         let init_ram_used = sys.used_memory();
         let init_ram_total = sys.total_memory();
+        let init_ram_free = sys.free_memory();
         let init_swap_used = sys.used_swap();
         let init_swap_total = sys.total_swap();
 
@@ -193,6 +200,7 @@ impl App {
             per_core_history: vec![VecDeque::with_capacity(HISTORY_LEN); num_cores],
             cached_ram_used: init_ram_used,
             cached_ram_total: init_ram_total,
+            cached_ram_free: init_ram_free,
             cached_swap_used: init_swap_used,
             cached_swap_total: init_swap_total,
             prev_network_bytes,
@@ -206,6 +214,7 @@ impl App {
             battery_power_history: VecDeque::with_capacity(HISTORY_LEN),
             battery_charge_history: VecDeque::with_capacity(HISTORY_LEN),
             top_processes: Vec::new(),
+            total_process_count_fresh: 0,
             proc_table_state: TableState::default(),
             sort_by: SortBy::default(),
             temp_celsius: true,
@@ -213,6 +222,8 @@ impl App {
             tab: default_tab,
             filter_input: String::new(),
             filter_active: false,
+            command_input: String::new(),
+            command_selected: 0,
             cached_filtered_processes: Vec::new(),
             filtered_processes_dirty: true,
             cached_tree_rows: Vec::new(),
@@ -281,6 +292,128 @@ impl App {
         &self.filter_input
     }
 
+    // ── Command palette ─────────────────────────────────────
+    pub fn command_input(&self) -> &str {
+        &self.command_input
+    }
+
+    pub fn command_selected(&self) -> usize {
+        self.command_selected
+    }
+
+    pub fn open_command(&mut self) {
+        self.command_input.clear();
+        self.command_selected = 0;
+        self.set_mode(AppMode::Command);
+    }
+
+    pub fn cancel_command(&mut self) {
+        self.set_mode(AppMode::Normal);
+    }
+
+    pub fn command_push(&mut self, c: char) {
+        if self.command_input.chars().count() < 40 {
+            self.command_input.push(c);
+            self.command_selected = 0;
+        }
+    }
+
+    pub fn command_backspace(&mut self) {
+        self.command_input.pop();
+        self.command_selected = 0;
+    }
+
+    pub fn command_clear(&mut self) {
+        self.command_input.clear();
+        self.command_selected = 0;
+    }
+
+    pub fn command_next(&mut self) {
+        self.command_selected = self.command_selected.saturating_add(1);
+    }
+
+    pub fn command_prev(&mut self) {
+        self.command_selected = self.command_selected.saturating_sub(1);
+    }
+
+    pub fn run_selected_command(&mut self) {
+        let label = {
+            let indices =
+                crate::ui::widgets::modal::filtered_palette_indices(&self.command_input);
+            let sel = self.command_selected.min(indices.len().saturating_sub(1));
+            match indices.get(sel) {
+                Some(&idx) => crate::ui::widgets::modal::palette_commands()[idx].label,
+                None => {
+                    self.set_mode(AppMode::Normal);
+                    return;
+                }
+            }
+        };
+        self.execute_palette(label);
+    }
+
+    fn execute_palette(&mut self, label: &str) {
+        let back_to_normal = match label {
+            "Go to Dashboard" => {
+                self.set_tab(AppTab::Dashboard);
+                true
+            }
+            "Go to System" => {
+                self.set_tab(AppTab::System);
+                true
+            }
+            "Go to Hardware" => {
+                self.set_tab(AppTab::Hardware);
+                true
+            }
+            "Go to Processes" => {
+                self.set_tab(AppTab::Processes);
+                true
+            }
+            "Go to Logs" => {
+                self.set_tab(AppTab::Logs);
+                true
+            }
+            "Go to GPU" => {
+                self.set_tab(AppTab::Gpu);
+                true
+            }
+            "Cycle theme" => {
+                self.cycle_theme();
+                true
+            }
+            "Toggle °C/°F" => {
+                self.temp_celsius = !self.temp_celsius;
+                self.set_status("Temperature unit toggled".to_string());
+                true
+            }
+            "Toggle tree view" => {
+                self.toggle_tree_view();
+                true
+            }
+            "Export snapshot" => {
+                self.export_snapshot();
+                true
+            }
+            "Refresh processes" => {
+                self.refresh_top_processes();
+                true
+            }
+            "Help" => {
+                self.set_mode(AppMode::Help);
+                false
+            }
+            "Quit" => {
+                self.quit();
+                false
+            }
+            _ => true,
+        };
+        if back_to_normal {
+            self.set_mode(AppMode::Normal);
+        }
+    }
+
     pub fn disk_io(&self) -> &DiskIoStats {
         &self.disk_io
     }
@@ -310,7 +443,7 @@ impl App {
     }
 
     pub fn total_process_count(&self) -> usize {
-        self.sys.processes().len()
+        self.total_process_count_fresh
     }
 
     /// Return the filtered process list, using a cache that is invalidated
@@ -399,6 +532,9 @@ impl App {
 
     /// Spawn a background thread to resolve the public IP (if not already resolved).
     pub fn spawn_public_ip_resolve(&self) {
+        if !self.config.resolve_public_ip {
+            return;
+        }
         let shared = Arc::clone(&self.public_ip);
         let already = self.public_ip.lock().ok().map(|g| g.is_some()).unwrap_or(false);
         if already {
@@ -487,21 +623,21 @@ impl App {
     }
 
     /// Memory usage breakdown: (used, buffers, cached, free, total) in bytes.
+    /// Uses FRESH values fed by the background fast-metrics collector — the
+    /// vestigial `self.sys` is only refreshed once at startup.
     pub fn memory_breakdown(&self) -> MemoryBreakdown {
+        let used = self.cached_ram_used;
+        let total = self.cached_ram_total;
+        let free = self.cached_ram_free;
         MemoryBreakdown {
-            used_bytes: self.sys.used_memory(),
+            used_bytes: used,
             buffers_bytes: 0, // sysinfo doesn't expose buffers separately
-            cached_bytes: { // approximate cached from available vs free
-                let total = self.sys.total_memory();
-                let used = self.sys.used_memory();
-                let free = self.sys.free_memory();
-                // Linux: cached ≡ total - used - free (rough heuristic)
-                total.saturating_sub(used).saturating_sub(free)
-            },
-            free_bytes: self.sys.free_memory(),
-            total_bytes: self.sys.total_memory(),
-            swap_used_bytes: self.sys.used_swap(),
-            swap_total_bytes: self.sys.total_swap(),
+            // Linux: cached ≈ total − used − free (rough heuristic)
+            cached_bytes: total.saturating_sub(used).saturating_sub(free),
+            free_bytes: free,
+            total_bytes: total,
+            swap_used_bytes: self.cached_swap_used,
+            swap_total_bytes: self.cached_swap_total,
         }
     }
 
@@ -727,8 +863,9 @@ impl App {
         self.cached_partitions = partitions;
     }
 
-    pub fn set_top_processes(&mut self, processes: Vec<ProcessEntry>) {
+    pub fn set_top_processes(&mut self, processes: Vec<ProcessEntry>, total: usize) {
         self.top_processes = processes;
+        self.total_process_count_fresh = total;
         self.filtered_processes_dirty = true;
         self.tree_dirty = true;
     }
@@ -737,9 +874,17 @@ impl App {
         self.per_core_history = history;
     }
 
-    pub fn set_ram_swap(&mut self, used: u64, total: u64, swap_used: u64, swap_total: u64) {
+    pub fn set_ram_swap(
+        &mut self,
+        used: u64,
+        total: u64,
+        free: u64,
+        swap_used: u64,
+        swap_total: u64,
+    ) {
         self.cached_ram_used = used;
         self.cached_ram_total = total;
+        self.cached_ram_free = free;
         self.cached_swap_used = swap_used;
         self.cached_swap_total = swap_total;
     }
@@ -799,6 +944,20 @@ impl App {
             is_error: false,
             expires: Instant::now() + STATUS_TTL,
         });
+    }
+
+    /// Cycle to the next built-in theme and apply it live (no restart needed).
+    pub fn cycle_theme(&mut self) {
+        let themes = crate::ui::theme::Theme::all_built_ins();
+        let next_idx = themes
+            .iter()
+            .position(|(k, _)| *k == self.config.theme)
+            .map(|i| (i + 1) % themes.len())
+            .unwrap_or(0);
+        let (key, theme) = &themes[next_idx];
+        self.config.theme = (*key).to_string();
+        crate::ui::palette::apply_theme(theme.clone());
+        self.set_status(format!("Theme: {}", theme.name));
     }
 
     pub fn set_error(&mut self, text: String) {

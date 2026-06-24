@@ -1,358 +1,266 @@
 //! SysVibe — Hardware tab rendering.
 //!
-//! Displays real-time CPU, memory, network, disk I/O, and temperature
-//! data using a balanced panel grid with Gauge widgets,
-//! Nerd Font icons, and focus-state highlighting.
-
-use std::collections::VecDeque;
+//! Live monitoring: per-core CPU, memory/battery breakdown, network I/O
+//! (with mirrored RX↑/TX↓ graph), temperatures, and disk I/O graphs.
+//! Two-row layout: monitoring columns on top, sensors + disk I/O below.
 
 use ratatui::{
-    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Gauge, Paragraph},
+    widgets::Paragraph,
+    Frame,
 };
 
-use crate::app::App;
 use crate::app::state::PanelFocus;
+use crate::app::App;
 use crate::ui::helpers::*;
 use crate::ui::icons;
 use crate::ui::palette::*;
-use crate::ui::widgets::sparkline::{braille_mini, braille_mirrored_graph, braille_line_graph};
-
-// ═══════════════════════════════════════════════════════════════════════
-// Public entry point
-// ═══════════════════════════════════════════════════════════════════════
+use crate::ui::widgets::sparkline::{braille_mirrored_graph, halfblock_graph};
 
 pub fn render_hardware_tab(f: &mut Frame, app: &App, area: Rect) {
     let focus = app.panel_focus();
-    let cfg = app.config();
 
-    // Build layout rows dynamically based on visibility
-    let mut row_constraints: Vec<Constraint> = Vec::new();
-    let mut has_row1 = false; // CPU + Memory
-    let mut has_row2 = false; // Network + Disk I/O
-    let mut has_row3 = false; // Temperature
-
-    if cfg.show_cpu_graph || cfg.show_memory {
-        row_constraints.push(Constraint::Percentage(35));
-        has_row1 = true;
-    }
-    if cfg.show_network || cfg.show_disk_io {
-        row_constraints.push(Constraint::Percentage(35));
-        has_row2 = true;
-    }
-    if cfg.show_temperatures {
-        row_constraints.push(Constraint::Percentage(30));
-        has_row3 = true;
-    }
-
-    if row_constraints.is_empty() {
-        row_constraints.push(Constraint::Min(0));
-    }
-
-    let rows = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints(row_constraints)
-        .split(area);
-
-    let mut row_idx = 0usize;
-
-    // Row 1: CPU Info | Memory
-    if has_row1 {
-        let row = rows[row_idx];
-        row_idx += 1;
-
-        let mut col_constraints: Vec<Constraint> = Vec::new();
-        let has_cpu = cfg.show_cpu_graph;
-        let has_mem = cfg.show_memory;
-        if has_cpu && has_mem {
-            col_constraints.push(Constraint::Percentage(50));
-            col_constraints.push(Constraint::Percentage(50));
-        } else {
-            col_constraints.push(Constraint::Percentage(100));
-        }
-
-        let cols = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints(col_constraints)
-            .split(row);
-
-        let mut col = 0usize;
-        if has_cpu {
-            render_cpu_panel(f, cols[col], app, focus == PanelFocus::Panel1);
-            col += 1;
-        }
-        if has_mem {
-            render_memory_panel(f, cols[col], app, focus == PanelFocus::Panel2);
-        }
-    }
-
-    // Row 2: Network | Disk I/O
-    if has_row2 {
-        let row = rows[row_idx];
-        row_idx += 1;
-
-        let mut col_constraints: Vec<Constraint> = Vec::new();
-        let has_net = cfg.show_network;
-        let has_disk = cfg.show_disk_io;
-        if has_net && has_disk {
-            col_constraints.push(Constraint::Percentage(50));
-            col_constraints.push(Constraint::Percentage(50));
-        } else {
-            col_constraints.push(Constraint::Percentage(100));
-        }
-
-        let cols = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints(col_constraints)
-            .split(row);
-
-        let mut col = 0usize;
-        if has_net {
-            render_network_panel(f, cols[col], app, focus == PanelFocus::Panel3);
-            col += 1;
-        }
-        if has_disk {
-            render_disk_io_panel(f, cols[col], app, focus == PanelFocus::Panel4);
-        }
-    }
-
-    // Row 3: Temperature (full width)
-    if has_row3 {
-        render_temperature_panel(f, rows[row_idx], app, focus == PanelFocus::Panel5);
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-// CPU Info Panel (Panel1)
-// ═══════════════════════════════════════════════════════════════════════
-
-fn render_cpu_panel(f: &mut Frame, area: Rect, app: &App, focused: bool) {
-    let title = icons::titled(app, icons::CPU, icons::fallback::CPU, "CPU Info");
-    let block = panel_block_focused(&title, focused);
-    let inner = block.inner(area);
-    f.render_widget(block, area);
-
-    let layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1), // summary line
-            Constraint::Min(0),    // per-core grid
-        ])
-        .split(inner);
-
-    // Summary line
-    let avg = app.cpu_history.back().copied().unwrap_or(0);
-    let line = Line::from(vec![
-        Span::styled(" Avg:", Style::default().fg(subtext()).add_modifier(Modifier::BOLD)),
-        Span::styled(
-            format!(" {:5.1}%", avg),
-            Style::default().fg(usage_color(avg as f32)),
-        ),
-        Span::styled("  Cores:", Style::default().fg(subtext()).add_modifier(Modifier::BOLD)),
-        Span::styled(format!(" {}", app.num_cores()), Style::default().fg(text())),
-    ]);
-    f.render_widget(Paragraph::new(line), layout[0]);
-
-    // Per-core lines with braille micro-sparklines
-    let cores = app.per_core_usage();
-    let gauge_area = layout[1];
-    let cols: usize = if cores.len() <= 4 { 1 } else { 2 };
-    let rows_per_col = cores.len().div_ceil(cols);
-    let half_w = gauge_area.width / cols as u16;
-
-    for (i, usage) in cores.iter().enumerate() {
-        let col = i / rows_per_col;
-        let row = i % rows_per_col;
-        let x = gauge_area.x + col as u16 * half_w;
-        let y = gauge_area.y + row as u16;
-        let w = half_w.saturating_sub(1);
-
-        if y >= gauge_area.y + gauge_area.height || w < 10 {
-            continue;
-        }
-
-        let color = usage_color(*usage);
-
-        let spark_data: Vec<u64> = if let Some(h) = app.per_core_history(i) {
-            let len = h.len();
-            let start = len.saturating_sub(4);
-            h.range(start..).copied().collect()
-        } else {
-            vec![0; 4]
-        };
-        let spark = braille_mini(&spark_data, 100);
-
-        let line = Line::from(vec![
-            Span::styled(format!("C{:>2}", i), Style::default().fg(subtext())),
-            Span::styled(format!(" {:5.1}%", usage), Style::default().fg(color)),
-            Span::styled(format!(" {}", spark), Style::default().fg(color)),
-        ]);
-
-        f.render_widget(
-            Paragraph::new(line),
-            Rect { x, y, width: w, height: 1 },
-        );
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-// Memory Panel (Panel2) — Live RAM & Swap gauges with breakdown
-// ═══════════════════════════════════════════════════════════════════════
-
-fn render_memory_panel(f: &mut Frame, area: Rect, app: &App, focused: bool) {
-    let title = icons::titled(app, icons::RAM, icons::fallback::RAM, "Memory");
-    let block = panel_block_focused(&title, focused);
-    let inner = block.inner(area);
-    f.render_widget(block, area);
-
-    let (used, total) = app.ram_usage();
-    let (swap_used, swap_total) = app.swap_usage();
-    let mem = app.memory_breakdown();
-
-    let ram_ratio = if total > 0.0 { used / total } else { 0.0 };
-    let swap_ratio = if swap_total > 0.0 { swap_used / swap_total } else { 0.0 };
-    let ram_color = gauge_color(ram_ratio);
-    let swap_color = gauge_color(swap_ratio);
-
-    // ── Layout: split inner rect into sections ────────────────
-    // RAM header (1) + RAM gauge (1) + breakdown (2) + spacing (1) +
-    // SWAP section (1 header + 1 gauge, or 1 line)
-    let has_swap = swap_total > 0.0;
-    let swap_section_height = if has_swap { 2u16 } else { 1u16 };
-
-    let sections = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1), // RAM header
-            Constraint::Length(1), // RAM gauge
-            Constraint::Length(2), // Breakdown lines
-            Constraint::Length(1), // Spacing
-            Constraint::Length(swap_section_height), // SWAP section
-        ])
-        .split(inner);
-
-    // ── RAM header ────────────────────────────────────────
-    f.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(" RAM ", Style::default().fg(blue()).add_modifier(Modifier::BOLD)),
-            Span::styled(
-                format!("{:.1} / {:.1} GiB", used, total),
-                Style::default().fg(text()),
-            ),
-        ])),
-        sections[0],
-    );
-
-    // ── RAM gauge ─────────────────────────────────────────
-    let ram_gauge = Gauge::default()
-        .gauge_style(Style::default().fg(ram_color).bg(surface0()))
-        .ratio(ram_ratio.clamp(0.0, 1.0))
-        .label(Span::styled(
-            format!("{:.1}%", ram_ratio * 100.0),
-            Style::default().fg(text()).add_modifier(Modifier::BOLD),
-        ));
-    f.render_widget(ram_gauge, sections[1]);
-
-    // ── Breakdown ─────────────────────────────────────────
-    let label_w = 8;
-    let value_w = 10;
-    let breakdown_lines = vec![
-        Line::from(vec![
-            Span::styled(
-                format!(" {:>width$}", "Used", width = label_w),
-                Style::default().fg(peach()),
-            ),
-            Span::styled(
-                format!("{:>width$} / {:.1} GiB", format_bytes(mem.used_bytes), total, width = value_w),
-                Style::default().fg(text()),
-            ),
-        ]),
-        Line::from(vec![
-            Span::styled(
-                format!(" {:>width$}", "Cache", width = label_w),
-                Style::default().fg(mauve()),
-            ),
-            Span::styled(
-                format!("{:>width$}", format_bytes(mem.cached_bytes), width = value_w),
-                Style::default().fg(text()),
-            ),
-            Span::styled(
-                format!("  {:>width$}", "Avail", width = label_w - 2),
-                Style::default().fg(green()),
-            ),
-            Span::styled(
-                format!("{:>width$}", format_bytes(mem.free_bytes), width = value_w - 2),
-                Style::default().fg(text()),
-            ),
-        ]),
-    ];
-    f.render_widget(Paragraph::new(breakdown_lines), sections[2]);
-
-    // ── SWAP section ──────────────────────────────────────
-    if has_swap {
-        let swap_sub = Layout::default()
+    if is_compact(area.width) {
+        // Narrow (Android/Termux portrait): stack all panels full-width.
+        let rows = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Length(1), Constraint::Length(1)])
-            .split(sections[4]);
-
-        f.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::styled(
-                    " SWAP ",
-                    Style::default().fg(mauve()).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(
-                    format!("{:.1} / {:.1} GiB", swap_used, swap_total),
-                    Style::default().fg(text()),
-                ),
-            ])),
-            swap_sub[0],
-        );
-
-        let swap_gauge = Gauge::default()
-            .gauge_style(Style::default().fg(swap_color).bg(surface0()))
-            .ratio(swap_ratio.clamp(0.0, 1.0))
-            .label(Span::styled(
-                format!("{:.1}%", swap_ratio * 100.0),
-                Style::default().fg(text()).add_modifier(Modifier::BOLD),
-            ));
-        f.render_widget(swap_gauge, swap_sub[1]);
+            .constraints([
+                Constraint::Percentage(22),
+                Constraint::Percentage(22),
+                Constraint::Percentage(20),
+                Constraint::Percentage(18),
+                Constraint::Percentage(18),
+            ])
+            .split(area);
+        render_cpu_clusters(f, app, rows[0], focus == PanelFocus::Panel1);
+        render_memory_battery(f, app, rows[1], focus == PanelFocus::Panel2);
+        render_network(f, app, rows[2], focus == PanelFocus::Panel3);
+        render_temperatures(f, app, rows[3], focus == PanelFocus::Panel4);
+        render_disk_io(f, app, rows[4], focus == PanelFocus::Panel5);
     } else {
-        f.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::styled(
-                    " SWAP ",
-                    Style::default().fg(mauve()).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled("Disabled / No Swap", Style::default().fg(overlay())),
-            ])),
-            sections[4],
-        );
+        // ── Two rows: monitoring (top) + sensors/disk I/O (bottom) ──
+        let rows = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
+            .split(area);
+
+        let top_cols = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(33),
+                Constraint::Percentage(34),
+                Constraint::Percentage(33),
+            ])
+            .split(rows[0]);
+
+        render_cpu_clusters(f, app, top_cols[0], focus == PanelFocus::Panel1);
+        render_memory_battery(f, app, top_cols[1], focus == PanelFocus::Panel2);
+        render_network(f, app, top_cols[2], focus == PanelFocus::Panel3);
+
+        let bot_cols = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
+            .split(rows[1]);
+
+        render_temperatures(f, app, bot_cols[0], focus == PanelFocus::Panel4);
+        render_disk_io(f, app, bot_cols[1], focus == PanelFocus::Panel5);
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════
-// Network Panel (Panel3) — icons + mirrored braille graph
-// ═══════════════════════════════════════════════════════════════════════
-
-fn render_network_panel(f: &mut Frame, area: Rect, app: &App, focused: bool) {
-    let title = icons::titled(app, icons::NETWORK, icons::fallback::NETWORK, "Network");
+fn render_cpu_clusters(f: &mut Frame, app: &App, area: Rect, focused: bool) {
+    let title = " Clusters ".to_string();
     let block = panel_block_focused(&title, focused);
     let inner = block.inner(area);
     f.render_widget(block, area);
+
+    if inner.width < 15 || inner.height < 4 {
+        return;
+    }
+
+    let cores = app.per_core_usage();
+    let max_bars = inner.height as usize;
+
+    let mut lines = Vec::new();
+
+    for (i, usage) in cores.iter().take(max_bars).enumerate() {
+        let usage_pct = *usage;
+        let color = usage_color(usage_pct);
+
+        let label = format!("{}.", i + 1);
+        let bar_width = inner.width.saturating_sub(12) as usize; // reserve space for label and %
+
+        let mut spans = vec![Span::styled(
+            format!("{:>3} ", label),
+            Style::default().fg(subtext()),
+        )];
+        spans.extend(usage_bar_spans(
+            bar_width as u16,
+            usage_pct as f64 / 100.0,
+            color,
+        ));
+        spans.push(Span::styled(
+            format!("{:>4.0}%", usage_pct),
+            Style::default().fg(text()),
+        ));
+        lines.push(Line::from(spans));
+    }
+
+    f.render_widget(Paragraph::new(lines), inner);
+}
+
+fn render_memory_battery(f: &mut Frame, app: &App, area: Rect, focused: bool) {
+    let title = " Memory & Battery ".to_string();
+    let block = panel_block_focused(&title, focused);
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    if inner.width < 15 || inner.height < 6 {
+        return;
+    }
+
+    let mut lines = Vec::new();
+
+    // Memory Breakdown
+    let mem = app.memory_breakdown();
+    let (used, total) = app.ram_usage();
+
+    let used_pct = if total > 0.0 {
+        (mem.used_bytes as f64 / (total * 1024.0 * 1024.0 * 1024.0)) * 100.0
+    } else {
+        0.0
+    };
+    let cache_pct = if total > 0.0 {
+        (mem.cached_bytes as f64 / (total * 1024.0 * 1024.0 * 1024.0)) * 100.0
+    } else {
+        0.0
+    };
+    let free_pct = if total > 0.0 {
+        (mem.free_bytes as f64 / (total * 1024.0 * 1024.0 * 1024.0)) * 100.0
+    } else {
+        0.0
+    };
+
+    let bar_width = inner.width.saturating_sub(18) as usize;
+
+    let build_bar = |label: &str, pct: f64, val_str: String, color: Color| -> Line<'static> {
+        let mut spans = vec![Span::styled(
+            format!("{:>6} ", label),
+            Style::default().fg(subtext()),
+        )];
+        spans.extend(usage_bar_spans(bar_width as u16, pct / 100.0, color));
+        spans.push(Span::styled(
+            format!(" {:>6}", val_str),
+            Style::default().fg(text()),
+        ));
+        Line::from(spans)
+    };
+
+    lines.push(Line::from(Span::styled(
+        "Memory",
+        Style::default().fg(text()).add_modifier(Modifier::BOLD),
+    )));
+    lines.push(build_bar(
+        "Used",
+        used_pct,
+        format!("{:.1}G", used),
+        peach(),
+    ));
+    lines.push(build_bar(
+        "Cache",
+        cache_pct,
+        format_bytes(mem.cached_bytes),
+        mauve(),
+    ));
+    lines.push(build_bar(
+        "Free",
+        free_pct,
+        format_bytes(mem.free_bytes),
+        green(),
+    ));
+
+    lines.push(Line::from(""));
+
+    // Battery
+    lines.push(Line::from(Span::styled(
+        "Battery",
+        Style::default().fg(text()).add_modifier(Modifier::BOLD),
+    )));
+    if let Some(bat) = app.battery() {
+        let bat_color = battery_color(bat.percentage);
+        let state_str = bat.state.to_string();
+        let state_str = if state_str.len() > 6 {
+            &state_str[0..6]
+        } else {
+            &state_str
+        };
+
+        let mut bat_spans = vec![Span::styled(
+            format!("{:>6} ", state_str),
+            Style::default().fg(subtext()),
+        )];
+        bat_spans.extend(usage_bar_spans(
+            bar_width as u16,
+            bat.percentage / 100.0,
+            bat_color,
+        ));
+        bat_spans.push(Span::styled(
+            format!("{:>6.0}%", bat.percentage),
+            Style::default().fg(bat_color),
+        ));
+        lines.push(Line::from(bat_spans));
+
+        // Rich detail: power draw, health, cycles (when available)
+        if let Some(p) = bat.power_w {
+            let discharging = bat.state.to_lowercase().contains("discharg");
+            let arrow = if discharging { "↓" } else { "↑" };
+            let pcolor = if discharging { peach() } else { green() };
+            lines.push(Line::from(vec![
+                Span::styled(" Power ", Style::default().fg(subtext())),
+                Span::styled(format!("{} {:.1} W", arrow, p), Style::default().fg(pcolor)),
+            ]));
+        }
+        if let Some(h) = bat.health_pct {
+            lines.push(Line::from(vec![
+                Span::styled(" Health ", Style::default().fg(subtext())),
+                Span::styled(
+                    format!("{:.0}%", h),
+                    Style::default().fg(usage_color(h as f32)),
+                ),
+            ]));
+        }
+        if let Some(c) = bat.cycle_count {
+            lines.push(Line::from(vec![
+                Span::styled(" Cycles ", Style::default().fg(subtext())),
+                Span::styled(format!("{}", c), Style::default().fg(text())),
+            ]));
+        }
+    } else {
+        lines.push(Line::from(Span::styled(
+            "  No battery detected",
+            Style::default().fg(overlay()),
+        )));
+    }
+
+    f.render_widget(Paragraph::new(lines), inner);
+}
+
+fn render_network(f: &mut Frame, app: &App, area: Rect, focused: bool) {
+    let title = " Network ".to_string();
+    let block = panel_block_focused(&title, focused);
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    if inner.width < 12 || inner.height < 4 {
+        return;
+    }
 
     let stats = app.network_stats();
-    let nf = app.config().nerd_fonts;
-    let dl_icon = if nf { icons::NET_DOWNLOAD } else { "▼" };
-    let ul_icon = if nf { icons::NET_UPLOAD } else { "▲" };
-
     if stats.is_empty() {
         f.render_widget(
             Paragraph::new(Line::from(Span::styled(
-                "  No interfaces found",
+                "  No network interfaces",
                 Style::default().fg(overlay()),
             ))),
             inner,
@@ -360,300 +268,158 @@ fn render_network_panel(f: &mut Frame, area: Rect, app: &App, focused: bool) {
         return;
     }
 
-    // ── Compact speed summary per interface ────────────────────
-    let mut lines: Vec<Line<'static>> = Vec::new();
-
-    // ── Local IP (from first interface) ────────────────────────
-    let local_ip = stats
-        .iter()
-        .find_map(|ns| ns.local_ip.as_deref());
-    if let Some(ip) = local_ip {
-        lines.push(Line::from(vec![
-            Span::styled(" Local  ", Style::default().fg(subtext()).add_modifier(Modifier::BOLD)),
-            Span::styled(ip.to_string(), Style::default().fg(text())),
-        ]));
-    }
-
-    // ── Public IP ─────────────────────────────────────────────
-    match app.public_ip() {
-        Some(ip) => {
-            lines.push(Line::from(vec![
-                Span::styled(" Public ", Style::default().fg(subtext()).add_modifier(Modifier::BOLD)),
-                Span::styled(ip, Style::default().fg(text())),
-            ]));
-        }
-        None => {
-            lines.push(Line::from(vec![
-                Span::styled(" Public ", Style::default().fg(subtext()).add_modifier(Modifier::BOLD)),
-                Span::styled("resolving...", Style::default().fg(overlay())),
-            ]));
-        }
-    }
-
-    for ns in stats {
-        lines.push(Line::from(vec![
-            Span::styled(
-                format!(" {} ", ns.interface),
-                Style::default().fg(blue()).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!("{} ", dl_icon),
-                Style::default().fg(sky()).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!("{:>10}", format_speed(ns.rx_speed_bps)),
-                Style::default().fg(text()),
-            ),
-            Span::styled(
-                format!(" {} ", ul_icon),
-                Style::default().fg(mauve()).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!("{:>10}", format_speed(ns.tx_speed_bps)),
-                Style::default().fg(text()),
-            ),
-        ]));
-    }
-
-    let text_h = lines.len() as u16;
-    let text_area = Rect {
-        x: inner.x,
-        y: inner.y,
-        width: inner.width,
-        height: text_h.min(inner.height),
-    };
-    f.render_widget(Paragraph::new(lines), text_area);
-
-    // ── Mirrored heartbeat graph (RX ▲ / TX ▼) ────────────────
-    let graph_h = inner.height.saturating_sub(text_h);
-    if graph_h >= 5 && inner.width > 4 {
-        let max_len = stats
-            .iter()
-            .map(|ns| ns.rx_history.len().max(ns.tx_history.len()))
-            .max()
-            .unwrap_or(0);
-
-        if max_len > 0 {
-            let total_rx: VecDeque<u64> = (0..max_len)
-                .map(|i| {
-                    stats
-                        .iter()
-                        .map(|ns| ns.rx_history.get(i).copied().unwrap_or(0))
-                        .sum()
-                })
-                .collect();
-            let total_tx: VecDeque<u64> = (0..max_len)
-                .map(|i| {
-                    stats
-                        .iter()
-                        .map(|ns| ns.tx_history.get(i).copied().unwrap_or(0))
-                        .sum()
-                })
-                .collect();
-
-            let graph_area = Rect {
-                x: inner.x,
-                y: inner.y + text_h,
-                width: inner.width,
-                height: graph_h,
-            };
-
-            let rows = braille_mirrored_graph(
-                &total_rx,
-                &total_tx,
-                graph_area.width,
-                graph_area.height,
-                sky(),   // RX (download) ▲ cyan
-                mauve(), // TX (upload) ▼ magenta
-            );
-            f.render_widget(Paragraph::new(rows), graph_area);
-        }
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-// Disk I/O Panel (Panel4) — icons + mirrored braille graph
-// ═══════════════════════════════════════════════════════════════════════
-
-fn render_disk_io_panel(f: &mut Frame, area: Rect, app: &App, focused: bool) {
-    let title = icons::titled(app, icons::DISK, icons::fallback::DISK, "Disk I/O");
-    let block = panel_block_focused(&title, focused);
-    let inner = block.inner(area);
-    f.render_widget(block, area);
-
-    let dio = app.disk_io();
-    let nf = app.config().nerd_fonts;
-    let read_icon = if nf { icons::DISK_IO_READ } else { "R:" };
-    let write_icon = if nf { icons::DISK_IO_WRITE } else { "W:" };
-
-    let mut lines: Vec<Line<'static>> = Vec::new();
-
-    // Read/Write speeds with Nerd Font icons
-    lines.push(Line::from(vec![
-        Span::styled(
-            format!(" {} ", read_icon),
-            Style::default().fg(green()).add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(
-            format!("{:>12}", format_speed(dio.read_speed_bps)),
-            Style::default().fg(text()),
-        ),
-    ]));
-    lines.push(Line::from(vec![
-        Span::styled(
-            format!(" {} ", write_icon),
-            Style::default().fg(peach()).add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(
-            format!("{:>12}", format_speed(dio.write_speed_bps)),
-            Style::default().fg(text()),
-        ),
-    ]));
-
-    lines.push(Line::raw("")); // spacing
-
-    // IOPS
-    lines.push(Line::from(vec![
-        Span::styled(" IOPS R:", Style::default().fg(green())),
-        Span::styled(format!(" {:>6}/s", dio.read_iops), Style::default().fg(text())),
-    ]));
-    lines.push(Line::from(vec![
-        Span::styled(" IOPS W:", Style::default().fg(peach())),
-        Span::styled(format!(" {:>6}/s", dio.write_iops), Style::default().fg(text())),
-    ]));
-
-    let text_h = lines.len() as u16;
-    let text_area = Rect {
-        x: inner.x,
-        y: inner.y,
-        width: inner.width,
-        height: text_h.min(inner.height),
-    };
-    f.render_widget(Paragraph::new(lines), text_area);
-
-    // ── Mirrored braille graph (Read ▲ / Write ▼) ─────────────
-    let graph_h = inner.height.saturating_sub(text_h);
-    if graph_h >= 5 && inner.width > 4
-        && (!dio.read_history.is_empty() || !dio.write_history.is_empty())
-    {
-        let graph_area = Rect {
-            x: inner.x,
-            y: inner.y + text_h,
-            width: inner.width,
-            height: graph_h,
-        };
-
-        let rows = braille_mirrored_graph(
-            &dio.read_history,
-            &dio.write_history,
-            graph_area.width,
-            graph_area.height,
-            green(), // Read ▲
-            peach(), // Write ▼
-        );
-        f.render_widget(Paragraph::new(rows), graph_area);
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-// Temperature Panel (Panel5) — live temperatures only
-// ═══════════════════════════════════════════════════════════════════════
-
-fn render_temperature_panel(f: &mut Frame, area: Rect, app: &App, focused: bool) {
-    let title = icons::titled(app, icons::TEMP, icons::fallback::TEMP, "Temperature");
-    let block = panel_block_focused(&title, focused);
-    let inner = block.inner(area);
-    f.render_widget(block, area);
-
-    // Split into left (sensor text) and right (CPU temp chart)
-    let cols = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+    // Primary interface text (top) + mirrored RX↑/TX↓ graph (bottom)
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(2), Constraint::Min(0)])
         .split(inner);
 
-    let left = cols[0];
-    let right = cols[1];
+    let primary = &stats[0];
+    let txt = vec![
+        Line::from(Span::styled(
+            primary.interface.to_string(),
+            Style::default().fg(text()).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(vec![
+            Span::styled("↓ ", Style::default().fg(green())),
+            Span::styled(
+                format_speed(primary.rx_speed_bps),
+                Style::default().fg(text()),
+            ),
+            Span::styled("   ↑ ", Style::default().fg(peach())),
+            Span::styled(
+                format_speed(primary.tx_speed_bps),
+                Style::default().fg(text()),
+            ),
+        ]),
+    ];
+    f.render_widget(Paragraph::new(txt), chunks[0]);
 
-    // ── Left: Temperature sensors ──────────────────────────────
-    let mut lines: Vec<Line<'static>> = Vec::new();
+    let g = chunks[1];
+    if g.height >= 4 && g.width >= 8 && !primary.rx_history.is_empty() {
+        let lines = braille_mirrored_graph(
+            &primary.rx_history,
+            &primary.tx_history,
+            g.width,
+            g.height,
+            sky(),   // RX (download) up
+            peach(), // TX (upload) down
+        );
+        f.render_widget(Paragraph::new(lines), g);
+    }
+}
+
+fn render_temperatures(f: &mut Frame, app: &App, area: Rect, focused: bool) {
+    let title = icons::titled(app, icons::TEMP, icons::fallback::TEMP, "Temperatures");
+    let block = panel_block_focused(&title, focused);
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    if inner.width < 14 || inner.height < 2 {
+        return;
+    }
+
     let temps = app.temperatures();
-    for sensor in temps.iter().take(8) {
-        let color = temp_color(sensor.temp_c);
-        let label = truncate_str(&sensor.label, 14);
-
-        // Mini temperature bar (8 chars wide)
-        let ratio = (sensor.temp_c / 105.0).clamp(0.0, 1.0);
-        let filled = (ratio * 8.0_f32).round() as usize;
-        let empty = 8 - filled;
-
-        lines.push(Line::from(vec![
-            Span::styled(format!(" {:<14}", label), Style::default().fg(subtext())),
-            Span::styled(
-                format!("{:>6.1}°C", sensor.temp_c),
-                Style::default().fg(color).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!(
-                    " [{}{}]",
-                    "\u{2588}".repeat(filled),
-                    "\u{2591}".repeat(empty),
-                ),
-                Style::default().fg(color),
-            ),
-        ]));
-    }
-
     if temps.is_empty() {
-        lines.push(Line::from(Span::styled(
-            "  No sensors found",
-            Style::default().fg(overlay()),
-        )));
-    }
-
-    f.render_widget(Paragraph::new(lines), left);
-
-    // ── Right: CPU temperature line chart ──────────────────────
-    // Find the CPU/Core/Package temperature sensor
-    let cpu_sensor = temps.iter().find(|s| {
-        let label_lower = s.label.to_lowercase();
-        label_lower.contains("cpu")
-            || label_lower.contains("core")
-            || label_lower.contains("package")
-            || label_lower.contains("tdie")
-            || label_lower.contains("tctl")
-    });
-
-    if let Some(sensor) = cpu_sensor {
-        if !sensor.history.is_empty() && right.width >= 10 && right.height >= 3 {
-            // Pick color based on current temperature
-            let chart_color = temp_color(sensor.temp_c);
-
-            let rows = braille_line_graph(
-                &sensor.history,
-                right.width,
-                right.height,
-                chart_color,
-                Color::default(), // fill color (unused by line graph)
-                "°C",
-            );
-            f.render_widget(Paragraph::new(rows), right);
-        } else if right.width >= 10 && right.height >= 2 {
-            // Not enough history data yet
-            f.render_widget(
-                Paragraph::new(Line::from(Span::styled(
-                    "  Collecting CPU temp data...",
-                    Style::default().fg(overlay()),
-                ))),
-                right,
-            );
-        }
-    } else if right.width >= 10 && right.height >= 2 {
         f.render_widget(
             Paragraph::new(Line::from(Span::styled(
-                "  No CPU sensor found",
+                "  No sensors available",
                 Style::default().fg(overlay()),
             ))),
-            right,
+            inner,
         );
+        return;
+    }
+
+    let max_rows = inner.height as usize;
+    let bar_width = (inner.width as usize).saturating_sub(20);
+    let unit = if app.temp_celsius { "°C" } else { "°F" };
+    let mut lines = Vec::new();
+
+    for s in temps.iter().take(max_rows) {
+        let display = if app.temp_celsius {
+            s.temp_c
+        } else {
+            s.temp_c * 9.0 / 5.0 + 32.0
+        };
+        let color = temp_color(s.temp_c); // thresholds are in °C
+        let pct = (s.temp_c / 100.0).clamp(0.0, 1.0);
+        let label = truncate_str(&s.label, 12);
+
+        let mut spans = vec![Span::styled(
+            format!("{:<12} ", label),
+            Style::default().fg(subtext()),
+        )];
+        spans.extend(usage_bar_spans(bar_width as u16, pct as f64, color));
+        spans.push(Span::styled(
+            format!(" {:>4.0}{}", display, unit),
+            Style::default().fg(color),
+        ));
+        lines.push(Line::from(spans));
+    }
+
+    f.render_widget(Paragraph::new(lines), inner);
+}
+
+fn render_disk_io(f: &mut Frame, app: &App, area: Rect, focused: bool) {
+    let title = " Disk I/O ".to_string();
+    let block = panel_block_focused(&title, focused);
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    if inner.width < 12 || inner.height < 5 {
+        return;
+    }
+
+    let io = app.disk_io();
+
+    // Stats line (top) + read/write graphs (bottom)
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Min(0)])
+        .split(inner);
+
+    let stats = Line::from(vec![
+        Span::styled("↓ ", Style::default().fg(green())),
+        Span::styled(format_speed(io.read_speed_bps), Style::default().fg(text())),
+        Span::styled("   ↑ ", Style::default().fg(peach())),
+        Span::styled(
+            format_speed(io.write_speed_bps),
+            Style::default().fg(text()),
+        ),
+        Span::styled(
+            format!("   {} / {} ops", io.read_iops, io.write_iops),
+            Style::default().fg(subtext()),
+        ),
+    ]);
+    f.render_widget(Paragraph::new(stats), chunks[0]);
+
+    let g = chunks[1];
+    let half = (g.height / 2).max(1);
+    if half >= 2 {
+        let read_area = Rect {
+            x: g.x,
+            y: g.y,
+            width: g.width,
+            height: half,
+        };
+        let write_area = Rect {
+            x: g.x,
+            y: g.y + half,
+            width: g.width,
+            height: g.height - half,
+        };
+        let read_lines =
+            halfblock_graph(&io.read_history, g.width, half, green(), Some(base()), "");
+        f.render_widget(Paragraph::new(read_lines), read_area);
+        let write_lines = halfblock_graph(
+            &io.write_history,
+            g.width,
+            g.height - half,
+            peach(),
+            Some(base()),
+            "",
+        );
+        f.render_widget(Paragraph::new(write_lines), write_area);
     }
 }

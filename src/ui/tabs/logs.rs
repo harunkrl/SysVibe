@@ -1,18 +1,18 @@
 //! SysVibe — Logs tab rendering.
 
 use ratatui::{
-    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
+    Frame,
 };
 
-use crate::app::App;
-use crate::app::state::LogLevel;
-use super::super::palette::*;
 use super::super::helpers::*;
 use super::super::icons;
+use super::super::palette::*;
+use crate::app::state::LogLevel;
+use crate::app::App;
 
 pub fn render_logs_tab(f: &mut Frame, app: &App, area: Rect) {
     // Split area: level filter bar (row 1), text filter bar (row 2), log entries (rest)
@@ -84,7 +84,11 @@ fn render_text_filter_bar(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(block, area);
 
     let nf = app.config().nerd_fonts;
-    let search_icon = if nf { icons::SEARCH } else { icons::fallback::SEARCH };
+    let search_icon = if nf {
+        icons::SEARCH
+    } else {
+        icons::fallback::SEARCH
+    };
 
     let input = app.log_filter_input();
     let is_active = app.log_filter_active();
@@ -122,13 +126,27 @@ fn render_log_entries(f: &mut Frame, app: &App, area: Rect) {
     let filtered_count = filtered.len();
     let nf = app.config().nerd_fonts;
 
-    let title = if nf {
-        format!(
-            "{} Kernel Logs  ({}/{})",
-            icons::TAB_LOGS, filtered_count, total_count
+    let (log_label, empty_hint) = if cfg!(target_os = "android") {
+        (
+            "Logcat Logs",
+            "No logcat logs available — requires logcat access",
         )
     } else {
-        format!("Kernel Logs  ({}/{})", filtered_count, total_count)
+        (
+            "Kernel Logs",
+            "No kernel logs available — requires journalctl or dmesg access",
+        )
+    };
+    let title = if nf {
+        format!(
+            "{} {}  ({}/{})",
+            icons::TAB_LOGS,
+            log_label,
+            filtered_count,
+            total_count
+        )
+    } else {
+        format!("{}  ({}/{})", log_label, filtered_count, total_count)
     };
     let block = panel_block_focused(&title, true);
     let inner = block.inner(area);
@@ -138,7 +156,7 @@ fn render_log_entries(f: &mut Frame, app: &App, area: Rect) {
         if total_count == 0 {
             f.render_widget(
                 Paragraph::new(Line::styled(
-                    "  No kernel logs available — requires journalctl or dmesg access",
+                    format!("  {}", empty_hint),
                     Style::default().fg(overlay()),
                 )),
                 inner,
@@ -161,7 +179,8 @@ fn render_log_entries(f: &mut Frame, app: &App, area: Rect) {
         if app.log_follow() {
             count - visible_height
         } else {
-            app.log_scroll_offset().min(count.saturating_sub(visible_height))
+            app.log_scroll_offset()
+                .min(count.saturating_sub(visible_height))
         }
     } else {
         0
@@ -175,21 +194,33 @@ fn render_log_entries(f: &mut Frame, app: &App, area: Rect) {
             let (level_color, level_icon, level_str, badge_bg, badge_fg) = match entry.level {
                 LogLevel::Error => (
                     red(),
-                    if nf { icons::LOG_ERROR } else { icons::fallback::LOG_ERROR },
+                    if nf {
+                        icons::LOG_ERROR
+                    } else {
+                        icons::fallback::LOG_ERROR
+                    },
                     "ERR",
                     Color::Rgb(180, 40, 50),   // dark red bg
                     Color::Rgb(255, 255, 255), // white fg
                 ),
                 LogLevel::Warning => (
                     yellow(),
-                    if nf { icons::LOG_WARN } else { icons::fallback::LOG_WARN },
+                    if nf {
+                        icons::LOG_WARN
+                    } else {
+                        icons::fallback::LOG_WARN
+                    },
                     "WRN",
-                    Color::Rgb(200, 170, 60),  // amber/yellow bg
-                    Color::Rgb(30, 30, 30),    // dark fg
+                    Color::Rgb(200, 170, 60), // amber/yellow bg
+                    Color::Rgb(30, 30, 30),   // dark fg
                 ),
                 LogLevel::Info => (
                     blue(),
-                    if nf { icons::LOG_INFO } else { icons::fallback::LOG_INFO },
+                    if nf {
+                        icons::LOG_INFO
+                    } else {
+                        icons::fallback::LOG_INFO
+                    },
                     "INF",
                     Color::Rgb(50, 80, 180),   // blue bg
                     Color::Rgb(220, 230, 255), // light fg
@@ -221,13 +252,13 @@ fn render_log_entries(f: &mut Frame, app: &App, area: Rect) {
                     format!(" {} ", &entry.timestamp),
                     Style::default().fg(overlay()),
                 ),
-                Span::styled(
-                    format!("{} ", level_icon),
-                    Style::default().fg(level_color),
-                ),
+                Span::styled(format!("{} ", level_icon), Style::default().fg(level_color)),
                 Span::styled(
                     format!(" {} ", level_str),
-                    Style::default().bg(badge_bg).fg(badge_fg).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .bg(badge_bg)
+                        .fg(badge_fg)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(" ", Style::default()),
                 Span::styled(&entry.message, Style::default().fg(text())),

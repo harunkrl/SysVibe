@@ -27,6 +27,7 @@ pub enum AppMode {
     Help,
     KillConfirm,
     Filter,
+    Command,
 }
 
 /// Represents the currently active tab.
@@ -402,10 +403,7 @@ mod tests {
         assert_eq!(p.next().next().next().next(), PanelFocus::Panel5);
         assert_eq!(p.next().next().next().next().next(), PanelFocus::Panel6);
         // Full cycle back to Panel1
-        assert_eq!(
-            PanelFocus::Panel6.next(),
-            PanelFocus::Panel1
-        );
+        assert_eq!(PanelFocus::Panel6.next(), PanelFocus::Panel1);
     }
 
     #[test]

@@ -5,15 +5,15 @@
 //! Supports multi-GPU systems with scroll navigation.
 
 use ratatui::{
-    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Gauge, Paragraph},
+    Frame,
 };
 
-use crate::app::App;
 use crate::app::state::PanelFocus;
+use crate::app::App;
 use crate::ui::helpers::*;
 use crate::ui::icons;
 use crate::ui::palette::*;
@@ -34,7 +34,10 @@ pub fn render_gpu_tab(f: &mut Frame, app: &App, area: Rect) {
     // Multi-GPU layout: one panel per visible GPU
     // Show up to 2 GPUs side by side; scroll for more
     let scroll = app.gpu_scroll();
-    let visible_count = gpus.len().saturating_sub(scroll).min(2);
+    let visible_count = gpus
+        .len()
+        .saturating_sub(scroll)
+        .min(if is_compact(area.width) { 1 } else { 2 });
     let visible_gpus: Vec<_> = gpus.iter().skip(scroll).take(visible_count).collect();
 
     if visible_gpus.is_empty() {
@@ -104,9 +107,15 @@ fn render_gpu_card(
         Constraint::Length(1), // Temperature
         Constraint::Length(1), // Spacing
     ];
-    if has_power { constraints.push(Constraint::Length(1)); }
-    if has_fan { constraints.push(Constraint::Length(1)); }
-    if has_clock { constraints.push(Constraint::Length(1)); }
+    if has_power {
+        constraints.push(Constraint::Length(1));
+    }
+    if has_fan {
+        constraints.push(Constraint::Length(1));
+    }
+    if has_clock {
+        constraints.push(Constraint::Length(1));
+    }
 
     let sections = Layout::default()
         .direction(Direction::Vertical)
@@ -120,12 +129,10 @@ fn render_gpu_card(
     let usage_color = usage_color(gpu.usage_pct);
 
     f.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(
-                " Usage",
-                Style::default().fg(subtext()).add_modifier(Modifier::BOLD),
-            ),
-        ])),
+        Paragraph::new(Line::from(vec![Span::styled(
+            " Usage",
+            Style::default().fg(subtext()).add_modifier(Modifier::BOLD),
+        )])),
         sections[idx],
     );
     idx += 1;
@@ -225,10 +232,7 @@ fn render_gpu_card(
                     " Power",
                     Style::default().fg(yellow()).add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(
-                    format!("  {:.1} W", power),
-                    Style::default().fg(text()),
-                ),
+                Span::styled(format!("  {:.1} W", power), Style::default().fg(text())),
             ])),
             sections[idx],
         );
@@ -236,17 +240,23 @@ fn render_gpu_card(
     }
 
     if let Some(fan) = gpu.fan_speed_pct {
-        let fan_color = if fan < 50.0 { green() } else if fan < 75.0 { yellow() } else { red() };
+        let fan_color = if fan < 50.0 {
+            green()
+        } else if fan < 75.0 {
+            yellow()
+        } else {
+            red()
+        };
         f.render_widget(
             Paragraph::new(Line::from(vec![
                 Span::styled(
-                    format!(" {}  ", icons::titled(app, icons::FAN, icons::fallback::FAN, "Fan").trim()),
+                    format!(
+                        " {}  ",
+                        icons::titled(app, icons::FAN, icons::fallback::FAN, "Fan").trim()
+                    ),
                     Style::default().fg(teal()).add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(
-                    format!("{:>5.0}%", fan),
-                    Style::default().fg(fan_color),
-                ),
+                Span::styled(format!("{:>5.0}%", fan), Style::default().fg(fan_color)),
             ])),
             sections[idx],
         );
@@ -260,10 +270,7 @@ fn render_gpu_card(
                     " Clock",
                     Style::default().fg(mauve()).add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(
-                    format!("  {} MHz", clock),
-                    Style::default().fg(text()),
-                ),
+                Span::styled(format!("  {} MHz", clock), Style::default().fg(text())),
             ])),
             sections[idx],
         );

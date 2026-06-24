@@ -8,9 +8,9 @@ path = "src/main.rs"
 
 [package]
 name = "sysvibe"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
-description = "A visually striking, zero-flicker system monitor TUI for Linux"
+description = "A modern, zero-flicker system monitor TUI for Linux & Android (Termux)"
 authors = ["SysVibe Team"]
 license = "MIT"
 repository = "https://github.com/harunkrl/SysVibe"
@@ -25,7 +25,12 @@ serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 dirs = "6"
 chrono = "0.4"
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }
+tokio = { version = "1", features = [
+  "rt-multi-thread",
+  "sync",
+  "time",
+  "macros",
+] }
 tokio-stream = "0.1"
 futures-util = "0.3"
 serde_json = "1"

@@ -26,30 +26,49 @@ use crate::ui::widgets::sparkline::halfblock_graph;
 pub fn render_system_tab(f: &mut Frame, app: &App, area: Rect) {
     let cfg = app.config();
 
-    let columns = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(58),
-            Constraint::Percentage(42),
-        ])
-        .split(area);
-
-    // ── Left column: OS Info (full height) ───────────────────
-    render_os_info(f, columns[0], app);
-
-    // ── Right column: Battery (if visible) + Disk Partitions ──
-    if cfg.show_battery {
-        let right_rows = Layout::default()
+    if is_compact(area.width) {
+        // Narrow (Android/Termux): stack OS info, battery, disks vertically.
+        let rows = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Min(8),
-                Constraint::Percentage(60),
+                Constraint::Min(7),
+                Constraint::Min(7),
             ])
-            .split(columns[1]);
-        render_battery(f, right_rows[0], app);
-        render_disk_partitions(f, right_rows[1], app);
+            .split(area);
+        render_os_info(f, rows[0], app);
+        if cfg.show_battery {
+            render_battery(f, rows[1], app);
+            render_disk_partitions(f, rows[2], app);
+        } else {
+            render_disk_partitions(f, rows[1], app);
+        }
     } else {
-        render_disk_partitions(f, columns[1], app);
+        let columns = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(58),
+                Constraint::Percentage(42),
+            ])
+            .split(area);
+
+        // ── Left column: OS Info (full height) ───────────────────
+        render_os_info(f, columns[0], app);
+
+        // ── Right column: Battery (if visible) + Disk Partitions ──
+        if cfg.show_battery {
+            let right_rows = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Min(8),
+                    Constraint::Percentage(60),
+                ])
+                .split(columns[1]);
+            render_battery(f, right_rows[0], app);
+            render_disk_partitions(f, right_rows[1], app);
+        } else {
+            render_disk_partitions(f, columns[1], app);
+        }
     }
 }
 
@@ -75,6 +94,13 @@ fn render_os_info(f: &mut Frame, area: Rect, app: &App) {
         kv_line("Uptime", &info.uptime, green()),
         Line::raw(""), // spacing
     ];
+
+    // Public IP — shown only when the user opted in (off by default; no
+    // outbound requests are made unless `resolve_public_ip = true`).
+    if app.config().resolve_public_ip
+        && let Some(ip) = app.public_ip() {
+            lines.push(kv_line("Public IP", ip.as_str(), peach()));
+        }
 
     // Motherboard & Platform
     let hw = app.hardware_data();
@@ -425,6 +451,7 @@ fn render_battery(f: &mut Frame, area: Rect, app: &App) {
                 graph_area.width,
                 graph_area.height,
                 yellow(),
+                None,
                 "W",
             );
             f.render_widget(Paragraph::new(rows), graph_area);

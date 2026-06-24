@@ -74,24 +74,6 @@ pub fn braille_graph(data: &VecDeque<u64>, max_val: Option<u64>, color: Color) -
     ]
 }
 
-/// Single-line mini braille (4 vertical levels) for the per-core grid.
-pub fn braille_mini(data: &[u64], max_val: u64) -> String {
-    let max = max_val.max(1);
-    let mut out = String::with_capacity(data.len() * 3);
-    for &v in data {
-        let lv = ((v as f64 / max as f64) * 4.0).round() as u32;
-        let bits: u32 = match lv {
-            0 => 0x00,
-            1 => 0x40,
-            2 => 0x44,
-            3 => 0x46,
-            _ => 0x47,
-        };
-        out.push_str(braille(bits as usize));
-    }
-    out
-}
-
 /// Render a multi-line braille **line** graph with Y-axis scale labels.
 ///
 /// This creates a proper time-series line chart:
@@ -379,6 +361,7 @@ pub fn halfblock_graph(
     area_width: u16,
     area_height: u16,
     color: Color,
+    fade_color: Option<Color>,
     scale_unit: &str,
 ) -> Vec<Line<'static>> {
     if data.is_empty() || area_width < 10 || area_height < 2 {
@@ -427,6 +410,15 @@ pub fn halfblock_graph(
 
         let mut spans: Vec<Span<'static>> = Vec::with_capacity(label_w + graph_w);
 
+        // Compute gradient colors for this row if requested
+        let (c_top, c_bot) = if let Some(fade) = fade_color {
+            let ratio_top = (row * 2) as f64 / total_v.max(1) as f64;
+            let ratio_bot = (row * 2 + 1) as f64 / total_v.max(1) as f64;
+            (interpolate_color(color, fade, ratio_top), interpolate_color(color, fade, ratio_bot))
+        } else {
+            (color, color)
+        };
+
         // Y-axis label
         let label_text = if row == 0 {
             let v = (y_max * (row_top_v as f64 / total_v as f64)).round() as u64;
@@ -446,9 +438,9 @@ pub fn halfblock_graph(
             let bot_filled = *f_val > row_bot_v;
 
             let (ch_str, style) = match (top_filled, bot_filled) {
-                (true, true) => ("\u{2588}", Style::default().fg(color)),   // █ full block
-                (true, false) => ("\u{2580}", Style::default().fg(color)), // ▀ upper half
-                (false, true) => ("\u{2584}", Style::default().fg(color)), // ▄ lower half
+                (true, true) => ("\u{2588}", Style::default().fg(c_top)),   // █ full block
+                (true, false) => ("\u{2580}", Style::default().fg(c_top)), // ▀ upper half
+                (false, true) => ("\u{2584}", Style::default().fg(c_bot)), // ▄ lower half
                 (false, false) => (" ", Style::default()),
             };
             spans.push(Span::styled(ch_str, style));
@@ -491,4 +483,18 @@ fn resample(data: &[u64], n: usize) -> Vec<u64> {
             data.get(idx.min(data.len() - 1)).copied().unwrap_or(0)
         })
         .collect()
+}
+
+/// Helper to interpolate between two colors. Only works fully for Color::Rgb.
+fn interpolate_color(c1: Color, c2: Color, ratio: f64) -> Color {
+    let ratio = ratio.clamp(0.0, 1.0);
+    match (c1, c2) {
+        (Color::Rgb(r1, g1, b1), Color::Rgb(r2, g2, b2)) => {
+            let r = (r1 as f64 * (1.0 - ratio) + r2 as f64 * ratio).round() as u8;
+            let g = (g1 as f64 * (1.0 - ratio) + g2 as f64 * ratio).round() as u8;
+            let b = (b1 as f64 * (1.0 - ratio) + b2 as f64 * ratio).round() as u8;
+            Color::Rgb(r, g, b)
+        }
+        _ => c1,
+    }
 }

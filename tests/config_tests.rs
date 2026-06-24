@@ -14,8 +14,6 @@ fn default_config_values() {
     assert!(config.nerd_fonts);
     assert_eq!(config.default_tab, "dashboard");
     assert_eq!(config.theme, "catppuccin-macchiato");
-    assert!(!config.daemon_enabled);
-    assert_eq!(config.daemon_port, 7642);
 }
 
 #[test]
@@ -41,7 +39,6 @@ fn config_serialization_roundtrip() {
     assert_eq!(config.ui_tick_rate, deserialized.ui_tick_rate);
     assert_eq!(config.theme, deserialized.theme);
     assert_eq!(config.default_tab, deserialized.default_tab);
-    assert_eq!(config.daemon_port, deserialized.daemon_port);
 }
 
 #[test]

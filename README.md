@@ -1,12 +1,12 @@
 # SysVibe
 
 <p align="center">
-  <strong>A premium, zero-flicker system monitor TUI for Linux</strong>
+  <strong>A modern, zero-flicker system monitor TUI for Linux &amp; Android (Termux)</strong>
 </p>
 
 <p align="center">
-  Built with <code>ratatui</code> · <code>crossterm</code> · <code>sysinfo</code><br>
-  Colored by <a href="https://github.com/catppuccin/catppuccin">Catppuccin Macchiato</a> · Graphed with <a href="https://en.wikipedia.org/wiki/Braille_Patterns">Braille</a>
+  Built with <code>ratatui</code> · <code>crossterm</code> · <code>sysinfo</code> · <code>tokio</code><br>
+  Colored by <a href="https://github.com/catppuccin/catppuccin">Catppuccin</a> (+ 6 more themes) · Graphed with braille &amp; half-block
 </p>
 
 ---
@@ -15,184 +15,242 @@
 
 | | Feature | Detail |
 |---|---|---|
-| 🎨 | **Catppuccin Macchiato palette** | Muted borders, neon data colors, full terminal transparency |
-| 📊 | **Braille graphs** | Sparklines, line charts, and mirrored heartbeat graphs — all braille-rendered |
-| ⚡ | **Low CPU overhead** | Native async event stream + virtual scrolling + tiered refresh (CPU/Memory fast, sensors slow) |
-| 🖥️ | **Deep hardware integration** | Motherboard (DMI/SysFS), GPU (NVIDIA/AMD/Intel), RAM details (`lshw`/`dmidecode`) |
-| 🔍 | **Process manager** | Sort, filter, multi-select, and kill processes with confirmation modal |
-| 📋 | **Kernel log viewer** | Real-time logs via `journalctl`/`dmesg` with color-coded severity |
-| 🖱️ | **Mouse support** | Click tabs, scroll process list |
-| ⌨️ | **Full keyboard control** | Vim-style navigation, search, batch operations |
+| 🎛️ | **6 live tabs** | Dashboard · System · Hardware · Processes · Logs · GPU |
+| 📊 | **Hero stat cards** | At-a-glance CPU/RAM/GPU/Net/Temp/Battery with mini sparklines |
+| 🎨 | **Live theming** | 7 built-in themes + custom TOML themes, switchable at runtime (`T`) |
+| ⌨️ | **Command palette** | Fuzzy action menu (`:`) — jump tabs, switch theme, export, quit, … |
+| 🔔 | **Alerts & toasts** | Configurable CPU/Mem/Temp/Disk thresholds with a prominent toast banner |
+| 🪟 | **Compact mode** | Narrow terminals (Android/Termux portrait) auto-stack to a single column |
+| ⚡ | **Low CPU overhead** | Async event loop + background `std::thread` collectors + tiered refresh |
+| 🐧 | **Deep hardware** | CPU clusters, RAM/battery breakdown, temps, disk I/O, NVIDIA/AMD/Intel GPU |
+| 📜 | **Log viewer** | `journalctl`/`dmesg` on Linux, `logcat` on Android, with severity filters |
+| 🖱️ | **Mouse + keyboard** | Click tabs, scroll lists, *and* full vim-style keyboard control |
 
-## 📸 Tabs
+---
 
-### System Tab
-- OS, kernel, hostname, uptime, architecture
-- Motherboard vendor/model, BIOS version/date
-- CPU brand with core count
-- RAM with DDR type, speed (MT/s), DIMM count & form factor
-- GPU(s) with driver info
-- Desktop environment & display server
-- Load averages (1/5/15 min)
-- Quick stat gauges (CPU / RAM / Swap / Battery)
-- CPU history braille sparkline
-- Disk partitions with usage bars
-- Sensor temperatures with color-coded bars
-- Battery status with power draw braille line graph
+## 📦 Installation
 
-### Hardware Tab
-- Per-core CPU usage with 4-char braille micro-sparklines
-- Memory & swap gauges with usage bars
-- Network I/O with compact speed summary + mirrored heartbeat graph (RX ▲ / TX ▼)
-- Disk I/O with read/write speeds and IOPS
-
-### Processes Tab
-- Virtual scrolling for ultra-fast rendering of 1000+ processes
-- Sortable process table (CPU / Memory / PID / Name)
-- Real-time search/filter
-- Multi-select with `Space`
-- Safe kill with `[Y/N]` confirmation modal
-
-### Logs Tab
-- Kernel log viewer with `journalctl` / `dmesg`
-- Color-coded severity levels
-- Auto-scroll (follow mode) with `f`
-- Manual refresh with `r`
-
-## 🚀 Installation
-
-### Easy Install (Recommended)
+### Option A — install script (recommended)
 
 ```bash
-git clone https://github.com/harunkrl/SysVibe.git
+git clone https://github.com/<you>/SysVibe.git
 cd SysVibe
 ./install.sh
 ```
 
-This compiles the project and creates a desktop shortcut so you can launch SysVibe from your application menu.
+The script builds via `cargo install --path .`, creates an application-menu shortcut
+on Linux desktops, and generates a default config if one doesn't exist.
 
-### Uninstallation
-
-```bash
-./uninstall.sh
-```
-
-### Manual Install via Cargo
+### Option B — manual
 
 ```bash
-git clone https://github.com/harunkrl/SysVibe.git
-cd SysVibe
 cargo install --path .
+sysvibe --init-config      # write ~/.config/sysvibe/config.toml (optional)
 ```
 
-> Make sure `~/.cargo/bin` is in your `$PATH`.
+### Android / Termux
 
-### Run without Installing
+SysVibe builds and runs under Termux. The UI auto-switches to a compact stacked
+layout on narrow terminals and labels the Logs tab **Logcat**.
 
 ```bash
-git clone https://github.com/harunkrl/SysVibe.git
-cd SysVibe
-cargo run --release
+pkg install rust           # or: pkg install clang && cargo ...
+cargo install --path .
+sysvibe
 ```
+
+> `nerd_fonts` defaults to `true`; on Termux (no Nerd Font) set `nerd_fonts = false`
+> to use the clean geometric fallback icon set.
+
+---
+
+## 🚀 Usage
+
+```bash
+sysvibe                          # run with default settings
+sysvibe --init-config            # create/edit the config file, then exit
+sysvibe --list-themes            # list available themes, then exit
+```
+
+The first run writes a default config to `~/.config/sysvibe/config.toml` (XDG).
+Edit it to change theme, refresh rates, alert thresholds, and more.
+
+---
+
+## 🗂️ Tabs
+
+- **1 · Dashboard** — hero stat cards + CPU history graph + memory bars + system/network overview + top processes.
+- **2 · System** — OS/kernel/host/uptime, motherboard/BIOS, RAM DIMMs, GPU, disks, desktop session.
+- **3 · Hardware** — per-core CPU clusters, memory & battery breakdown (power/health/cycles), network RX↑/TX↓ graph, temperature sensors, disk I/O graphs.
+- **4 · Processes** — sort/filter, multi-select, tree view, and kill (with confirmation modal).
+- **5 · Logs** — real-time `journalctl`/`dmesg` (or `logcat` on Android), level filters, follow mode.
+- **6 · GPU** — usage, VRAM, temperature, power, fan, clock per GPU (NVIDIA/AMD/Intel).
+
+> Tabs shrink to a single stacked column when the terminal is narrow (`< 90` cols).
+
+---
 
 ## ⌨️ Keybindings
 
+### Global
+
 | Key | Action |
 |---|---|
+| `1`–`6` | Jump to tab |
+| `Tab` / `Shift+Tab` | Next / previous tab |
+| `[` / `]` | Cycle panel focus |
+| `:` | **Command palette** |
+| `T` | Cycle theme |
+| `t` | Toggle °C / °F |
+| `h` / `?` | Help modal |
+| `/` | Filter |
 | `q` / `Esc` | Quit |
-| `h` / `?` | Toggle help panel |
-| `Tab` / `Shift+Tab` | Cycle tabs |
-| `↑` / `k` | Move selection up |
-| `↓` / `j` | Move selection down |
-| `PageUp` / `PageDown` | Scroll by page |
-| `Home` / `End` | Jump to start / end |
-| `s` | Cycle sort mode (CPU → Mem → PID → Name) |
-| `/` | Search / filter processes |
-| `Enter` | Apply active filter |
-| `Space` | Toggle multi-select on process |
+
+### Navigation
+
+| Key | Action |
+|---|---|
+| `j` / `↓` · `k` / `↑` | Move down / up |
+| `PageDown` / `PageUp` | Page down / up |
+| `Home` / `End` | Top / bottom |
+
+### Processes tab
+
+| Key | Action |
+|---|---|
+| `s` | Cycle sort (CPU → Mem → PID → Name) |
+| `r` | Refresh |
+| `Space` | Toggle select |
+| `x` | Kill selected (confirm) |
+| `p` / `F5` | Toggle tree view |
 | `c` | Clear selection |
-| `x` | Kill selected process(es) |
-| `K` | Force kill (SIGKILL) selected process(es) |
-| `r` | Manual refresh (processes or logs) |
-| `t` | Toggle temperature units (°C / °F) |
-| `f` | Toggle log auto-scroll (follow mode) |
-| Mouse click | Switch tabs |
-| Mouse scroll | Scroll process list |
+| `E` | Export snapshot (JSON) |
+
+### Logs tab
+
+| Key | Action |
+|---|---|
+| `f` | Toggle follow |
+| `e` / `w` / `i` | Toggle Error / Warning / Info level filter |
+| `r` | Refresh |
+
+### Command palette (`:`)
+
+Type to fuzzy-match; `↑`/`↓` navigate, `Enter` run, `Esc` cancel, `Ctrl+U` clear.
+
+---
 
 ## ⚙️ Configuration
 
-Config file: `~/.config/sysvibe/config.toml` (XDG-compliant)
+Config lives at `~/.config/sysvibe/config.toml` (XDG). Run `sysvibe --init-config`
+to (re)generate it with comments. Key fields:
 
-If the file doesn't exist, SysVibe runs with sensible defaults.
+| Field | Default | Description |
+|---|---|---|
+| `theme` | `catppuccin-macchiato` | One of the built-in themes (see below) |
+| `default_tab` | `dashboard` | Startup tab |
+| `nerd_fonts` | `true` | Nerd Font icons; `false` → geometric fallback (Termux-friendly) |
+| `data_refresh_rate` | `1000` | Fast metrics refresh interval (ms) |
+| `process_refresh_rate` | `2000` | Process list refresh (ms) |
+| `sensor_refresh_rate` | `5000` | Temperature/sensor refresh (ms) |
+| `max_processes` | `50` | Max processes shown |
+| `temperature_unit` | `celsius` | `celsius` or `fahrenheit` |
+| `log_source` | `journalctl` | `journalctl`, `dmesg`, or `logcat` |
+| `log_max_lines` | `1000` | Log buffer size |
+| `show_gpu` | `true` | Show GPU tab/card |
+| `show_battery` | `true` | Show battery panel/card |
+| `resolve_public_ip` | `false` | **Opt-in**: resolve public IP via HTTPS request |
+| `cpu_alert_threshold` | *unset* | CPU % alert (0–100) |
+| `memory_alert_threshold` | *unset* | RAM % alert (0–100) |
+| `temperature_alert_threshold` | *unset* | Temp alert (°C) |
+| `disk_alert_threshold` | *unset* | Disk usage % alert (0–100) |
+
+### Example
 
 ```toml
-[tui]
-# Maximum number of processes to display
-max_processes = 200
+theme = "tokyo-night"
+default_tab = "dashboard"
+nerd_fonts = false
+data_refresh_rate = 1000
+resolve_public_ip = false
 
-# Refresh interval in milliseconds for CPU/memory/network/disk
-data_refresh_rate = 250
-
-# Refresh interval in milliseconds for sensors & battery
-sensor_refresh_rate = 5000
-
-# Kernel log source: "journalctl" or "dmesg"
-log_source = "journalctl"
-
-# Maximum log lines to keep
-log_max_lines = 500
-
-# Show GPU info in System tab
-show_gpu = true
-
-# Default tab on startup: "system", "hardware", "processes", "logs"
-default_tab = "system"
+cpu_alert_threshold = 90.0
+temperature_alert_threshold = 80.0
 ```
+
+---
+
+## 🎨 Themes
+
+Seven built-in themes, switchable live with `T` or set in config:
+
+`catppuccin-macchiato` · `catppuccin-mocha` · `dracula` · `nord` · `gruvbox` · `tokyo-night` · `one-dark`
+
+Run `sysvibe --list-themes` to preview the names. Custom themes can be provided as a
+TOML file passed to the theme loader.
+
+---
 
 ## 🏗️ Architecture
 
 ```
 src/
-├── main.rs                    # Entry point, terminal setup, render loop
-├── config.rs                  # XDG config loading
+├── main.rs              # entry: terminal setup, async event loop (tokio::select!),
+│                        # background collector threads → mpsc StateUpdate channel
 ├── app/
-│   ├── mod.rs                 # App state, tiered refresh logic
-│   ├── state.rs               # Data structures (SystemInfo, NetworkStats, etc.)
-│   ├── events.rs              # Keyboard/mouse event handling
-│   ├── helpers.rs             # Shared utilities (push_history, etc.)
-│   ├── processes.rs           # Process listing, sorting, kill
+│   ├── mod.rs           # App state, navigation, alerts, command palette, export
+│   ├── state.rs         # data structs, AppTab, AppMode
+│   ├── events.rs        # key/mouse dispatch
+│   ├── processes.rs     # process table/tree logic
+│   ├── error.rs         # typed errors (thiserror)
 │   └── collectors/
-│       ├── cpu.rs             # CPU history (overall + per-core)
-│       ├── network.rs         # Network speed deltas & history
-│       ├── disk.rs            # Disk I/O speeds, IOPS, partitions
-│       ├── sensors.rs         # Temperatures & battery (sysinfo)
-│       ├── hardware.rs        # Static hardware (DMI, lspci, lshw)
-│       └── logs.rs            # Kernel log collection
+│       ├── mod.rs
+│       ├── cpu.rs memory.rs network.rs sensors.rs     # cross-platform
+│       └── linux/  android/                            # platform backends
+├── config.rs            # XDG TOML config + validation + auto-generation
 └── ui/
-    ├── mod.rs                 # Root layout, tab dispatch
-    ├── palette.rs             # Catppuccin Macchiato constants
-    ├── header.rs              # Tab bar
-    ├── footer.rs              # Status bar with key hints
-    ├── helpers.rs             # Shared UI helpers (panel_block, etc.)
-    ├── tabs/
-    │   ├── system.rs          # System info tab
-    │   ├── hardware.rs        # Hardware monitoring tab
-    │   ├── processes.rs       # Process manager tab
-    │   └── logs.rs            # Kernel log viewer tab
-    └── widgets/
-        ├── sparkline.rs       # Braille sparkline & mirrored graph engine
-        └── modal.rs           # Confirmation / help modal
+    ├── mod.rs           # draw: header / tabs / footer / toast / modals
+    ├── header.rs footer.rs helpers.rs palette.rs theme.rs icons.rs
+    ├── tabs/            # dashboard, system, hardware, processes, logs, gpu
+    └── widgets/         # sparkline (braille/halfblock/mirrored), modal
 ```
 
-## 🔧 Requirements
+- **Data flow:** background `std::thread` collectors (fast metrics, processes,
+  sensors, GPU, logs) push `StateUpdate` messages over an mpsc channel; the main
+  async loop applies them. Heavy blocking I/O never stalls the render loop.
+- **Theming:** pluggable `Theme` with a thread-local palette accessor.
 
-- **Linux** (tested on Fedora, Arch, Ubuntu)
-- **Rust 1.85+** (edition 2024)
-- **Optional tools** for deep hardware info:
-  - `lspci` — GPU detection (usually pre-installed)
-  - `lshw` or `dmidecode` — RAM speed/type details (may need root)
-  - `journalctl` — kernel logs (systemd)
+---
+
+## 🛠️ Building from source
+
+Requires Rust 1.88+ (edition 2024, uses let-chains).
+
+```bash
+git clone https://github.com/<you>/SysVibe.git
+cd SysVibe
+cargo run --release
+```
+
+Lint & test:
+
+```bash
+cargo clippy --all-targets -- -D warnings
+cargo test
+```
+
+---
+
+## 🧹 Uninstall
+
+```bash
+./uninstall.sh          # cargo uninstall + remove menu shortcut
+```
+
+The script also offers to remove the config directory.
+
+---
 
 ## 📄 License
 
-[MIT](LICENSE)
+See `LICENSE` (or the crate metadata) for details.

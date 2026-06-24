@@ -1,8 +1,8 @@
 //! SysVibe — Kernel log collection via journalctl/dmesg.
 
+use crate::app::state::{LogEntry, LogLevel, MAX_LOG_LINES};
 use std::collections::VecDeque;
 use std::process::Command;
-use crate::app::state::{LogEntry, LogLevel, MAX_LOG_LINES};
 
 /// Collector for kernel log entries.
 pub struct LogCollector {
@@ -61,9 +61,25 @@ impl LogCollector {
 
     fn refresh_journalctl(&mut self) {
         let args: Vec<&str> = if !self.initialized {
-            vec!["-k", "--no-pager", "-o", "short", "-n", "200", "--no-hostname"]
+            vec![
+                "-k",
+                "--no-pager",
+                "-o",
+                "short",
+                "-n",
+                "200",
+                "--no-hostname",
+            ]
         } else {
-            vec!["-k", "--no-pager", "-o", "short", "-n", "50", "--no-hostname"]
+            vec![
+                "-k",
+                "--no-pager",
+                "-o",
+                "short",
+                "-n",
+                "50",
+                "--no-hostname",
+            ]
         };
 
         let output = match Command::new("journalctl").args(&args).output() {
@@ -90,14 +106,26 @@ impl LogCollector {
                 self.entries.push_back(entry);
             }
         } else {
-            let last_ts = self.entries.back().map(|e| e.timestamp.clone());
+            // Dedup against the last entry: keep newer entries, and at the
+            // boundary timestamp also keep different messages (avoid dropping
+            // same-second logs that merely share the last timestamp).
+            let (last_ts, last_msg) = match self.entries.back() {
+                Some(e) => (Some(e.timestamp.clone()), Some(e.message.clone())),
+                None => (None, None),
+            };
             for entry in new_entries {
-                if let Some(ref ts) = last_ts {
-                    if entry.timestamp > *ts {
-                        self.entries.push_back(entry);
+                match &last_ts {
+                    None => self.entries.push_back(entry),
+                    Some(ts) => {
+                        // Keep newer entries, plus same-timestamp entries that
+                        // aren't an exact duplicate of the last stored message.
+                        let newer = entry.timestamp > *ts;
+                        let boundary_new =
+                            entry.timestamp == *ts && Some(&entry.message) != last_msg.as_ref();
+                        if newer || boundary_new {
+                            self.entries.push_back(entry);
+                        }
                     }
-                } else {
-                    self.entries.push_back(entry);
                 }
             }
         }
@@ -114,7 +142,11 @@ impl LogCollector {
         {
             Ok(o) if o.status.success() => o,
             _ => {
-                match Command::new("dmesg").arg("--time-format").arg("reltime").output() {
+                match Command::new("dmesg")
+                    .arg("--time-format")
+                    .arg("reltime")
+                    .output()
+                {
                     Ok(o) if o.status.success() => o,
                     _ => return,
                 }
@@ -124,7 +156,14 @@ impl LogCollector {
         let text = String::from_utf8_lossy(&output.stdout);
         self.entries.clear();
 
-        for line in text.lines().rev().take(MAX_LOG_LINES).collect::<Vec<_>>().into_iter().rev() {
+        for line in text
+            .lines()
+            .rev()
+            .take(MAX_LOG_LINES)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+        {
             let line = line.trim();
             if line.is_empty() {
                 continue;

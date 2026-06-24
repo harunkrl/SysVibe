@@ -14,9 +14,10 @@ pub mod widgets;
 
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout, Alignment},
+    layout::{Constraint, Direction, Layout, Rect, Alignment},
     style::{Style, Modifier},
-    widgets::{Block, Borders, BorderType, Paragraph},
+    text::{Line, Span},
+    widgets::{Block, Borders, Paragraph},
 };
 
 use crate::app::App;
@@ -42,9 +43,6 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     }
 
     let outer_block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Thick)
-        .border_style(Style::default().fg(palette::surface2()))
         .style(Style::default().bg(palette::base()));
     let inner_area = outer_block.inner(area);
     f.render_widget(outer_block, area);
@@ -52,7 +50,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // Header
+            Constraint::Length(4), // Header (Title + Tabs)
             Constraint::Min(0),    // Main content
             Constraint::Length(1), // Footer
         ])
@@ -84,10 +82,32 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     // 3. Footer
     footer::render_footer(f, app, chunks[2]);
 
+    // 3b. Alert toast overlay — prominent banner while thresholds are exceeded.
+    if inner_tab_area.height >= 5 {
+        let alerts = app.active_alerts();
+        if let Some(top) = alerts.first() {
+            let toast = Rect {
+                x: inner_tab_area.x + 1,
+                y: inner_tab_area.y + inner_tab_area.height - 1,
+                width: inner_tab_area.width.saturating_sub(2),
+                height: 1,
+            };
+            let style = Style::default().bg(palette::maroon()).fg(palette::crust());
+            f.render_widget(
+                Paragraph::new(Line::from(vec![
+                    Span::styled("\u{26a0} ", style),
+                    Span::styled(top.clone(), style.add_modifier(Modifier::BOLD)),
+                ])),
+                toast,
+            );
+        }
+    }
+
     // 4. Overlays (Modals)
     match app.mode() {
         AppMode::Help => widgets::modal::render_help_modal(f, f.area()),
         AppMode::KillConfirm => widgets::modal::render_kill_confirm_modal(f, f.area(), app),
+        AppMode::Command => widgets::modal::render_command_palette(f, f.area(), app),
         _ => {}
     }
 }

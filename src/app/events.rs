@@ -4,21 +4,20 @@
 
 use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind};
 
-use super::App;
-use super::state::{AppMode, AppTab, SortBy};
 use super::error::AppResult;
+use super::state::{AppMode, AppTab, SortBy};
+use super::App;
 
 /// Top-level event dispatcher.
 pub fn handle_event(app: &mut App, event: Event) -> AppResult<()> {
     match event {
-        Event::Key(key) if key.kind == KeyEventKind::Press => {
-            match app.mode().clone() {
-                AppMode::Normal => handle_normal_key(app, key.code, key.modifiers),
-                AppMode::Help => handle_help_key(app, key.code),
-                AppMode::KillConfirm => handle_kill_confirm_key(app, key.code),
-                AppMode::Filter => handle_filter_key(app, key.code, key.modifiers),
-            }
-        }
+        Event::Key(key) if key.kind == KeyEventKind::Press => match app.mode().clone() {
+            AppMode::Normal => handle_normal_key(app, key.code, key.modifiers),
+            AppMode::Help => handle_help_key(app, key.code),
+            AppMode::KillConfirm => handle_kill_confirm_key(app, key.code),
+            AppMode::Filter => handle_filter_key(app, key.code, key.modifiers),
+            AppMode::Command => handle_command_key(app, key.code, key.modifiers),
+        },
         Event::Mouse(mouse) => {
             handle_mouse(app, mouse);
         }
@@ -39,6 +38,7 @@ fn handle_normal_key(app: &mut App, code: KeyCode, _mods: KeyModifiers) {
         KeyCode::Char('q') | KeyCode::Esc => app.quit(),
         KeyCode::Char('h') | KeyCode::Char('?') => app.set_mode(AppMode::Help),
         KeyCode::Char('/') => app.set_mode(AppMode::Filter),
+        KeyCode::Char(':') => app.open_command(),
         KeyCode::Char('x') => app.request_kill(),
         KeyCode::Down | KeyCode::Char('j') => app.navigate_down(),
         KeyCode::Up | KeyCode::Char('k') => app.navigate_up(),
@@ -68,9 +68,14 @@ fn handle_normal_key(app: &mut App, code: KeyCode, _mods: KeyModifiers) {
         }
         KeyCode::Char('t') => {
             app.temp_celsius = !app.temp_celsius;
-            let unit = if app.temp_celsius { "Celsius" } else { "Fahrenheit" };
+            let unit = if app.temp_celsius {
+                "Celsius"
+            } else {
+                "Fahrenheit"
+            };
             app.set_status(format!("Temperature: {}", unit));
         }
+        KeyCode::Char('T') => app.cycle_theme(),
         KeyCode::Char('f') => {
             if app.tab == AppTab::Logs {
                 app.toggle_log_follow();
@@ -83,9 +88,12 @@ fn handle_normal_key(app: &mut App, code: KeyCode, _mods: KeyModifiers) {
                 // No-op on GPU tab for 'g' key
             }
         }
-        KeyCode::Char('7') => {
-            app.set_tab(AppTab::Gpu);
-        }
+        KeyCode::Char('1') => app.set_tab(AppTab::Dashboard),
+        KeyCode::Char('2') => app.set_tab(AppTab::System),
+        KeyCode::Char('3') => app.set_tab(AppTab::Hardware),
+        KeyCode::Char('4') => app.set_tab(AppTab::Processes),
+        KeyCode::Char('5') => app.set_tab(AppTab::Logs),
+        KeyCode::Char('6') => app.set_tab(AppTab::Gpu),
         KeyCode::Char('E') => {
             // Export current state to file
             app.export_snapshot();
@@ -119,7 +127,10 @@ fn handle_normal_key(app: &mut App, code: KeyCode, _mods: KeyModifiers) {
         }
         KeyCode::Char(' ') => {
             if let Some(idx) = app.proc_table_state.selected() {
-                let info = app.filtered_processes().get(idx).map(|p| (p.pid, p.name.clone()));
+                let info = app
+                    .filtered_processes()
+                    .get(idx)
+                    .map(|p| (p.pid, p.name.clone()));
                 if let Some((pid, name)) = info {
                     if let Some(pos) = app.selected_pids.iter().position(|(p, _)| *p == pid) {
                         app.selected_pids.remove(pos);
@@ -130,12 +141,11 @@ fn handle_normal_key(app: &mut App, code: KeyCode, _mods: KeyModifiers) {
             }
             app.navigate_down();
         }
-        KeyCode::Char('c')
-            if !app.selected_pids.is_empty() => {
-                let count = app.selected_pids.len();
-                app.selected_pids.clear();
-                app.set_status(format!("Cleared {} selection(s)", count));
-            }
+        KeyCode::Char('c') if !app.selected_pids.is_empty() => {
+            let count = app.selected_pids.len();
+            app.selected_pids.clear();
+            app.set_status(format!("Cleared {} selection(s)", count));
+        }
         _ => {}
     }
 }
@@ -221,12 +231,27 @@ fn handle_filter_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
     }
 }
 
+fn handle_command_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
+    match (code, mods) {
+        (KeyCode::Esc, _) => app.cancel_command(),
+        (KeyCode::Enter, _) => app.run_selected_command(),
+        (KeyCode::Char('u'), KeyModifiers::CONTROL) => app.command_clear(),
+        (KeyCode::Char('c'), KeyModifiers::CONTROL)
+        | (KeyCode::Char('g'), KeyModifiers::CONTROL) => app.cancel_command(),
+        (KeyCode::Up, _) => app.command_prev(),
+        (KeyCode::Down, _) => app.command_next(),
+        (KeyCode::Backspace, _) => app.command_backspace(),
+        (KeyCode::Char(c), _) => app.command_push(c),
+        _ => {}
+    }
+}
+
 // ── Mouse handling ──────────────────────────────────────────────
 
 fn handle_mouse(app: &mut App, mouse: crossterm::event::MouseEvent) {
     match mouse.kind {
         MouseEventKind::Down(MouseButton::Left) => {
-            if mouse.row <= 2 {
+            if mouse.row <= 3 {
                 let col = mouse.column;
                 for region in app.tab_hit_regions() {
                     if col >= region.x_start && col <= region.x_end {

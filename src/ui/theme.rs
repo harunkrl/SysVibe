@@ -77,6 +77,20 @@ impl Theme {
         }
     }
 
+    /// All built-in themes as `(key, Theme)` pairs, in canonical cycle order.
+    /// The key matches `Config::theme` (e.g. "catppuccin-macchiato").
+    pub fn all_built_ins() -> Vec<(&'static str, Theme)> {
+        vec![
+            ("catppuccin-macchiato", Self::catppuccin_macchiato()),
+            ("catppuccin-mocha", Self::catppuccin_mocha()),
+            ("dracula", Self::dracula()),
+            ("nord", Self::nord()),
+            ("gruvbox", Self::gruvbox()),
+            ("tokyo-night", Self::tokyo_night()),
+            ("one-dark", Self::one_dark()),
+        ]
+    }
+
     /// Load theme by name: check built-ins first, then try TOML file.
     pub fn load(name: &str) -> Self {
         if let Some(theme) = Self::built_in(name) {

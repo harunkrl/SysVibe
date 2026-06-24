@@ -24,3 +24,6 @@ error.log
 # Agent Analysis Reports
 *_report.md
 *REPORT*.md
+
+# Working analysis/audit notes (not shipped)
+docs/

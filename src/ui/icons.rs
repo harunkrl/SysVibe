@@ -83,17 +83,17 @@ pub const NET_DOWNLOAD: &str = "\u{F063}";     //
 // ═══════════════════════════════════════════════════════════════════════
 
 pub mod fallback {
-    pub const OS_LINUX: &str = "🐧";
-    pub const OS_GENERIC: &str = "💻";
+    pub const OS_LINUX: &str = "▦";
+    pub const OS_GENERIC: &str = "▦";
     pub const CPU: &str = "⬡";
     pub const RAM: &str = "▧";
-    pub const TEMP: &str = "🌡";
+    pub const TEMP: &str = "⬢";
     pub const DISK: &str = "◉";
     pub const NETWORK: &str = "⇅";
     pub const BATTERY: &str = "⚡";
     pub const GPU: &str = "◈";
     pub const FAN: &str = "⚙";
-    pub const SEARCH: &str = "🔍";
+    pub const SEARCH: &str = "◎";
     pub const ARROW_UP: &str = "▲";
     pub const ARROW_DOWN: &str = "▼";
     pub const CHECK: &str = "✓";

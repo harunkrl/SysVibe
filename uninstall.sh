@@ -1,35 +1,52 @@
 #!/bin/bash
-
-set -e
+#
+# SysVibe — uninstaller
+#
+# Removes the cargo-installed binary, the desktop entry, and (optionally, with
+# confirmation) the user config directory.
+#
+set -uo pipefail # no -e: keep going even when some steps are no-ops
 
 echo "========================================="
 echo "   Uninstalling SysVibe System Monitor"
 echo "========================================="
 
-# 1. Uninstall via Cargo
-if command -v cargo &> /dev/null; then
-    echo "--> Uninstalling SysVibe via Cargo..."
-    cargo uninstall sysvibe || echo "    (Not installed via cargo or already removed)"
+# 1. Binary
+if command -v cargo >/dev/null 2>&1; then
+	echo "--> Uninstalling via Cargo..."
+	cargo uninstall sysvibe || echo "    (Not installed via cargo or already removed)"
 else
-    echo "    Cargo not found, skipping cargo uninstall."
+	echo "--> Cargo not found, skipping cargo uninstall."
 fi
 
-# 2. Remove Desktop Entry
-echo "--> Removing Application Menu shortcut..."
-
+# 2. Desktop entry
 DESKTOP_DIR="$HOME/.local/share/applications"
 if [ -f "$DESKTOP_DIR/sysvibe.desktop" ]; then
-    rm "$DESKTOP_DIR/sysvibe.desktop"
-    echo "    Removed $DESKTOP_DIR/sysvibe.desktop"
+	echo "--> Removing application menu shortcut..."
+	rm -f "$DESKTOP_DIR/sysvibe.desktop"
+	if command -v update-desktop-database >/dev/null 2>&1; then
+		update-desktop-database "$DESKTOP_DIR" >/dev/null 2>&1 || true
+	fi
 else
-    echo "    Shortcut not found, skipping."
+	echo "--> No desktop shortcut found, skipping."
 fi
 
-# Update desktop database if the command exists
-if command -v update-desktop-database &> /dev/null; then
-    update-desktop-database "$DESKTOP_DIR" || true
+# 3. Config (optional, prompted)
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/sysvibe"
+if [ -d "$CONFIG_DIR" ]; then
+	printf "Remove config directory '%s'? [y/N] " "$CONFIG_DIR"
+	read -r ans
+	case "$ans" in
+	y | Y | yes | YES)
+		rm -rf "$CONFIG_DIR"
+		echo "    Removed $CONFIG_DIR"
+		;;
+	*)
+		echo "    Kept $CONFIG_DIR"
+		;;
+	esac
 fi
 
 echo "========================================="
-echo " Uninstallation Complete! "
+echo " Uninstallation Complete!"
 echo "========================================="

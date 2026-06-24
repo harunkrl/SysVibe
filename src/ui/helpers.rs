@@ -46,13 +46,6 @@ pub fn panel_block_focused(title: &str, focused: bool) -> Block<'_> {
     }
 }
 
-/// Header block: slightly brighter border to mark the top chrome.
-pub fn header_block() -> Block<'static> {
-    Block::bordered()
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(surface2()))
-}
-
 // ═══════════════════════════════════════════════════════════════════════
 // Color functions
 // ═══════════════════════════════════════════════════════════════════════
@@ -98,6 +91,32 @@ pub fn gauge_color(ratio: f64) -> Color {
     } else {
         maroon()
     }
+}
+
+/// Threshold (in terminal columns) below which the UI switches to a compact,
+/// single-column stacked layout (e.g. Android/Termux portrait).
+pub const COMPACT_WIDTH: u16 = 90;
+
+/// Whether the current width is too narrow for multi-column layouts.
+pub fn is_compact(width: u16) -> bool {
+    width < COMPACT_WIDTH
+}
+
+/// Single-line usage bar: filled cells in `color`, remainder dim.
+/// Uses full-block "█" / light-shade "░" for a dense, modern look.
+/// `ratio` is clamped to 0.0..=1.0.
+pub fn usage_bar_spans(width: u16, ratio: f64, color: Color) -> Vec<Span<'static>> {
+    let w = (width as usize).max(1);
+    let filled = (((ratio.clamp(0.0, 1.0)) * w as f64).round() as usize).min(w);
+    vec![
+        Span::styled("█".repeat(filled), Style::default().fg(color)),
+        Span::styled("░".repeat(w - filled), Style::default().fg(surface0())),
+    ]
+}
+
+/// Convenience wrapper returning the bar as a single `Line`.
+pub fn usage_bar(width: u16, ratio: f64, color: Color) -> Line<'static> {
+    Line::from(usage_bar_spans(width, ratio, color))
 }
 
 /// Battery colour: Rosewater (full) → Green → Yellow → Red → Maroon.
@@ -157,7 +176,14 @@ pub fn fit_str(s: &str, max_chars: usize) -> String {
     let head_w = max_chars / 2 - 1;
     let tail_w = max_chars - head_w - 2;
     let head: String = chars.iter().take(head_w).collect();
-    let tail: String = chars.iter().rev().take(tail_w).collect::<String>().chars().rev().collect();
+    let tail: String = chars
+        .iter()
+        .rev()
+        .take(tail_w)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
     format!("{}..{}", head, tail)
 }
 
@@ -195,10 +221,7 @@ pub fn format_bytes(bytes: u64) -> String {
 /// Create a compact key-value span pair for inline use.
 #[allow(dead_code)]
 pub fn kv_span(key: &str, val: &str, key_color: Color) -> Span<'static> {
-    Span::styled(
-        format!("{}:{}", key, val),
-        Style::default().fg(key_color),
-    )
+    Span::styled(format!("{}:{}", key, val), Style::default().fg(key_color))
 }
 
 /// Create a styled value span.

@@ -3,17 +3,17 @@
 //! Mode-aware keybinding hints and transient status messages.
 
 use ratatui::{
-    Frame,
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
+    Frame,
 };
 
-use crate::app::App;
-use crate::app::state::{AppMode, AppTab};
-use super::palette::*;
 use super::icons;
+use super::palette::*;
+use crate::app::state::{AppMode, AppTab};
+use crate::app::App;
 
 /// Separator dot between keybinds.
 fn sep() -> Span<'static> {
@@ -27,7 +27,10 @@ fn key_label(key: &str) -> Span<'static> {
 
 /// Styled key + description pair.
 fn key_desc(key: &str, description: &str) -> Vec<Span<'static>> {
-    vec![key_label(key), Span::styled(format!(" {}", description), Style::default().fg(subtext()))]
+    vec![
+        key_label(key),
+        Span::styled(format!(" {}", description), Style::default().fg(subtext())),
+    ]
 }
 
 /// Render the footer bar with mode-appropriate keybindings, status, and alerts.
@@ -36,9 +39,17 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
     if let Some(ref msg) = app.status_message {
         let color = if msg.is_error { red() } else { green() };
         let icon = if msg.is_error {
-            if app.config().nerd_fonts { icons::CROSS } else { "✗" }
+            if app.config().nerd_fonts {
+                icons::CROSS
+            } else {
+                "✗"
+            }
         } else {
-            if app.config().nerd_fonts { icons::CHECK } else { "✓" }
+            if app.config().nerd_fonts {
+                icons::CHECK
+            } else {
+                "✓"
+            }
         };
 
         let footer = Paragraph::new(Line::from(vec![
@@ -52,13 +63,15 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
     // Alert warnings (if any thresholds are exceeded)
     let alerts = app.active_alerts();
     if !alerts.is_empty() {
-        let alert_icon = if app.config().nerd_fonts { icons::WARNING } else { "⚠" };
-        let mut spans: Vec<Span<'static>> = vec![
-            Span::styled(
-                format!(" {} ", alert_icon),
-                Style::default().fg(yellow()).add_modifier(Modifier::BOLD),
-            ),
-        ];
+        let alert_icon = if app.config().nerd_fonts {
+            icons::WARNING
+        } else {
+            "⚠"
+        };
+        let mut spans: Vec<Span<'static>> = vec![Span::styled(
+            format!(" {} ", alert_icon),
+            Style::default().fg(yellow()).add_modifier(Modifier::BOLD),
+        )];
         for (i, alert) in alerts.iter().enumerate() {
             if i > 0 {
                 spans.push(Span::styled("  ", Style::default()));
@@ -100,7 +113,14 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
                     s.push(sep());
                     s.extend(key_desc("p", if app.tree_view() { "Flat" } else { "Tree" }));
                     s.push(sep());
-                    s.extend(key_desc("g", if app.cpu_normalized() { "Per-Core" } else { "Norm" }));
+                    s.extend(key_desc(
+                        "g",
+                        if app.cpu_normalized() {
+                            "Per-Core"
+                        } else {
+                            "Norm"
+                        },
+                    ));
                     s.push(sep());
                     s.extend(key_desc("x", "Kill"));
                     s.push(sep());
@@ -123,11 +143,25 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
                 AppTab::Logs => {
                     s.extend(key_desc("h", "Help"));
                     s.push(sep());
-                    s.extend(key_desc("f", if app.log_follow() { "Follow: ON" } else { "Follow: OFF" }));
+                    s.extend(key_desc(
+                        "f",
+                        if app.log_follow() {
+                            "Follow: ON"
+                        } else {
+                            "Follow: OFF"
+                        },
+                    ));
                     if app.log_follow() {
                         s.pop();
                         s.push(Span::styled(
-                            format!(" Follow: {}", if app.config().nerd_fonts { icons::CHECK } else { "ON" }),
+                            format!(
+                                " Follow: {}",
+                                if app.config().nerd_fonts {
+                                    icons::CHECK
+                                } else {
+                                    "ON"
+                                }
+                            ),
                             Style::default().fg(green()),
                         ));
                     }
@@ -191,6 +225,16 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
             Span::styled("[Esc] Close", Style::default().fg(overlay())),
             Span::styled(" │ ", Style::default().fg(surface2())),
             Span::styled("[Backspace] Delete", Style::default().fg(overlay())),
+        ],
+        AppMode::Command => vec![
+            Span::styled(" [Enter] Run", Style::default().fg(overlay())),
+            Span::styled(" │ ", Style::default().fg(surface2())),
+            Span::styled(
+                "[\u{2191}/\u{2193}] Navigate",
+                Style::default().fg(overlay()),
+            ),
+            Span::styled(" │ ", Style::default().fg(surface2())),
+            Span::styled("[Esc] Cancel", Style::default().fg(overlay())),
         ],
     };
 

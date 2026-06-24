@@ -32,12 +32,6 @@ pub struct Config {
     /// Theme name: "catppuccin-macchiato", "catppuccin-mocha", "dracula", "nord", "gruvbox", "tokyo-night", "one-dark"
     #[serde(default = "default_theme")]
     pub theme: String,
-    /// Enable daemon mode (TCP listener for remote monitoring).
-    #[serde(default)]
-    pub daemon_enabled: bool,
-    /// Daemon TCP port (default 7642).
-    #[serde(default = "default_daemon_port")]
-    pub daemon_port: u16,
 
     // ── Widget visibility toggles ─────────────────────────────────
     /// Show CPU history graph on dashboard.
@@ -61,6 +55,9 @@ pub struct Config {
     /// Show battery panel.
     #[serde(default = "default_true")]
     pub show_battery: bool,
+    /// Resolve the public IP via an outbound HTTPS request (opt-in; off by default).
+    #[serde(default)]
+    pub resolve_public_ip: bool,
     /// Show logs tab.
     #[serde(default = "default_true")]
     pub show_logs: bool,
@@ -107,7 +104,6 @@ fn default_log_max_lines() -> usize { 500 }
 fn default_true() -> bool { true }
 fn default_tab() -> String { "dashboard".to_string() }
 fn default_theme() -> String { "catppuccin-macchiato".to_string() }
-fn default_daemon_port() -> u16 { 7642 }
 
 impl Default for Config {
     fn default() -> Self {
@@ -126,8 +122,6 @@ impl Default for Config {
             default_tab: default_tab(),
             nerd_fonts: default_true(),
             theme: default_theme(),
-            daemon_enabled: false,
-            daemon_port: default_daemon_port(),
             // Widget visibility
             show_cpu_graph: default_true(),
             show_per_core: default_true(),
@@ -136,6 +130,7 @@ impl Default for Config {
             show_processes: default_true(),
             show_temperatures: default_true(),
             show_battery: default_true(),
+            resolve_public_ip: false,
             show_logs: default_true(),
             // Alert thresholds
             cpu_alert_threshold: None,
@@ -190,7 +185,6 @@ impl Config {
              #   dracula, nord, gruvbox, tokyo-night, one-dark\n\
              # Available default_tab: dashboard, system, hardware, processes, logs\n\
              # Temperature unit: celsius or fahrenheit\n\
-             # Daemon mode: enable for remote TCP monitoring on daemon_port\n\
              #\n\
              # Widget visibility (show_*) — set to false to hide specific widgets\n\
              # Alert thresholds — set a value (0-100 for %, degrees for temperature)\n\
@@ -228,7 +222,6 @@ impl Config {
         if !valid_themes.contains(&self.theme.to_lowercase().as_str()) {
             self.theme = "catppuccin-macchiato".to_string();
         }
-        self.daemon_port = self.daemon_port.clamp(1024, 65535);
 
         // Validate alert thresholds
         if let Some(t) = self.cpu_alert_threshold {
@@ -294,8 +287,6 @@ mod tests {
         assert_eq!(cfg.default_tab, "dashboard");
         assert!(cfg.nerd_fonts);
         assert_eq!(cfg.theme, "catppuccin-macchiato");
-        assert!(!cfg.daemon_enabled);
-        assert_eq!(cfg.daemon_port, 7642);
     }
 
     #[test]
@@ -307,7 +298,6 @@ mod tests {
             process_refresh_rate: 100,
             sensor_refresh_rate: 500,
             log_max_lines: 1,
-            daemon_port: 80,
             ..Config::default()
         };
         cfg.validate();
@@ -317,7 +307,6 @@ mod tests {
         assert_eq!(cfg.process_refresh_rate, 500);  // clamped to min
         assert_eq!(cfg.sensor_refresh_rate, 1000);  // clamped to min
         assert_eq!(cfg.log_max_lines, 50);          // clamped to min
-        assert_eq!(cfg.daemon_port, 1024);          // clamped to min
     }
 
     #[test]
@@ -329,7 +318,6 @@ mod tests {
             process_refresh_rate: 99999,
             sensor_refresh_rate: 99999,
             log_max_lines: 99999,
-            daemon_port: 65535,
             ..Config::default()
         };
         cfg.validate();
@@ -339,8 +327,6 @@ mod tests {
         assert_eq!(cfg.process_refresh_rate, 30_000);
         assert_eq!(cfg.sensor_refresh_rate, 60_000);
         assert_eq!(cfg.log_max_lines, 5000);
-        // daemon_port at max stays at max
-        assert_eq!(cfg.daemon_port, 65535);
     }
 
     #[test]

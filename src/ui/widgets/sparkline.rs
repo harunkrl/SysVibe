@@ -53,7 +53,11 @@ const BRAILLE_FILL: [(u8, u8); 9] = [
 
 /// Render a two-line braille sparkline graph from history data.
 #[allow(dead_code)]
-pub fn braille_graph(data: &VecDeque<u64>, max_val: Option<u64>, color: Color) -> Vec<Line<'static>> {
+pub fn braille_graph(
+    data: &VecDeque<u64>,
+    max_val: Option<u64>,
+    color: Color,
+) -> Vec<Line<'static>> {
     let max = max_val
         .unwrap_or_else(|| data.iter().copied().max().unwrap_or(1))
         .max(1);
@@ -83,13 +87,18 @@ pub fn braille_graph(data: &VecDeque<u64>, max_val: Option<u64>, color: Color) -
 /// - Draws a continuous **line** by interpolating between data points
 ///
 /// Returns lines ready for `Paragraph`, with Y-axis labels on the left.
+//
+// `#[allow(dead_code)]`: this renderer is not yet wired into the live UI render
+// path until Task 2 connects it to the Dashboard CPU graph. Because this crate
+// is a lib+bin hybrid (src/main.rs re-declares `mod ui;` privately), an uncalled
+// `pub fn` in the bin target is flagged as dead_code. The allow is removed in
+// Task 2 once the Dashboard calls this function.
 #[allow(dead_code)]
 pub fn braille_line_graph(
     data: &VecDeque<u64>,
     area_width: u16,
     area_height: u16,
     color: Color,
-    _fill_color: Color,
     scale_unit: &str,
 ) -> Vec<Line<'static>> {
     if data.is_empty() || area_width < 10 || area_height < 2 {
@@ -129,23 +138,14 @@ pub fn braille_line_graph(
     // We only use the LEFT column (x_sub=0) of dots per character,
     // which gives us 1 screen column → 4 vertical sub-pixels.
     //
-    // Braille dot encoding for left column (bottom to top):
-    //   subpixel row 0 (bottom) → dot7 = 0x40
-    //   subpixel row 1          → dot6 = 0x20
-    //   subpixel row 2          → dot5 = 0x10
-    //   subpixel row 3 (top)    → dot4 = 0x08
-    //
-    // Braille dot encoding for right column (bottom to top):
-    //   subpixel row 0 (bottom) → dot8 = 0x80
-    //   subpixel row 1          → dot3 = 0x04
-    //   subpixel row 2          → dot2 = 0x02
-    //   subpixel row 3 (top)    → dot1 = 0x01
-    //
-    // We use a (graph_w * 2) × total_v grid where the x dimension has
-    // 2 sub-pixels per character (left=0, right=1), giving us 2× horizontal
-    // resolution for smoother diagonal lines.
-    const DOT_MAP_LEFT: [u8; 4] = [0x40, 0x20, 0x10, 0x08];
-    const DOT_MAP_RIGHT: [u8; 4] = [0x80, 0x04, 0x02, 0x01];
+    // Left-column braille dots, indexed by sp_in_cell (0 = top dot, 3 = bottom dot):
+    //   0 → dot1 = 0x01 (top-left)
+    //   1 → dot2 = 0x02
+    //   2 → dot3 = 0x04
+    //   3 → dot7 = 0x40 (bottom-left)
+    // We render using only the left column (1 horizontal sub-pixel per cell),
+    // giving 4 vertical sub-pixels per terminal row.
+    const DOT_MAP_LEFT: [u8; 4] = [0x01, 0x02, 0x04, 0x40];
 
     // grid: flat array indexed by [screen_col][x_sub], each entry is a u8
     // braille pattern for that character cell.
@@ -162,10 +162,10 @@ pub fn braille_line_graph(
         // row 0 is the topmost on screen.
         // vy = total_v - 1 is the topmost sub-pixel.
         // vy = 0 is the bottommost sub-pixel.
-        let sp_in_cell = (total_v - 1 - vy) % 4; // 0=top dot, 3=bottom dot within cell
-        // Map sp_in_cell to the DOT_MAP_LEFT index:
-        // sp_in_cell 0 (top in cell) → DOT_MAP_LEFT[3] = 0x08 (dot4)
-        // sp_in_cell 3 (bottom in cell) → DOT_MAP_LEFT[0] = 0x40 (dot7)
+        // sp_in_cell: 0 = top dot of the cell, 3 = bottom dot.
+        // Direct index into DOT_MAP_LEFT, which is ordered top→bottom
+        // [dot1, dot2, dot3, dot7] = [0x01, 0x02, 0x04, 0x40].
+        let sp_in_cell = (total_v - 1 - vy) % 4;
         grid[col] |= DOT_MAP_LEFT[sp_in_cell];
     };
 
@@ -201,7 +201,7 @@ pub fn braille_line_graph(
     let mut rows: Vec<Line<'static>> = Vec::new();
 
     for row in 0..graph_h {
-        let row_top_v = total_v - row * 4;       // top boundary (exclusive)
+        let row_top_v = total_v - row * 4; // top boundary (exclusive)
         let _row_bot_v = total_v - (row + 1) * 4; // bottom boundary (inclusive)
 
         let mut spans: Vec<Span<'static>> = Vec::with_capacity(label_w + graph_w);
@@ -209,22 +209,36 @@ pub fn braille_line_graph(
         // Y-axis label
         let label_text = if row == 0 {
             let v = (y_max * (row_top_v as f64 / total_v as f64)).round() as u64;
-            format!("{:>width$} ", format!("{}{}", v, scale_unit), width = label_w)
+            format!(
+                "{:>width$} ",
+                format!("{}{}", v, scale_unit),
+                width = label_w
+            )
         } else if row == graph_h / 2 {
             let v = (y_max * 0.5).round() as u64;
-            format!("{:>width$} ", format!("{}{}", v, scale_unit), width = label_w)
+            format!(
+                "{:>width$} ",
+                format!("{}{}", v, scale_unit),
+                width = label_w
+            )
         } else if row == graph_h - 1 {
             format!("{:>width$} ", format!("0{}", scale_unit), width = label_w)
         } else {
             " ".repeat(label_w)
         };
-        spans.push(Span::styled(label_text, Style::default().fg(Color::DarkGray)));
+        spans.push(Span::styled(
+            label_text,
+            Style::default().fg(Color::DarkGray),
+        ));
 
         // For each column, render the accumulated braille pattern
         for bits in grid.iter().take(graph_w) {
             let bits = *bits;
             if bits != 0 {
-                spans.push(Span::styled(braille(bits as usize), Style::default().fg(color)));
+                spans.push(Span::styled(
+                    braille(bits as usize),
+                    Style::default().fg(color),
+                ));
             } else {
                 spans.push(Span::raw(" "));
             }
@@ -307,7 +321,10 @@ pub fn braille_mirrored_graph(
             } else {
                 fill_val.saturating_sub(sp_low)
             };
-            spans.push(Span::styled(braille(UP_FILL[level] as usize), Style::default().fg(up_color)));
+            spans.push(Span::styled(
+                braille(UP_FILL[level] as usize),
+                Style::default().fg(up_color),
+            ));
         }
         rows.push(Line::from(spans));
     }
@@ -338,7 +355,10 @@ pub fn braille_mirrored_graph(
             } else {
                 fill_val.saturating_sub(sp_low)
             };
-            spans.push(Span::styled(braille(DOWN_FILL[level] as usize), Style::default().fg(down_color)));
+            spans.push(Span::styled(
+                braille(DOWN_FILL[level] as usize),
+                Style::default().fg(down_color),
+            ));
         }
         rows.push(Line::from(spans));
     }
@@ -404,9 +424,9 @@ pub fn halfblock_graph(
     // We combine them into single characters using ▀, ▄, █, and space.
 
     for row in 0..graph_h {
-        let row_top_v = total_v - row * 2;       // top sub-pixel boundary (exclusive)
-        let row_mid_v = total_v - row * 2 - 1;   // middle boundary
-        let row_bot_v = total_v - (row + 1) * 2;  // bottom boundary (inclusive)
+        let row_top_v = total_v - row * 2; // top sub-pixel boundary (exclusive)
+        let row_mid_v = total_v - row * 2 - 1; // middle boundary
+        let row_bot_v = total_v - (row + 1) * 2; // bottom boundary (inclusive)
 
         let mut spans: Vec<Span<'static>> = Vec::with_capacity(label_w + graph_w);
 
@@ -414,7 +434,10 @@ pub fn halfblock_graph(
         let (c_top, c_bot) = if let Some(fade) = fade_color {
             let ratio_top = (row * 2) as f64 / total_v.max(1) as f64;
             let ratio_bot = (row * 2 + 1) as f64 / total_v.max(1) as f64;
-            (interpolate_color(color, fade, ratio_top), interpolate_color(color, fade, ratio_bot))
+            (
+                interpolate_color(color, fade, ratio_top),
+                interpolate_color(color, fade, ratio_bot),
+            )
         } else {
             (color, color)
         };
@@ -422,23 +445,34 @@ pub fn halfblock_graph(
         // Y-axis label
         let label_text = if row == 0 {
             let v = (y_max * (row_top_v as f64 / total_v as f64)).round() as u64;
-            format!("{:>width$} ", format!("{}{}", v, scale_unit), width = label_w)
+            format!(
+                "{:>width$} ",
+                format!("{}{}", v, scale_unit),
+                width = label_w
+            )
         } else if row == graph_h / 2 {
             let v = (y_max * 0.5).round() as u64;
-            format!("{:>width$} ", format!("{}{}", v, scale_unit), width = label_w)
+            format!(
+                "{:>width$} ",
+                format!("{}{}", v, scale_unit),
+                width = label_w
+            )
         } else if row == graph_h - 1 {
             format!("{:>width$} ", format!("0{}", scale_unit), width = label_w)
         } else {
             " ".repeat(label_w)
         };
-        spans.push(Span::styled(label_text, Style::default().fg(Color::DarkGray)));
+        spans.push(Span::styled(
+            label_text,
+            Style::default().fg(Color::DarkGray),
+        ));
 
         for f_val in fill.iter().take(graph_w) {
             let top_filled = *f_val > row_mid_v;
             let bot_filled = *f_val > row_bot_v;
 
             let (ch_str, style) = match (top_filled, bot_filled) {
-                (true, true) => ("\u{2588}", Style::default().fg(c_top)),   // █ full block
+                (true, true) => ("\u{2588}", Style::default().fg(c_top)), // █ full block
                 (true, false) => ("\u{2580}", Style::default().fg(c_top)), // ▀ upper half
                 (false, true) => ("\u{2584}", Style::default().fg(c_bot)), // ▄ lower half
                 (false, false) => (" ", Style::default()),
@@ -496,5 +530,51 @@ fn interpolate_color(c1: Color, c2: Color, ratio: f64) -> Color {
             Color::Rgb(r, g, b)
         }
         _ => c1,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn row_to_string(line: &Line<'_>) -> String {
+        line.spans
+            .iter()
+            .flat_map(|s| s.content.chars())
+            .collect()
+    }
+
+    /// Regression: a flat line at the maximum must light the TOP dot of the left
+    /// braille column = dot1 (U+2801 '⠁'). The buggy mapping produced dot7/dot4
+    /// (a bottom/right dot), so this must assert the top dot specifically.
+    #[test]
+    fn braille_line_graph_top_dot_is_dot1() {
+        let mut data = VecDeque::new();
+        for _ in 0..200 {
+            data.push_back(100u64);
+        }
+        let lines = braille_line_graph(&data, 30, 5, Color::Green, "%");
+        assert!(!lines.is_empty(), "should render some rows");
+        let top_row = row_to_string(&lines[0]);
+        assert!(
+            top_row.contains('\u{2801}'), // ⠁ = dot1 only
+            "top sub-pixel must map to dot1 (⠁), got: {top_row:?}"
+        );
+    }
+
+    /// A flat line at zero must light the BOTTOM dot of the left column =
+    /// dot7 (U+2840 '⡀') in the bottom-most row.
+    #[test]
+    fn braille_line_graph_bottom_dot_is_dot7() {
+        let mut data = VecDeque::new();
+        for _ in 0..200 {
+            data.push_back(0u64);
+        }
+        let lines = braille_line_graph(&data, 30, 5, Color::Green, "%");
+        let bottom_row = row_to_string(lines.last().unwrap());
+        assert!(
+            bottom_row.contains('\u{2840}'), // ⡀ = dot7 only
+            "bottom sub-pixel must map to dot7 (⡀), got: {bottom_row:?}"
+        );
     }
 }

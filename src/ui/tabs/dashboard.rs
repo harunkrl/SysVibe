@@ -1,19 +1,19 @@
 //! SysVibe — Dashboard tab rendering.
 
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Cell, Paragraph, Row, Table},
-    Frame,
 };
 
 use super::super::helpers::*;
 use super::super::icons;
 use super::super::palette::*;
 use super::super::widgets::sparkline;
-use crate::app::state::PanelFocus;
 use crate::app::App;
+use crate::app::state::PanelFocus;
 
 pub fn render_dashboard_tab(f: &mut Frame, app: &App, area: Rect) {
     let nf = app.config().nerd_fonts;
@@ -98,7 +98,11 @@ fn render_hero_row(f: &mut Frame, app: &App, area: Rect, nf: bool) {
 
     // RAM
     let (used, total) = app.ram_usage();
-    let ram_pct = if total > 0.0 { used / total * 100.0 } else { 0.0 };
+    let ram_pct = if total > 0.0 {
+        used / total * 100.0
+    } else {
+        0.0
+    };
     cards.push(HeroCard {
         label: "RAM",
         icon: if nf { icons::RAM } else { icons::fallback::RAM },
@@ -126,7 +130,11 @@ fn render_hero_row(f: &mut Frame, app: &App, area: Rect, nf: bool) {
     let tx = stats.iter().map(|n| n.tx_speed_bps).sum::<f64>();
     cards.push(HeroCard {
         label: "NET",
-        icon: if nf { icons::NETWORK } else { icons::fallback::NETWORK },
+        icon: if nf {
+            icons::NETWORK
+        } else {
+            icons::fallback::NETWORK
+        },
         value: format_speed(rx),
         sub: format!("\u{2191} {}", format_speed(tx)),
         color: green(),
@@ -140,11 +148,23 @@ fn render_hero_row(f: &mut Frame, app: &App, area: Rect, nf: bool) {
         .map(|s| s.temp_c)
         .fold(None::<f32>, |a, v| Some(a.map_or(v, |x| x.max(v))));
     if let Some(mt) = max_t {
-        let disp = if app.temp_celsius { mt } else { mt * 9.0 / 5.0 + 32.0 };
-        let unit = if app.temp_celsius { "\u{00B0}C" } else { "\u{00B0}F" };
+        let disp = if app.temp_celsius {
+            mt
+        } else {
+            mt * 9.0 / 5.0 + 32.0
+        };
+        let unit = if app.temp_celsius {
+            "\u{00B0}C"
+        } else {
+            "\u{00B0}F"
+        };
         cards.push(HeroCard {
             label: "TEMP",
-            icon: if nf { icons::TEMP } else { icons::fallback::TEMP },
+            icon: if nf {
+                icons::TEMP
+            } else {
+                icons::fallback::TEMP
+            },
             value: format!("{:.0}{}", disp, unit),
             sub: format!("{} sensors", temps.len()),
             color: temp_color(mt),
@@ -157,7 +177,11 @@ fn render_hero_row(f: &mut Frame, app: &App, area: Rect, nf: bool) {
         let state = bat.state.to_string();
         cards.push(HeroCard {
             label: "BAT",
-            icon: if nf { icons::BATTERY } else { icons::fallback::BATTERY },
+            icon: if nf {
+                icons::BATTERY
+            } else {
+                icons::fallback::BATTERY
+            },
             value: format!("{:.0}%", bat.percentage),
             sub: truncate_str(&state, 10).to_string(),
             color: battery_color(bat.percentage),
@@ -187,7 +211,7 @@ fn render_stat_card(f: &mut Frame, area: Rect, card: &HeroCard) {
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(card.color))
-        .style(Style::default().bg(base()));
+        .style(Style::default().bg(mantle()));
     let inner = block.inner(area);
     f.render_widget(block, area);
 
@@ -211,10 +235,11 @@ fn render_stat_card(f: &mut Frame, area: Rect, card: &HeroCard) {
         ),
     ];
     if let Some(s) = &spark_str
-        && !s.is_empty() {
-            r0.push(Span::raw(" "));
-            r0.push(Span::styled(s.clone(), Style::default().fg(card.color)));
-        }
+        && !s.is_empty()
+    {
+        r0.push(Span::raw(" "));
+        r0.push(Span::styled(s.clone(), Style::default().fg(card.color)));
+    }
     lines.push(Line::from(r0));
 
     // Row 1: big value
@@ -238,7 +263,10 @@ fn render_stat_card(f: &mut Frame, area: Rect, card: &HeroCard) {
 
 /// Tiny one-line sparkline using 8-level half-block characters.
 fn mini_spark(data: &[u64], width: usize) -> String {
-    const LEVELS: [char; 8] = ['\u{2581}', '\u{2582}', '\u{2583}', '\u{2584}', '\u{2585}', '\u{2586}', '\u{2587}', '\u{2588}'];
+    const LEVELS: [char; 8] = [
+        '\u{2581}', '\u{2582}', '\u{2583}', '\u{2584}', '\u{2585}', '\u{2586}', '\u{2587}',
+        '\u{2588}',
+    ];
     if data.is_empty() || width == 0 {
         return String::new();
     }
@@ -283,13 +311,12 @@ fn render_cpu_graph(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: Pane
     let avg_pct = current_pct.min(100.0);
     let cpu_color = usage_color(avg_pct as f32);
 
-    // Draw halfblock graph with gradient fade to base
-    let graph_lines = sparkline::halfblock_graph(
+    // Draw a higher-resolution dotted braille trend line (no fill).
+    let graph_lines = sparkline::braille_line_graph(
         cpu_lines,
         graph_area.width,
         graph_area.height.saturating_sub(1),
         cpu_color,
-        Some(base()), // Fade to background
         "%",
     );
 

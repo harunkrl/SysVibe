@@ -87,13 +87,6 @@ pub fn braille_graph(
 /// - Draws a continuous **line** by interpolating between data points
 ///
 /// Returns lines ready for `Paragraph`, with Y-axis labels on the left.
-//
-// `#[allow(dead_code)]`: this renderer is not yet wired into the live UI render
-// path until Task 2 connects it to the Dashboard CPU graph. Because this crate
-// is a lib+bin hybrid (src/main.rs re-declares `mod ui;` privately), an uncalled
-// `pub fn` in the bin target is flagged as dead_code. The allow is removed in
-// Task 2 once the Dashboard calls this function.
-#[allow(dead_code)]
 pub fn braille_line_graph(
     data: &VecDeque<u64>,
     area_width: u16,

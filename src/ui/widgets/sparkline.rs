@@ -125,7 +125,7 @@ pub fn braille_line_graph(
         })
         .collect();
 
-    // ── Build a dot grid using a flat Vec<u8> ─────────────────
+    // ── Build a 2D dot grid (one braille byte per on-screen cell) ──
     // Each braille character occupies 1 column × 1 row on screen
     // but has a 2×4 sub-pixel grid.
     // We only use the LEFT column (x_sub=0) of dots per character,
@@ -140,26 +140,22 @@ pub fn braille_line_graph(
     // giving 4 vertical sub-pixels per terminal row.
     const DOT_MAP_LEFT: [u8; 4] = [0x01, 0x02, 0x04, 0x40];
 
-    // grid: flat array indexed by [screen_col][x_sub], each entry is a u8
-    // braille pattern for that character cell.
-    let mut grid = vec![0u8; graph_w];
+    // grid[row][col]: one braille byte per on-screen cell. Each cell covers a
+    // 4-sub-pixel vertical band of one column. `graph_h` rows × `graph_w` cols.
+    let mut grid = vec![vec![0u8; graph_w]; graph_h];
 
-    // Helper: set the dot at screen column `col` and vertical sub-pixel `vy`.
-    // We only use the left column of each braille character.
-    // `vy` ranges from 0 (bottom) to total_v-1 (top).
-    let set_dot = |grid: &mut [u8], col: usize, vy: usize| {
+    // Helper: light the dot at column `col`, vertical sub-pixel `vy`
+    // (0 = bottom, total_v-1 = top), in the correct on-screen cell.
+    let set_dot = |grid: &mut [Vec<u8>], col: usize, vy: usize| {
         if col >= graph_w {
             return;
         }
-        // Which screen row does this sub-pixel belong to?
-        // row 0 is the topmost on screen.
-        // vy = total_v - 1 is the topmost sub-pixel.
-        // vy = 0 is the bottommost sub-pixel.
-        // sp_in_cell: 0 = top dot of the cell, 3 = bottom dot.
-        // Direct index into DOT_MAP_LEFT, which is ordered top→bottom
-        // [dot1, dot2, dot3, dot7] = [0x01, 0x02, 0x04, 0x40].
-        let sp_in_cell = (total_v - 1 - vy) % 4;
-        grid[col] |= DOT_MAP_LEFT[sp_in_cell];
+        // from_top = 0 at the topmost sub-pixel, increasing downward.
+        let from_top = total_v - 1 - vy;
+        let row = from_top / 4; // which on-screen row (0 = top)
+        let sp_in_cell = from_top % 4; // 0 = top dot of the cell, 3 = bottom
+        // DOT_MAP_LEFT is ordered top→bottom: [dot1, dot2, dot3, dot7].
+        grid[row][col] |= DOT_MAP_LEFT[sp_in_cell];
     };
 
     // ── Draw line segments between consecutive points ──────────
@@ -193,7 +189,7 @@ pub fn braille_line_graph(
     // ── Render rows from the grid ──────────────────────────────
     let mut rows: Vec<Line<'static>> = Vec::new();
 
-    for row in 0..graph_h {
+    for (row, row_cells) in grid.iter().enumerate() {
         let row_top_v = total_v - row * 4; // top boundary (exclusive)
         let _row_bot_v = total_v - (row + 1) * 4; // bottom boundary (inclusive)
 
@@ -224,9 +220,8 @@ pub fn braille_line_graph(
             Style::default().fg(Color::DarkGray),
         ));
 
-        // For each column, render the accumulated braille pattern
-        for bits in grid.iter().take(graph_w) {
-            let bits = *bits;
+        // For each column, render this row's accumulated braille pattern
+        for &bits in row_cells.iter().take(graph_w) {
             if bits != 0 {
                 spans.push(Span::styled(
                     braille(bits as usize),
@@ -537,37 +532,83 @@ mod tests {
             .collect()
     }
 
-    /// Regression: a flat line at the maximum must light the TOP dot of the left
-    /// braille column = dot1 (U+2801 '⠁'). The buggy mapping produced dot7/dot4
-    /// (a bottom/right dot), so this must assert the top dot specifically.
+    /// True if the line contains any braille pattern char (U+2800 and up).
+    fn has_braille(line: &Line<'_>) -> bool {
+        row_to_string(line).chars().any(|c| c >= '\u{2800}')
+    }
+
+    /// Regression: a flat line at the maximum must render ONLY in the top row,
+    /// lighting the TOP dot of the left braille column (dot1 = U+2801 '⠁').
+    /// This guards BOTH the dot mapping AND vertical row positioning: a buggy
+    /// renderer that draws the same pattern on every row would also light a dot
+    /// in a middle row, which this test forbids.
     #[test]
-    fn braille_line_graph_top_dot_is_dot1() {
+    fn braille_line_graph_top_dot_only_in_top_row() {
         let mut data = VecDeque::new();
         for _ in 0..200 {
             data.push_back(100u64);
         }
         let lines = braille_line_graph(&data, 30, 5, Color::Green, "%");
         assert!(!lines.is_empty(), "should render some rows");
-        let top_row = row_to_string(&lines[0]);
+        // Top row lights dot1.
         assert!(
-            top_row.contains('\u{2801}'), // ⠁ = dot1 only
-            "top sub-pixel must map to dot1 (⠁), got: {top_row:?}"
+            row_to_string(&lines[0]).contains('\u{2801}'), // ⠁ = dot1
+            "top sub-pixel must map to dot1 (⠁), got: {:?}",
+            row_to_string(&lines[0])
+        );
+        // A middle row must have NO braille dots (line is at the very top).
+        assert!(
+            !has_braille(&lines[2]),
+            "middle row must be empty for a top-only line, got: {:?}",
+            row_to_string(&lines[2])
         );
     }
 
-    /// A flat line at zero must light the BOTTOM dot of the left column =
-    /// dot7 (U+2840 '⡀') in the bottom-most row.
+    /// A flat line at zero must render ONLY in the bottom row, lighting the
+    /// BOTTOM dot of the left column (dot7 = U+2840 '⡀').
     #[test]
-    fn braille_line_graph_bottom_dot_is_dot7() {
+    fn braille_line_graph_bottom_dot_only_in_bottom_row() {
         let mut data = VecDeque::new();
         for _ in 0..200 {
             data.push_back(0u64);
         }
         let lines = braille_line_graph(&data, 30, 5, Color::Green, "%");
-        let bottom_row = row_to_string(lines.last().unwrap());
+        // Bottom row lights dot7.
         assert!(
-            bottom_row.contains('\u{2840}'), // ⡀ = dot7 only
-            "bottom sub-pixel must map to dot7 (⡀), got: {bottom_row:?}"
+            row_to_string(lines.last().unwrap()).contains('\u{2840}'), // ⡀ = dot7
+            "bottom sub-pixel must map to dot7 (⡀), got: {:?}",
+            row_to_string(lines.last().unwrap())
         );
+        // A non-bottom row must have NO braille dots.
+        assert!(
+            !has_braille(&lines[1]),
+            "non-bottom row must be empty for a bottom-only line, got: {:?}",
+            row_to_string(&lines[1])
+        );
+    }
+
+    /// Manual visual preview of the rendered braille trend line for a synthetic
+    /// CPU-like waveform. Ignored by default; run with:
+    ///   cargo test --lib _preview_braille_trend -- --nocapture --ignored
+    #[test]
+    #[ignore]
+    fn _preview_braille_trend() {
+        let mut data = VecDeque::new();
+        // a rising-then-falling waveform plus a plateau, ~120 samples
+        for i in 0..120u64 {
+            let v = match i {
+                0..=30 => (i as f64 * 3.0).min(95.0),        // ramp up
+                31..=60 => 95.0 - ((i - 31) as f64 * 2.5),   // ramp down
+                61..=90 => 20.0 + ((i - 61) as f64 * 0.8),   // gentle rise
+                _ => 10.0,                                   // idle plateau
+            };
+            data.push_back(v.round() as u64);
+        }
+        let lines = braille_line_graph(&data, 48, 8, Color::Green, "%");
+        println!("\n=== braille trend line preview (48x8) ===");
+        for line in &lines {
+            println!("{}", row_to_string(line));
+        }
+        println!("=== end preview ===\n");
     }
 }

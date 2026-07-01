@@ -1394,3 +1394,277 @@ impl App {
         }
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// Preview-only: deterministic sample-data builder for the `svshot` tool.
+// (Dev-only, feature-gated. `allow(dead_code)` mirrors `ui/preview.rs` so the
+// main `sysvibe` bin — which compiles this via `mod app` but never calls it —
+// stays warning-free under `--features preview`.)
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Generate a smooth sample history wave (used for sparklines/graphs).
+#[cfg(feature = "preview")]
+#[allow(dead_code)]
+fn sample_wave(len: usize, base: u64, amp: u64) -> VecDeque<u64> {
+    (0..len)
+        .map(|i| {
+            let s = (i as f64 * 0.5).sin().max(0.0);
+            base + (s * amp as f64) as u64
+        })
+        .collect()
+}
+
+/// A handful of representative kernel log entries at mixed severities.
+#[cfg(feature = "preview")]
+#[allow(dead_code)]
+fn sample_log_entries() -> VecDeque<LogEntry> {
+    let mk = |level, msg: &str| LogEntry {
+        timestamp: format!("Jul 01 09:1{:1}:0{}", (msg.len() % 10), (msg.len() % 6)),
+        level,
+        message: msg.into(),
+    };
+    let mut dq = VecDeque::new();
+    dq.push_back(mk(LogLevel::Info, "systemd[1]: Started Session 12 of user lenovo."));
+    dq.push_back(mk(LogLevel::Notice, "NetworkManager[842]: <info> device (wlp0s20f3): Activation successful"));
+    dq.push_back(mk(LogLevel::Warning, "kernel: thermal thermal_zone0: temperature above threshold"));
+    dq.push_back(mk(LogLevel::Error, "audit[1330]: AVC apparmor=\"DENIED\" operation=\"capable\""));
+    dq.push_back(mk(LogLevel::Info, "kernel: EXT4-fs (nvme0n1p2): mounted filesystem with ordered data mode."));
+    dq.push_back(mk(LogLevel::Warning, "fwupd[9121]: Failed to load SMBIOS table 0x7"));
+    dq
+}
+
+#[cfg(feature = "preview")]
+#[allow(dead_code)]
+impl App {
+    /// Build an `App` populated with representative SAMPLE data, performing
+    /// **no** collector I/O. Used only by the `svshot` preview tool.
+    pub fn new_sample(config: Config) -> Self {
+        use crate::app::collectors::logs::LogCollector;
+
+        let num_cores = 8usize;
+        let now = Instant::now();
+        let total_ram = 16u64 * 1_073_741_824;
+        let used_ram = 9u64 * 1_073_741_824;
+        let free_ram = total_ram - used_ram;
+        let total_swap = 8u64 * 1_073_741_824;
+        let used_swap = 1u64 * 1_073_741_824;
+
+        let mut app = Self {
+            sys: System::new(),
+            networks: Networks::new(),
+            components: Components::new(),
+            config,
+            mode: AppMode::Normal,
+            should_quit: false,
+            cpu_history: sample_wave(HISTORY_LEN, 30, 45),
+            per_core_history: (0..num_cores)
+                .map(|i| sample_wave(HISTORY_LEN, 20 + i as u64 * 8, 25))
+                .collect(),
+            cached_ram_used: used_ram,
+            cached_ram_total: total_ram,
+            cached_ram_free: free_ram,
+            cached_swap_used: used_swap,
+            cached_swap_total: total_swap,
+            prev_network_bytes: HashMap::new(),
+            local_ip: None,
+            public_ip: Arc::new(Mutex::new(None)),
+            network_stats: vec![NetworkStats {
+                interface: "eth0".into(),
+                rx_speed_bps: 1_250_000.0,
+                tx_speed_bps: 430_000.0,
+                rx_history: sample_wave(HISTORY_LEN, 0, 100),
+                tx_history: sample_wave(HISTORY_LEN, 0, 40),
+                total_rx_bytes: 4_823_112_000,
+                total_tx_bytes: 912_554_000,
+                local_ip: Some("192.168.1.42".into()),
+            }],
+            disk_io: DiskIoStats {
+                read_speed_bps: 105_000_000.0,
+                write_speed_bps: 42_000_000.0,
+                read_history: sample_wave(HISTORY_LEN, 0, 120),
+                write_history: sample_wave(HISTORY_LEN, 0, 60),
+                read_iops: 4200,
+                write_iops: 1800,
+                prev_read_ops: None,
+                prev_write_ops: None,
+            },
+            prev_disk_bytes: (0, 0),
+            temperatures: vec![
+                SensorReading {
+                    label: "CPU Package".into(),
+                    temp_c: 62.0,
+                    history: sample_wave(HISTORY_LEN, 45, 20),
+                },
+                SensorReading {
+                    label: "GPU".into(),
+                    temp_c: 58.0,
+                    history: sample_wave(HISTORY_LEN, 40, 18),
+                },
+                SensorReading {
+                    label: "NVMe SSD".into(),
+                    temp_c: 41.0,
+                    history: sample_wave(HISTORY_LEN, 30, 12),
+                },
+            ],
+            battery: Some(BatteryStatus {
+                percentage: 87.0,
+                state: "Discharging".into(),
+                power_w: Some(11.5),
+                manufacturer: Some("LGC".into()),
+                model: Some("00UR891".into()),
+                technology: Some("Li-ion".into()),
+                cycle_count: Some(124),
+                health_pct: Some(96.4),
+            }),
+            battery_power_history: sample_wave(HISTORY_LEN, 5, 8),
+            battery_charge_history: sample_wave(HISTORY_LEN, 80, 10),
+            top_processes: vec![
+                ProcessEntry { pid: 1422, parent_pid: 1, name: "firefox".into(), cpu_pct: 38.4, mem_pct: 12.1 },
+                ProcessEntry { pid: 9821, parent_pid: 1422, name: "Web Content".into(), cpu_pct: 22.7, mem_pct: 6.4 },
+                ProcessEntry { pid: 3017, parent_pid: 1, name: "code".into(), cpu_pct: 14.2, mem_pct: 9.8 },
+                ProcessEntry { pid: 884, parent_pid: 1, name: "node".into(), cpu_pct: 9.6, mem_pct: 4.2 },
+                ProcessEntry { pid: 553, parent_pid: 1, name: "rust-analyzer".into(), cpu_pct: 7.1, mem_pct: 3.3 },
+                ProcessEntry { pid: 2290, parent_pid: 1, name: "dockerd".into(), cpu_pct: 3.8, mem_pct: 2.7 },
+                ProcessEntry { pid: 7712, parent_pid: 1, name: "alacritty".into(), cpu_pct: 1.2, mem_pct: 0.8 },
+            ],
+            total_process_count_fresh: 247,
+            proc_table_state: TableState::default(),
+            sort_by: SortBy::Cpu,
+            temp_celsius: true,
+            selected_pids: Vec::new(),
+            tab: AppTab::Dashboard,
+            filter_input: String::new(),
+            filter_active: false,
+            command_input: String::new(),
+            command_selected: 0,
+            cached_filtered_processes: Vec::new(),
+            filtered_processes_dirty: true,
+            cached_tree_rows: Vec::new(),
+            tree_dirty: true,
+            kill_target_pid: None,
+            kill_target_name: None,
+            status_message: None,
+            log_collector: LogCollector::new(),
+            log_follow: true,
+            log_scroll_offset: 0,
+            log_filter_input: String::new(),
+            log_filter_active: false,
+            log_level_filter: LogLevelFilter::all(),
+            panel_focus: PanelFocus::default(),
+            tab_hit_regions: Vec::new(),
+            tree_view: false,
+            cpu_normalized: true,
+            last_tick: now,
+            last_refresh: now,
+            last_sensor_refresh: now,
+            last_log_refresh: now,
+            last_partition_refresh: now,
+            tick_count: 0,
+            cached_partitions: vec![
+                DiskPartitionInfo {
+                    mount_point: "/".into(),
+                    device: "/dev/nvme0n1p2".into(),
+                    fs_type: "ext4".into(),
+                    total_bytes: 500_000_000_000,
+                    used_bytes: 312_000_000_000,
+                    available_bytes: 162_000_000_000,
+                    model: Some("Samsung SSD 970 EVO Plus 500GB".into()),
+                    disk_type: "SSD".into(),
+                    vendor: Some("Samsung".into()),
+                    serial: Some("S466NX0M123456".into()),
+                    rpm: None,
+                },
+                DiskPartitionInfo {
+                    mount_point: "/home".into(),
+                    device: "/dev/nvme0n1p3".into(),
+                    fs_type: "ext4".into(),
+                    total_bytes: 1_000_000_000_000,
+                    used_bytes: 421_000_000_000,
+                    available_bytes: 531_000_000_000,
+                    model: Some("Samsung SSD 970 EVO Plus 1TB".into()),
+                    disk_type: "SSD".into(),
+                    vendor: Some("Samsung".into()),
+                    serial: None,
+                    rpm: None,
+                },
+            ],
+            gpu_stats: vec![GpuStats {
+                name: "NVIDIA GeForce RTX 3060".into(),
+                usage_pct: 64.0,
+                vram_used_mb: 5320,
+                vram_total_mb: 12288,
+                temperature: 61.0,
+                power_w: Some(132.0),
+                fan_speed_pct: Some(48.0),
+                clock_mhz: Some(1920),
+            }],
+            gpu_scroll: 0,
+            hardware_data: HardwareData {
+                motherboard: MotherboardInfo {
+                    vendor: Some("Lenovo".into()),
+                    name: Some("20XWCTO1WW".into()),
+                    version: Some("ThinkPad X1 Carbon Gen 9".into()),
+                    bios_vendor: Some("LENOVO".into()),
+                    bios_version: Some("N30ET42W (1.24)".into()),
+                    bios_date: Some("2024-03-11".into()),
+                    sys_vendor: Some("LENOVO".into()),
+                    product_name: Some("ThinkPad X1 Carbon Gen 9".into()),
+                },
+                gpus: vec![GpuInfo {
+                    model: "NVIDIA GeForce RTX 3060".into(),
+                    pci_slot: Some("01:00.0".into()),
+                    dev_type: "3D".into(),
+                    driver: Some("nvidia".into()),
+                }],
+                ram: RamInfo {
+                    total_bytes: total_ram,
+                    speed_mt: Some(3200),
+                    mem_type: Some("DDR4".into()),
+                    dimm_count: Some(2),
+                    form_factor: Some("SODIMM".into()),
+                },
+            },
+            cached_system_info: SystemInfo {
+                os_name: "Fedora Linux 40 (Workstation Edition)".into(),
+                kernel_version: "6.9.7-200.fc40.x86_64".into(),
+                hostname: "thinkpad-x1".into(),
+                uptime: "2d 4h 18m".into(),
+                cpu_brand: "11th Gen Intel(R) Core(TM) i7-1165G7 @ 2.80GHz".into(),
+                cpu_cores: num_cores,
+                total_ram_gb: 16.0,
+                total_swap_gb: 8.0,
+                load_average: (0.82, 1.04, 0.97),
+                desktop_env: "GNOME".into(),
+                display_server: "Wayland".into(),
+                architecture: "x86_64".into(),
+                sys_vendor: Some("LENOVO".into()),
+                product_name: Some("ThinkPad X1 Carbon Gen 9".into()),
+                bios_version: Some("N30ET42W (1.24)".into()),
+            },
+            last_system_info_refresh: now,
+            active_alerts: Vec::new(),
+        };
+
+        // Logs: LogCollector starts empty (no journalctl); inject sample entries.
+        app.set_log_entries(sample_log_entries());
+
+        app
+    }
+}
+
+#[cfg(all(test, feature = "preview"))]
+mod preview_tests {
+    use crate::config::Config;
+
+    use super::App;
+
+    #[test]
+    fn sample_app_is_populated() {
+        let app = App::new_sample(Config::default());
+        assert!(!app.cpu_history.is_empty(), "cpu history should be filled");
+        assert_eq!(app.num_cores(), 8, "sample should model 8 cores");
+        assert!(!app.gpu_stats().is_empty(), "gpu stats should be filled");
+        assert!(!app.temperatures().is_empty(), "temperatures should be filled");
+        assert!(!app.disk_partitions().is_empty(), "partitions should be filled");
+    }
+}

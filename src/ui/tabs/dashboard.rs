@@ -4,14 +4,14 @@ use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
-    symbols,
     text::{Line, Span},
-    widgets::{Axis, Block, BorderType, Borders, Cell, Chart, Dataset, GraphType, Paragraph, Row, Table},
+    widgets::{Block, BorderType, Borders, Cell, Paragraph, Row, Table},
 };
 
 use super::super::helpers::*;
 use super::super::icons;
 use super::super::palette::*;
+use super::super::widgets::sparkline;
 use crate::app::App;
 use crate::app::state::{HISTORY_LEN, PanelFocus};
 
@@ -340,36 +340,19 @@ fn render_cpu_graph(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: Pane
     let chart_area = cols[0];
     let core_area = cols[1];
 
-    // ratatui Chart widget — the same engine wattea's trend/live charts use:
-    // Marker::Braille + GraphType::Line for a smooth single-color trend line,
-    // fixed 0–100 Y axis (CPU %) and an index-based X axis (time window).
+    // Gradient-filled braille area graph (btop-style) instead of a thin
+    // single-color line: the area under the CPU curve is filled and coloured
+    // from `cpu_color` (bright, near the line) to a dim base.
     let n = cpu_lines.len();
     if n >= 2 {
-        let pts: Vec<(f64, f64)> = cpu_lines
-            .iter()
-            .enumerate()
-            .map(|(i, &v)| (i as f64, v as f64))
-            .collect();
-        let x_max = (n - 1) as f64; // last sample index
-
-        let chart = Chart::new(vec![Dataset::default()
-            .marker(symbols::Marker::Braille)
-            .graph_type(GraphType::Line)
-            .style(Style::default().fg(cpu_color))
-            .data(&pts)])
-        .x_axis(
-            Axis::default()
-                .style(Style::default().fg(subtext()))
-                .bounds([0.0, x_max.max(1.0)])
-                .labels(vec![Span::raw(cpu_window_label(app)), Span::raw("now")]),
-        )
-        .y_axis(
-            Axis::default()
-                .style(Style::default().fg(subtext()))
-                .bounds([0.0, 100.0])
-                .labels(vec![Span::raw("0"), Span::raw("50"), Span::raw("100")]),
+        sparkline::render_braille_area(
+            f,
+            chart_area,
+            cpu_lines,
+            cpu_color,
+            surface1(),
+            "%",
         );
-        f.render_widget(chart, chart_area);
     } else if n == 1 {
         // Not enough samples to draw a line yet — show the single value.
         f.render_widget(
@@ -405,6 +388,7 @@ fn render_cpu_graph(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: Pane
 
 /// X-axis start label for the CPU history window (e.g. "-60s", "-2m").
 /// `HISTORY_LEN` samples at the effective CPU refresh interval.
+#[allow(dead_code)]
 fn cpu_window_label(app: &App) -> String {
     let interval_ms = app.config().cpu_refresh_ms.unwrap_or(app.config().data_refresh_rate);
     let secs = (HISTORY_LEN as u64 * interval_ms) / 1000;

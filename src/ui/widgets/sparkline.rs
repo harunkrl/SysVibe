@@ -315,6 +315,115 @@ pub fn render_braille_line_chart(
     frame.render_widget(chart, area);
 }
 
+/// A braille **filled-area** trend graph spec: the area under the curve is filled
+/// with braille (both columns, 4 vertical sub-pixels per row) and coloured by a
+/// vertical gradient from `color` (bright, near the line) to `fade_color` (dim,
+/// near the base) — the btop look. Returns lines with Y-axis scale labels on the
+/// left, ready for `Paragraph`.
+pub fn braille_area_graph(
+    data: &VecDeque<u64>,
+    area_width: u16,
+    area_height: u16,
+    color: Color,
+    fade_color: Color,
+    scale_unit: &str,
+) -> Vec<Line<'static>> {
+    if data.is_empty() || area_width < 10 || area_height < 2 {
+        return Vec::new();
+    }
+
+    let data_vec: Vec<u64> = data.iter().copied().collect();
+    let peak = data_vec.iter().copied().max().unwrap_or(1) as f64;
+    let y_max = dynamic_ceiling(peak).max(1.0);
+
+    let label_w = format!("{:.0}{}", y_max, scale_unit).len() + 1;
+    let graph_w = (area_width as usize).saturating_sub(label_w);
+    let graph_h = area_height as usize;
+    if graph_w < 2 || graph_h < 2 {
+        return Vec::new();
+    }
+
+    let samples = resample(&data_vec, graph_w);
+    let total_v = graph_h * 4; // 4 braille sub-pixels per row
+
+    // Filled height (sub-pixels from the bottom) per column.
+    let fill: Vec<usize> = samples
+        .iter()
+        .map(|&v| ((v as f64 / y_max) * total_v as f64).round() as usize)
+        .map(|v| v.min(total_v))
+        .collect();
+
+    // Bottom-up fill using both braille columns: 0..4 dot-rows.
+    const AREA_FILL: [u8; 5] = [0x00, 0xC0, 0xE4, 0xF6, 0xFF];
+
+    let mut rows: Vec<Line<'static>> = Vec::with_capacity(graph_h);
+    for row in 0..graph_h {
+        let row_bot_v = total_v.saturating_sub((row + 1) * 4);
+        let row_top_v = total_v.saturating_sub(row * 4);
+
+        // Vertical gradient: top rows bright (`color`), base rows dim (`fade_color`).
+        let frac = (graph_h - row) as f64 / graph_h.max(1) as f64;
+        let cell_color = interpolate_color(fade_color, color, frac);
+
+        let mut spans: Vec<Span<'static>> = Vec::with_capacity(label_w + graph_w);
+
+        // Y-axis labels (top, mid, bottom).
+        let label_text = if row == 0 {
+            let v = (y_max * row_top_v as f64 / total_v as f64).round() as u64;
+            format!(
+                "{:>w$} ",
+                format!("{}{}", v, scale_unit),
+                w = label_w
+            )
+        } else if row == graph_h / 2 {
+            format!(
+                "{:>w$} ",
+                format!("{}{}", (y_max * 0.5).round() as u64, scale_unit),
+                w = label_w
+            )
+        } else if row == graph_h - 1 {
+            format!("{:>w$} ", format!("0{}", scale_unit), w = label_w)
+        } else {
+            " ".repeat(label_w)
+        };
+        spans.push(Span::styled(
+            label_text,
+            Style::default().fg(Color::DarkGray),
+        ));
+
+        for f_val in fill.iter().take(graph_w) {
+            let level = f_val.saturating_sub(row_bot_v).min(4);
+            if level == 0 {
+                spans.push(Span::raw(" "));
+            } else {
+                spans.push(Span::styled(
+                    braille(AREA_FILL[level] as usize),
+                    Style::default().fg(cell_color),
+                ));
+            }
+        }
+        rows.push(Line::from(spans));
+    }
+
+    rows
+}
+
+/// Render a gradient-filled braille **area** trend graph into `area` (via a
+/// `Paragraph`). Convenience wrapper around [`braille_area_graph`].
+pub fn render_braille_area(
+    frame: &mut ratatui::Frame,
+    area: ratatui::layout::Rect,
+    data: &VecDeque<u64>,
+    color: Color,
+    fade_color: Color,
+    scale_unit: &str,
+) {
+    let lines = braille_area_graph(data, area.width, area.height, color, fade_color, scale_unit);
+    if !lines.is_empty() {
+        frame.render_widget(ratatui::widgets::Paragraph::new(lines), area);
+    }
+}
+
 /// Render a mirrored braille "heartbeat" graph with data going **up** and **down** from
 /// a central zero-axis.
 ///

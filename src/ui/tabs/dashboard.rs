@@ -350,8 +350,6 @@ fn render_cpu_graph(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: Pane
             f,
             chart_area,
             cpu_lines,
-            cpu_color,
-            surface1(),
             "%",
             true,
         );

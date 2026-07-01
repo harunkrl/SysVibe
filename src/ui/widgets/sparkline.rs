@@ -472,8 +472,6 @@ pub fn braille_smooth_graph(
     data: &VecDeque<u64>,
     area_width: u16,
     area_height: u16,
-    color: Color,
-    fade_color: Color,
     scale_unit: &str,
     area: bool,
 ) -> Vec<Line<'static>> {
@@ -512,7 +510,9 @@ pub fn braille_smooth_graph(
     for cy in 0..graph_h {
         // Vertical gradient: top rows bright (`color`), base rows dim (`fade_color`).
         let frac = (graph_h - cy) as f64 / graph_h.max(1) as f64;
-        let cell_color = interpolate_color(fade_color, color, frac);
+        // Value-based vivid gradient (green low → amber → red high), matching
+        // the meters — not a faded single-colour gradient.
+        let cell_color = crate::ui::helpers::gradient_color_at(frac);
 
         // NB: label rows and spacer rows must be EXACTLY `label_w` chars wide,
         // or the braille cells shift horizontally between rows and the graph
@@ -574,8 +574,6 @@ pub fn render_braille_smooth(
     frame: &mut ratatui::Frame,
     area: ratatui::layout::Rect,
     data: &VecDeque<u64>,
-    color: Color,
-    fade_color: Color,
     scale_unit: &str,
     is_area: bool,
 ) {
@@ -583,8 +581,6 @@ pub fn render_braille_smooth(
         data,
         area.width,
         area.height,
-        color,
-        fade_color,
         scale_unit,
         is_area,
     );

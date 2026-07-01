@@ -264,11 +264,11 @@ fn render_stat_card(f: &mut Frame, area: Rect, card: &HeroCard) {
         lines.push(gradient_bar(inner.width, r));
     }
 
-    // Row 3: sub detail
+    // Row 3: sub detail (dimmed — secondary; the value is the focus)
     if inner.height >= 5 {
         lines.push(Line::from(Span::styled(
             card.sub.clone(),
-            Style::default().fg(overlay()),
+            Style::default().fg(overlay()).add_modifier(Modifier::DIM),
         )));
     }
 
@@ -306,25 +306,11 @@ fn render_cpu_graph(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: Pane
     let current_pct = cpu_lines.back().copied().unwrap_or(0) as f64;
     let avg_pct = current_pct.min(100.0);
     let cpu_color = usage_color(avg_pct as f32);
-    let num_cores = app.num_cores();
+    let _num_cores = app.num_cores();
 
-    // wattea-style title badge (top-right): now% · cores. Replaces the old
-    // manual bottom "avg / Cores" row — the Chart widget renders its own axes.
-    let block = panel_block_focused(&title, focus.is_focused(PanelFocus::Panel1)).title_top(
-        Line::from(vec![
-            Span::raw(" "),
-            Span::styled(
-                format!("now {:.0}%", avg_pct),
-                Style::default().fg(cpu_color).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(" · ", Style::default().fg(subtext())),
-            Span::styled(
-                format!("{num_cores} cores"),
-                Style::default().fg(overlay()),
-            ),
-        ])
-        .right_aligned(),
-    );
+    // Panel title only — the current % and core count are already shown on the
+    // hero CPU card, so don't duplicate them in a title badge here.
+    let block = panel_block_focused(&title, focus.is_focused(PanelFocus::Panel1));
     let inner = block.inner(area);
     f.render_widget(block, area);
 

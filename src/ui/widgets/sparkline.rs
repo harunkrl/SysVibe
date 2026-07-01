@@ -211,17 +211,17 @@ pub fn braille_line_graph(
             format!(
                 "{:>width$} ",
                 format!("{}{}", v, scale_unit),
-                width = label_w
+                width = label_w.saturating_sub(1)
             )
         } else if row == graph_h / 2 {
             let v = (y_max * 0.5).round() as u64;
             format!(
                 "{:>width$} ",
                 format!("{}{}", v, scale_unit),
-                width = label_w
+                width = label_w.saturating_sub(1)
             )
         } else if row == graph_h - 1 {
-            format!("{:>width$} ", format!("0{}", scale_unit), width = label_w)
+            format!("{:>width$} ", format!("0{}", scale_unit), width = label_w.saturating_sub(1))
         } else {
             " ".repeat(label_w)
         };
@@ -373,16 +373,16 @@ pub fn braille_area_graph(
             format!(
                 "{:>w$} ",
                 format!("{}{}", v, scale_unit),
-                w = label_w
+                w = label_w.saturating_sub(1)
             )
         } else if row == graph_h / 2 {
             format!(
                 "{:>w$} ",
                 format!("{}{}", (y_max * 0.5).round() as u64, scale_unit),
-                w = label_w
+                w = label_w.saturating_sub(1)
             )
         } else if row == graph_h - 1 {
-            format!("{:>w$} ", format!("0{}", scale_unit), w = label_w)
+            format!("{:>w$} ", format!("0{}", scale_unit), w = label_w.saturating_sub(1))
         } else {
             " ".repeat(label_w)
         };
@@ -514,20 +514,25 @@ pub fn braille_smooth_graph(
         let frac = (graph_h - cy) as f64 / graph_h.max(1) as f64;
         let cell_color = interpolate_color(fade_color, color, frac);
 
+        // NB: label rows and spacer rows must be EXACTLY `label_w` chars wide,
+        // or the braille cells shift horizontally between rows and the graph
+        // looks zig-zag. So right-align the label in `label_w-1` then one
+        // trailing space == `label_w`, matching the spacer below.
+        let pad = label_w.saturating_sub(1);
         let label = if cy == 0 {
             format!(
-                "{:>w$} ",
+                "{:>pad$} ",
                 format!("{}{}", y_max.round() as u64, scale_unit),
-                w = label_w
+                pad = pad
             )
         } else if cy == graph_h / 2 {
             format!(
-                "{:>w$} ",
+                "{:>pad$} ",
                 format!("{}{}", (y_max * 0.5).round() as u64, scale_unit),
-                w = label_w
+                pad = pad
             )
         } else if cy == graph_h - 1 {
-            format!("{:>w$} ", format!("0{}", scale_unit), w = label_w)
+            format!("{:>pad$} ", format!("0{}", scale_unit), pad = pad)
         } else {
             " ".repeat(label_w)
         };
@@ -791,17 +796,17 @@ pub fn halfblock_graph(
             format!(
                 "{:>width$} ",
                 format!("{}{}", v, scale_unit),
-                width = label_w
+                width = label_w.saturating_sub(1)
             )
         } else if row == graph_h / 2 {
             let v = (y_max * 0.5).round() as u64;
             format!(
                 "{:>width$} ",
                 format!("{}{}", v, scale_unit),
-                width = label_w
+                width = label_w.saturating_sub(1)
             )
         } else if row == graph_h - 1 {
-            format!("{:>width$} ", format!("0{}", scale_unit), width = label_w)
+            format!("{:>width$} ", format!("0{}", scale_unit), width = label_w.saturating_sub(1))
         } else {
             " ".repeat(label_w)
         };

@@ -107,6 +107,7 @@ pub fn is_compact(width: u16) -> bool {
 /// Single-line usage bar: filled cells in `color`, remainder dim.
 /// Uses full-block "█" / light-shade "░" for a dense, modern look.
 /// `ratio` is clamped to 0.0..=1.0.
+#[allow(dead_code)]
 pub fn usage_bar_spans(width: u16, ratio: f64, color: Color) -> Vec<Span<'static>> {
     let w = (width as usize).max(1);
     let filled = (((ratio.clamp(0.0, 1.0)) * w as f64).round() as usize).min(w);
@@ -117,8 +118,116 @@ pub fn usage_bar_spans(width: u16, ratio: f64, color: Color) -> Vec<Span<'static
 }
 
 /// Convenience wrapper returning the bar as a single `Line`.
+#[allow(dead_code)]
 pub fn usage_bar(width: u16, ratio: f64, color: Color) -> Line<'static> {
     Line::from(usage_bar_spans(width, ratio, color))
+}
+
+/// Fractional block glyphs for sub-cell-smooth bars: `▏▎▍▌▋▊▉█`.
+const FRAC_BLOCKS: [&str; 8] = [
+    "\u{258F}", "\u{258E}", "\u{258D}", "\u{258C}", "\u{258B}", "\u{258A}", "\u{2589}", "\u{2588}",
+];
+
+/// Pick the fractional block glyph for a 0.0..=1.0 fill of a single cell.
+fn frac_block(frac: f64) -> &'static str {
+    let i = ((frac.clamp(0.0, 1.0) * 8.0).ceil() as usize).clamp(1, 8);
+    FRAC_BLOCKS[i - 1]
+}
+
+/// Extract RGB from a ratatui `Color` (fallback grey for non-RGB).
+fn rgb_of(c: Color) -> (u8, u8, u8) {
+    match c {
+        Color::Rgb(r, g, b) => (r, g, b),
+        _ => (128, 128, 128),
+    }
+}
+
+/// Positional gradient colour across a bar (btop-style): green → yellow → red
+/// as position goes 0.0 → 1.0. Uses the current theme's accents so it respects
+/// theme switching.
+pub fn gradient_color_at(pos: f64) -> Color {
+    let p = pos.clamp(0.0, 1.0);
+    let (g_rgb, y_rgb, r_rgb) = (rgb_of(green()), rgb_of(yellow()), rgb_of(red()));
+    let (from, to, t) = if p < 0.5 {
+        (g_rgb, y_rgb, p / 0.5)
+    } else {
+        (y_rgb, r_rgb, (p - 0.5) / 0.5)
+    };
+    let lerp = |a: u8, b: u8| -> u8 {
+        (a as f64 + (b as f64 - a as f64) * t)
+            .round()
+            .clamp(0.0, 255.0) as u8
+    };
+    Color::Rgb(lerp(from.0, to.0), lerp(from.1, to.1), lerp(from.2, to.2))
+}
+
+/// btop-style gradient meter: filled cells take a positional green→red gradient
+/// and the last filled cell uses a fractional block for sub-cell smoothness;
+/// the remainder is a dim track. `ratio` is clamped to 0.0..=1.0.
+pub fn gradient_bar_spans(width: u16, ratio: f64) -> Vec<Span<'static>> {
+    let w = (width as usize).max(1);
+    let total = ratio.clamp(0.0, 1.0) * w as f64;
+    let full = total.floor() as usize;
+    let frac = total - total.floor();
+
+    let mut spans: Vec<Span<'static>> = Vec::with_capacity(w + 1);
+    for i in 0..full {
+        let pos = (i as f64 + 0.5) / w as f64;
+        spans.push(Span::styled(
+            "\u{2588}",
+            Style::default().fg(gradient_color_at(pos)),
+        ));
+    }
+    let mut used = full;
+    if full < w && frac > 0.0 {
+        let pos = (full as f64 + 0.5) / w as f64;
+        spans.push(Span::styled(
+            frac_block(frac),
+            Style::default().fg(gradient_color_at(pos)),
+        ));
+        used = full + 1;
+    }
+    if used < w {
+        spans.push(Span::styled(
+            "\u{2591}".repeat(w - used),
+            Style::default().fg(surface0()),
+        ));
+    }
+    spans
+}
+
+/// Convenience wrapper: gradient meter as a single `Line`.
+pub fn gradient_bar(width: u16, ratio: f64) -> Line<'static> {
+    Line::from(gradient_bar_spans(width, ratio))
+}
+
+/// btop-style segmented memory meter: the `used` portion takes a positional
+/// green→red gradient (matching `gradient_bar`), the `cached`/buffer portion is
+/// a distinct accent (sapphire), and the remainder is a dim free track. Ratios
+/// are clamped to 0.0..=1.0.
+pub fn memory_bar_spans(width: u16, used_ratio: f64, cached_ratio: f64) -> Vec<Span<'static>> {
+    let w = (width as usize).max(1);
+    let used_cells = (used_ratio.clamp(0.0, 1.0) * w as f64).round() as usize;
+    let cached_cells = (cached_ratio.clamp(0.0, 1.0) * w as f64).round() as usize;
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut i = 0usize;
+    while i < used_cells && i < w {
+        let pos = (i as f64 + 0.5) / w as f64;
+        spans.push(Span::styled("\u{2588}", Style::default().fg(gradient_color_at(pos))));
+        i += 1;
+    }
+    let cached_end = (i + cached_cells).min(w);
+    if cached_end > i {
+        spans.push(Span::styled(
+            "\u{2588}".repeat(cached_end - i),
+            Style::default().fg(sapphire()),
+        ));
+        i = cached_end;
+    }
+    if i < w {
+        spans.push(Span::styled("\u{2591}".repeat(w - i), Style::default().fg(surface0())));
+    }
+    spans
 }
 
 /// Battery colour: Rosewater (full) → Green → Yellow → Red → Maroon.

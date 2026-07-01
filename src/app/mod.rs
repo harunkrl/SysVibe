@@ -1482,7 +1482,7 @@ impl App {
         let now = Instant::now();
         let total_ram = 16u64 * 1_073_741_824;
         let used_ram = 9u64 * 1_073_741_824;
-        let free_ram = total_ram - used_ram;
+        let free_ram = 4u64 * 1_073_741_824; // leaves ~3 GiB cache/buff for the segmented meter
         let total_swap = 8u64 * 1_073_741_824;
         let used_swap = 1u64 * 1_073_741_824;
 

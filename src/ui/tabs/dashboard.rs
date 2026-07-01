@@ -23,7 +23,7 @@ pub fn render_dashboard_tab(f: &mut Frame, app: &App, area: Rect) {
     let (hero, content) = if area.height >= 17 {
         let split = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Length(5), Constraint::Min(0)])
+            .constraints([Constraint::Length(7), Constraint::Min(0)])
             .split(area);
         (Some(split[0]), split[1])
     } else {
@@ -80,6 +80,7 @@ struct HeroCard {
     sub: String,
     color: Color,
     spark: Option<Vec<u64>>,
+    ratio: Option<f64>,
 }
 
 fn render_hero_row(f: &mut Frame, app: &App, area: Rect, nf: bool) {
@@ -94,6 +95,7 @@ fn render_hero_row(f: &mut Frame, app: &App, area: Rect, nf: bool) {
         sub: format!("{} cores", app.num_cores()),
         color: usage_color(cpu_pct as f32),
         spark: Some(app.cpu_history.iter().copied().collect()),
+        ratio: Some(cpu_pct / 100.0),
     });
 
     // RAM
@@ -110,6 +112,7 @@ fn render_hero_row(f: &mut Frame, app: &App, area: Rect, nf: bool) {
         sub: format!("{:.1}G / {:.1}G", used, total),
         color: gauge_color(ram_pct / 100.0),
         spark: None,
+        ratio: Some(ram_pct / 100.0),
     });
 
     // GPU (only if present)
@@ -121,6 +124,7 @@ fn render_hero_row(f: &mut Frame, app: &App, area: Rect, nf: bool) {
             sub: truncate_str(&gpu.name, 10).to_string(),
             color: usage_color(gpu.usage_pct),
             spark: None,
+            ratio: Some(gpu.usage_pct as f64 / 100.0),
         });
     }
 
@@ -139,6 +143,7 @@ fn render_hero_row(f: &mut Frame, app: &App, area: Rect, nf: bool) {
         sub: format!("\u{2191} {}", format_speed(tx)),
         color: green(),
         spark: None,
+        ratio: None,
     });
 
     // Temperature (max, if sensors present)
@@ -169,6 +174,7 @@ fn render_hero_row(f: &mut Frame, app: &App, area: Rect, nf: bool) {
             sub: format!("{} sensors", temps.len()),
             color: temp_color(mt),
             spark: None,
+            ratio: None,
         });
     }
 
@@ -186,6 +192,7 @@ fn render_hero_row(f: &mut Frame, app: &App, area: Rect, nf: bool) {
             sub: truncate_str(&state, 10).to_string(),
             color: battery_color(bat.percentage),
             spark: None,
+            ratio: Some(bat.percentage / 100.0),
         });
     }
 
@@ -250,8 +257,15 @@ fn render_stat_card(f: &mut Frame, area: Rect, card: &HeroCard) {
         )));
     }
 
-    // Row 2: sub detail
-    if inner.height >= 4 {
+    // Row 2: gradient meter (only when the card carries a ratio).
+    if let Some(r) = card.ratio
+        && inner.height >= 4
+    {
+        lines.push(gradient_bar(inner.width, r));
+    }
+
+    // Row 3: sub detail
+    if inner.height >= 5 {
         lines.push(Line::from(Span::styled(
             card.sub.clone(),
             Style::default().fg(overlay()),
@@ -367,18 +381,24 @@ fn render_cpu_graph(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: Pane
         );
     }
 
-    // Per-core list (compact), colour-coded by load.
+    // Per-core list (compact), colour-coded by load, each with a mini gradient
+    // meter so the core column reads as a rich btop-style bar strip.
     let cores = app.per_core_usage();
     let show_count = cores.len().min(core_area.height as usize);
+    let core_bar_w = core_area.width.saturating_sub(7).max(1); // idx(2)+sp(1)+pct(4)
     let mut core_lines = Vec::new();
     for (i, usage) in cores.iter().enumerate().take(show_count) {
-        core_lines.push(Line::from(vec![
+        let ratio = (*usage as f64 / 100.0).clamp(0.0, 1.0);
+        let mut spans = vec![
             Span::styled(format!("{:>2}", i), Style::default().fg(subtext())),
-            Span::styled(
-                format!(" {:>4.0}%", usage),
-                Style::default().fg(usage_color(*usage)),
-            ),
-        ]));
+            Span::raw(" "),
+        ];
+        spans.extend(gradient_bar_spans(core_bar_w, ratio));
+        spans.push(Span::styled(
+            format!("{:>3.0}%", usage),
+            Style::default().fg(usage_color(*usage)),
+        ));
+        core_lines.push(Line::from(spans));
     }
     f.render_widget(Paragraph::new(core_lines), core_area);
 }
@@ -412,6 +432,11 @@ fn render_memory_panel(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: P
     } else {
         0.0
     };
+    // Segmented breakdown for the btop-style memory meter.
+    let mb = app.memory_breakdown();
+    let total_b = mb.total_bytes.max(1) as f64;
+    let mem_used_ratio = mb.used_bytes as f64 / total_b;
+    let mem_cached_ratio = mb.cached_bytes as f64 / total_b;
     let swap_ratio = if swap_total_gb > 0.0 {
         swap_used_gb / swap_total_gb
     } else {
@@ -438,7 +463,7 @@ fn render_memory_panel(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: P
         ),
     ]));
     lines.push(Line::from(""));
-    lines.push(usage_bar(bar_w, ram_ratio, ram_color));
+    lines.push(Line::from(memory_bar_spans(bar_w, mem_used_ratio, mem_cached_ratio)));
 
     lines.push(Line::from(""));
 
@@ -460,7 +485,7 @@ fn render_memory_panel(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: P
             ),
         ]));
         lines.push(Line::from(""));
-        lines.push(usage_bar(bar_w, swap_ratio, swap_color));
+        lines.push(gradient_bar(bar_w, swap_ratio));
     } else {
         lines.push(Line::from(vec![
             Span::styled(

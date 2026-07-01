@@ -592,12 +592,6 @@ fn io_window_label(app: &App) -> String {
     }
 }
 
-/// Format a byte count as gibibytes with one decimal (e.g. "12.3GB").
-fn fmt_gib(bytes: u64) -> String {
-    const GIB: f64 = 1_073_741_824.0;
-    format!("{:.1}GB", bytes as f64 / GIB)
-}
-
 /// A standard bracket-enclosed, dot-padded progress bar helper.
 fn dot_progress_bar(width: u16, pct: f64, color: Color) -> Vec<Span<'static>> {
     let w = (width as usize).max(3);
@@ -830,12 +824,5 @@ mod tests {
         assert_eq!(s.chars().count(), 20);
         assert!(s.starts_with("Discharging"));
         assert!(s.ends_with("3.2 W"));
-    }
-
-    #[test]
-    fn fmt_gib_formats_bytes() {
-        assert_eq!(fmt_gib(0), "0.0GB");
-        assert_eq!(fmt_gib(1_073_741_824), "1.0GB");
-        assert_eq!(fmt_gib(12_884_901_888), "12.0GB");
     }
 }

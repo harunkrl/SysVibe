@@ -48,24 +48,24 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         return;
     }
 
-    let outer_block = Block::default().style(Style::default().bg(palette::base()));
+    // Outer block: NO background colour. Leaving it transparent lets the
+    // terminal's blur / background-image show through (like btop). Borders and
+    // panel styles still draw their own fills where needed.
+    let outer_block = Block::default();
     let inner_area = outer_block.inner(area);
     f.render_widget(outer_block, area);
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(4), // Header (Title + Tabs)
-            Constraint::Min(0),    // Main content
-            Constraint::Length(1), // Footer
+            Constraint::Length(1), // Header (title line only — tabs moved to footer)
+            Constraint::Min(0),   // Main content
+            Constraint::Length(1), // Footer (keybinds + active tab)
         ])
         .split(inner_area);
 
-    // 1. Header — rendered on a darker `crust` band for 3-level surface depth.
-    f.render_widget(
-        Block::default().style(Style::default().bg(palette::crust())),
-        chunks[0],
-    );
+    // 1. Header — transparent (no bg) so the terminal blur shows through.
+    // The centered tab chip still draws its own lavender fill.
     header::render_header(f, app, chunks[0]);
 
     // Calculate tab hit regions after header render for mouse click detection
@@ -90,11 +90,8 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         AppTab::Gpu => tabs::gpu::render_gpu_tab(f, app, inner_tab_area),
     }
 
-    // 3. Footer — darker `crust` band, bookending the header for a framed look.
-    f.render_widget(
-        Block::default().style(Style::default().bg(palette::crust())),
-        chunks[2],
-    );
+    // 3. Footer — transparent (no bg) so the terminal blur shows through,
+    //    bookending the header. Keybind spans + tab dots carry the structure.
     footer::render_footer(f, app, chunks[2]);
 
     // 3b. Alert toast overlay — prominent banner while thresholds are exceeded.

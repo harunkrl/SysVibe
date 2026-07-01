@@ -3,17 +3,18 @@
 //! Mode-aware keybinding hints and transient status messages.
 
 use ratatui::{
-    Frame,
-    layout::Rect,
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
+    Frame,
 };
 
+use super::header::TAB_ORDER;
 use super::icons;
 use super::palette::*;
-use crate::app::App;
 use crate::app::state::{AppMode, AppTab};
+use crate::app::App;
 
 /// Separator dot between keybinds.
 fn sep() -> Span<'static> {
@@ -238,5 +239,45 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
         ],
     };
 
-    f.render_widget(Paragraph::new(Line::from(spans)), area);
+    // In Normal mode, show a compact tab pager on the right of the footer
+    // (the tab bar was moved out of the header). Other modes render the
+    // keybind spans full-width.
+    if *app.mode() == AppMode::Normal {
+        let cols = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Min(0), Constraint::Length(14)])
+            .split(area);
+        f.render_widget(Paragraph::new(Line::from(spans)), cols[0]);
+        // Dot pager: one hollow circle per tab (○), the active tab filled (●).
+        let active_idx = TAB_ORDER
+            .iter()
+            .enumerate()
+            .find(|(_, (_, t))| *t == app.tab)
+            .map(|(i, _)| i)
+            .unwrap_or(0);
+        let mut dots: Vec<Span<'static>> = Vec::new();
+        dots.push(Span::styled(" ", Style::default()));
+        for (i, _) in TAB_ORDER.iter().enumerate() {
+            if i > 0 {
+                dots.push(Span::styled(" ", Style::default()));
+            }
+            if i == active_idx {
+                dots.push(Span::styled(
+                    "●".to_string(),
+                    Style::default().fg(lavender()).add_modifier(Modifier::BOLD),
+                ));
+            } else {
+                dots.push(Span::styled(
+                    "○".to_string(),
+                    Style::default().fg(surface1()),
+                ));
+            }
+        }
+        f.render_widget(
+            Paragraph::new(Line::from(dots)).alignment(Alignment::Right),
+            cols[1],
+        );
+    } else {
+        f.render_widget(Paragraph::new(Line::from(spans)), area);
+    }
 }

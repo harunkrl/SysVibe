@@ -11,7 +11,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Paragraph},
+    widgets::Paragraph,
     Frame,
 };
 
@@ -23,7 +23,7 @@ use crate::app::App;
 
 /// Canonical tab order — matches `App::next_tab` / `prev_tab`.
 /// (index + 1) is the number-key shortcut.
-const TAB_ORDER: [(&str, AppTab); 6] = [
+pub const TAB_ORDER: [(&str, AppTab); 6] = [
     ("Dashboard", AppTab::Dashboard),
     ("System", AppTab::System),
     ("Hardware", AppTab::Hardware),
@@ -34,10 +34,11 @@ const TAB_ORDER: [(&str, AppTab); 6] = [
 
 const TAB_SPACING: u16 = 1;
 
-/// On-screen width of a single pill: 2 border chars + 1 padding each side,
-/// plus 2 chars for the optional number hint ("N ").
+/// On-screen width of a single pill: 2 border chars + tight content,
+/// plus 2 chars for the optional number hint ("N "). Compact: no inner
+/// padding between border and text (border hugs the label).
 fn pill_width(name: &str, show_number: bool) -> u16 {
-    let base = name.chars().count() as u16 + 4;
+    let base = name.chars().count() as u16 + 2;
     if show_number {
         base + 2
     } else {
@@ -104,23 +105,17 @@ pub fn calculate_tab_hit_regions(area: Rect, _app: &App) -> Vec<TabRectEntry> {
     regions
 }
 
-/// Render the header: title line + tab pills.
+/// Render the header: a single compact title line. The active tab's NAME is
+/// shown centered on a coloured chip. Tab dots live in the footer (option C).
 pub fn render_header(f: &mut Frame, app: &App, area: Rect) {
-    let layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Length(3)])
-        .split(area);
-
-    // ── Title line ───────────────────────────────────────────
-    let top_row = layout[0];
     let top_cols = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Percentage(34),
-            Constraint::Percentage(33),
-            Constraint::Percentage(33),
+            Constraint::Percentage(38),
+            Constraint::Percentage(24),
+            Constraint::Percentage(38),
         ])
-        .split(top_row);
+        .split(area);
 
     f.render_widget(
         Paragraph::new(Line::from(vec![
@@ -137,19 +132,16 @@ pub fn render_header(f: &mut Frame, app: &App, area: Rect) {
         top_cols[0],
     );
 
-    let title_center = match app.tab {
-        AppTab::Dashboard => "TUI Dashboard Overview",
-        AppTab::System => "TUI System Information",
-        AppTab::Hardware => "TUI Hardware Monitoring",
-        AppTab::Processes => "TUI Process Manager",
-        AppTab::Logs => "TUI Kernel Logs",
-        AppTab::Gpu => "TUI GPU Performance",
-    };
-
+    // Center: active tab name on a coloured chip (bg lavender, fg mantle).
+    let tab_name = TAB_ORDER
+        .iter()
+        .find(|(_, t)| *t == app.tab)
+        .map(|(n, _)| *n)
+        .unwrap_or("?");
     f.render_widget(
         Paragraph::new(Line::from(Span::styled(
-            title_center,
-            Style::default().fg(text()).add_modifier(Modifier::BOLD),
+            format!(" {} ", tab_name),
+            Style::default().bg(lavender()).fg(mantle()).add_modifier(Modifier::BOLD),
         )))
         .alignment(Alignment::Center),
         top_cols[1],
@@ -163,83 +155,4 @@ pub fn render_header(f: &mut Frame, app: &App, area: Rect) {
         .alignment(Alignment::Right),
         top_cols[2],
     );
-
-    // ── Tab pills ────────────────────────────────────────────
-    let tabs_area = layout[1];
-    let (start_x, widths, show_number) = compute_pill_layout(tabs_area);
-
-    let mut x = start_x;
-    for (i, (name, tab_enum)) in TAB_ORDER.iter().enumerate() {
-        let w = widths[i];
-        // Narrow-width safety: stop once pills no longer fully fit within the
-        // tab bar, so no widget ever renders outside the buffer (ratatui
-        // panics on out-of-bounds writes). Remaining tabs stay reachable via
-        // their number keys (1-6).
-        if x + w > tabs_area.x + tabs_area.width {
-            break;
-        }
-        let rect = Rect {
-            x,
-            y: tabs_area.y,
-            width: w,
-            height: 3,
-        };
-        x += w + TAB_SPACING;
-
-        let is_active = app.tab == *tab_enum;
-        let (border_color, text_color, bg_color) = if is_active {
-            (lavender(), crust(), lavender())
-        } else {
-            (mauve(), subtext(), crust())
-        };
-
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Plain)
-            .border_style(Style::default().fg(border_color).bg(bg_color))
-            .style(Style::default().bg(bg_color));
-
-        let label = if show_number {
-            Line::from(vec![
-                Span::styled(
-                    "[",
-                    Style::default().fg(if is_active { crust() } else { overlay() }),
-                ),
-                Span::styled(
-                    format!("{}", i + 1),
-                    Style::default().fg(if is_active { crust() } else { overlay() }),
-                ),
-                Span::styled(
-                    format!(" {}", name),
-                    Style::default().fg(text_color).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(
-                    "]",
-                    Style::default().fg(if is_active { crust() } else { overlay() }),
-                ),
-            ])
-        } else {
-            Line::from(vec![
-                Span::styled(
-                    "[",
-                    Style::default().fg(if is_active { crust() } else { overlay() }),
-                ),
-                Span::styled(
-                    *name,
-                    Style::default().fg(text_color).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(
-                    "]",
-                    Style::default().fg(if is_active { crust() } else { overlay() }),
-                ),
-            ])
-        };
-
-        f.render_widget(
-            Paragraph::new(label)
-                .alignment(Alignment::Center)
-                .block(block),
-            rect,
-        );
-    }
 }

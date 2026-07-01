@@ -2,7 +2,7 @@
 
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Cell, Paragraph, Row, Table},
@@ -34,42 +34,54 @@ pub fn render_dashboard_tab(f: &mut Frame, app: &App, area: Rect) {
         render_hero_row(f, app, h, nf);
     }
 
-    // 2×2 grid: CPU graph + system/network (left), memory + processes (right)
+    // Layout: left column = CPU graph (top) + processes (bottom, fill);
+    //          right column = memory + disk (compact) + network trend (fill).
     if is_compact(content.width) {
         // Narrow (Android/Termux portrait): stack every panel full-width.
         let rows = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Percentage(30),
-                Constraint::Length(7),
-                Constraint::Length(7),
+                Constraint::Percentage(28),
+                Constraint::Length(9),
+                Constraint::Length(6),
+                Constraint::Length(6),
                 Constraint::Min(0),
             ])
             .split(content);
         render_cpu_graph(f, app, rows[0], nf, focus);
         render_memory_panel(f, app, rows[1], nf, focus);
-        render_system_network_panel(f, app, rows[2], nf, focus);
-        render_top_processes(f, app, rows[3], nf, focus);
+        render_network_panel(f, app, rows[2], nf, focus);
+        render_disk_panel(f, app, rows[3], nf, focus);
+        render_top_processes(f, app, rows[4], nf, focus);
     } else {
         let cols = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
             .split(content);
 
+        // Left: CPU graph on top, processes fill the bottom.
         let left_rows = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
+            .constraints([Constraint::Percentage(58), Constraint::Min(0)])
             .split(cols[0]);
 
+        // Right: memory + disk (compact) on top, network trend fills below.
+        // Memory is Length(9) so the swap bar (RAM label+bar+legend + swap
+        // label+bar) all fit inside the border (inner = 9-2 = 7 rows).
         let right_rows = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Percentage(35), Constraint::Percentage(65)])
+            .constraints([
+                Constraint::Length(9),
+                Constraint::Length(7),
+                Constraint::Min(0),
+            ])
             .split(cols[1]);
 
         render_cpu_graph(f, app, left_rows[0], nf, focus);
-        render_system_network_panel(f, app, left_rows[1], nf, focus);
+        render_top_processes(f, app, left_rows[1], nf, focus);
         render_memory_panel(f, app, right_rows[0], nf, focus);
-        render_top_processes(f, app, right_rows[1], nf, focus);
+        render_disk_panel(f, app, right_rows[1], nf, focus);
+        render_network_panel(f, app, right_rows[2], nf, focus);
     }
 }
 
@@ -81,21 +93,40 @@ struct HeroCard {
     color: Color,
     spark: Option<Vec<u64>>,
     ratio: Option<f64>,
+    /// When true, the card border glows red to flag a breached alert threshold.
+    alert: bool,
 }
 
 fn render_hero_row(f: &mut Frame, app: &App, area: Rect, nf: bool) {
     let mut cards: Vec<HeroCard> = Vec::new();
 
-    // CPU
+    // CPU — sub shows core count + clock (GHz parsed from the brand string).
     let cpu_pct = app.cpu_history.back().copied().unwrap_or(0) as f64;
+    let cpu_sub = {
+        let brand = &app.system_info().cpu_brand;
+        let ghz = brand
+            .split('@')
+            .nth(1)
+            .and_then(|s| s.trim().strip_suffix("GHz").map(str::trim))
+            .map(|s| format!("{}GHz", s));
+        match ghz {
+            Some(g) => format!("{} cores · {}", app.num_cores(), g),
+            None => format!("{} cores", app.num_cores()),
+        }
+    };
     cards.push(HeroCard {
         label: "CPU",
         icon: if nf { icons::CPU } else { icons::fallback::CPU },
         value: format!("{:.0}%", cpu_pct),
-        sub: format!("{} cores", app.num_cores()),
+        sub: cpu_sub,
         color: usage_color(cpu_pct as f32),
-        spark: Some(app.cpu_history.iter().copied().collect()),
+        spark: None, // full history graph lives in the CPU panel — don't duplicate
         ratio: Some(cpu_pct / 100.0),
+        alert: app
+            .config()
+            .cpu_alert_threshold
+            .map(|t| (cpu_pct as f32) >= t)
+            .unwrap_or(false),
     });
 
     // RAM
@@ -113,6 +144,11 @@ fn render_hero_row(f: &mut Frame, app: &App, area: Rect, nf: bool) {
         color: gauge_color(ram_pct / 100.0),
         spark: None,
         ratio: Some(ram_pct / 100.0),
+        alert: app
+            .config()
+            .memory_alert_threshold
+            .map(|t| (ram_pct as f32) >= t)
+            .unwrap_or(false),
     });
 
     // GPU (only if present)
@@ -125,10 +161,11 @@ fn render_hero_row(f: &mut Frame, app: &App, area: Rect, nf: bool) {
             color: usage_color(gpu.usage_pct),
             spark: None,
             ratio: Some(gpu.usage_pct as f64 / 100.0),
+            alert: false,
         });
     }
 
-    // Network
+    // Network — show both download (↓) and upload (↑) speeds.
     let stats = app.network_stats();
     let rx = stats.iter().map(|n| n.rx_speed_bps).sum::<f64>();
     let tx = stats.iter().map(|n| n.tx_speed_bps).sum::<f64>();
@@ -139,11 +176,12 @@ fn render_hero_row(f: &mut Frame, app: &App, area: Rect, nf: bool) {
         } else {
             icons::fallback::NETWORK
         },
-        value: format_speed(rx),
+        value: format!("\u{2193} {}", format_speed(rx)),
         sub: format!("\u{2191} {}", format_speed(tx)),
         color: green(),
         spark: None,
         ratio: None,
+        alert: false,
     });
 
     // Temperature (max, if sensors present)
@@ -175,12 +213,22 @@ fn render_hero_row(f: &mut Frame, app: &App, area: Rect, nf: bool) {
             color: temp_color(mt),
             spark: None,
             ratio: None,
+            alert: app
+                .config()
+                .temperature_alert_threshold
+                .map(|t| mt >= t)
+                .unwrap_or(false),
         });
     }
 
     // Battery (if present)
     if let Some(bat) = app.battery() {
         let state = bat.state.to_string();
+        // Show power draw (watts) when available alongside the charge state.
+        let sub = match bat.power_w {
+            Some(w) => format!("{:.1}W  {}", w, truncate_str(&state, 6)),
+            None => truncate_str(&state, 10).to_string(),
+        };
         cards.push(HeroCard {
             label: "BAT",
             icon: if nf {
@@ -189,10 +237,11 @@ fn render_hero_row(f: &mut Frame, app: &App, area: Rect, nf: bool) {
                 icons::fallback::BATTERY
             },
             value: format!("{:.0}%", bat.percentage),
-            sub: truncate_str(&state, 10).to_string(),
+            sub,
             color: battery_color(bat.percentage),
             spark: None,
             ratio: Some(bat.percentage / 100.0),
+            alert: false,
         });
     }
 
@@ -214,12 +263,18 @@ fn render_hero_row(f: &mut Frame, app: &App, area: Rect, nf: bool) {
 }
 
 fn render_stat_card(f: &mut Frame, area: Rect, card: &HeroCard) {
+    // Alert: when a threshold is breached, glow the border RED + BOLD instead
+    // of the card's normal accent colour.
+    let border_color = if card.alert {
+        Style::default().fg(red()).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(card.color)
+    };
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(card.color))
-        .style(Style::default().bg(mantle()));
-    let inner = block.inner(area);
+        .border_style(border_color);
+    let inner = panel_inner(area, &block);
     f.render_widget(block, area);
 
     if inner.height < 2 || inner.width < 4 {
@@ -272,7 +327,10 @@ fn render_stat_card(f: &mut Frame, area: Rect, card: &HeroCard) {
         )));
     }
 
-    f.render_widget(Paragraph::new(lines), inner);
+    f.render_widget(
+        Paragraph::new(lines).alignment(Alignment::Center),
+        inner,
+    );
 }
 
 /// Tiny one-line sparkline using 8-level half-block characters.
@@ -310,8 +368,8 @@ fn render_cpu_graph(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: Pane
 
     // Panel title only — the current % and core count are already shown on the
     // hero CPU card, so don't duplicate them in a title badge here.
-    let block = panel_block_focused(&title, focus.is_focused(PanelFocus::Panel1));
-    let inner = block.inner(area);
+    let block = panel_block_themed(&title, focus.is_focused(PanelFocus::Panel1), green());
+    let inner = panel_inner(area, &block);
     f.render_widget(block, area);
 
     if inner.width < 15 || inner.height < 3 {
@@ -359,6 +417,9 @@ fn render_cpu_graph(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: Pane
     for (i, usage) in cores.iter().enumerate().take(show_count) {
         let ratio = (*usage as f64 / 100.0).clamp(0.0, 1.0);
         let mut spans = vec![
+            // Leading pad: a small gap between the panel border and the core
+            // index column (indices were hugging the left edge).
+            Span::raw(" "),
             Span::styled(format!("{:>2}", i), Style::default().fg(subtext())),
             Span::raw(" "),
         ];
@@ -387,53 +448,71 @@ fn cpu_window_label(app: &App) -> String {
 
 fn render_memory_panel(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: PanelFocus) {
     let title = icons::titled(app, icons::RAM, icons::fallback::RAM, "Memory");
-    let block = panel_block_focused(&title, focus.is_focused(PanelFocus::Panel2));
-    let inner = block.inner(area);
+    let block = panel_block_themed(&title, focus.is_focused(PanelFocus::Panel2), mauve());
+    let inner = panel_inner(area, &block);
     f.render_widget(block, area);
 
     if inner.width < 10 || inner.height < 4 {
         return;
     }
 
-    let (used_gb, total_gb) = app.ram_usage();
-    let (swap_used_gb, swap_total_gb) = app.swap_usage();
-    let ram_ratio = if total_gb > 0.0 {
-        used_gb / total_gb
+    // Detailed breakdown: used / buffers+cached / free as a single segmented
+    // bar (btop signature). The hero card already shows the headline % and
+    // used/total, so this panel adds the breakdown the hero can't.
+    let mem = app.memory_breakdown();
+    let total = mem.total_bytes as f64;
+    let used_ratio = if total > 0.0 { mem.used_bytes as f64 / total } else { 0.0 };
+    let _cached_ratio = if total > 0.0 {
+        (mem.cached_bytes as f64 + mem.buffers_bytes as f64) / total
     } else {
         0.0
     };
-    let swap_ratio = if swap_total_gb > 0.0 {
-        swap_used_gb / swap_total_gb
-    } else {
-        0.0
-    };
-
-    let mut lines: Vec<Line<'static>> = Vec::new();
     let bar_w = inner.width;
 
-    // RAM
-    let ram_color = gauge_color(ram_ratio);
+    let mut lines: Vec<Line<'static>> = Vec::new();
+
+    // RAM label + total only (the used split lives in the legend below the
+    // bar, to avoid repeating the used value above AND below the bar).
     lines.push(Line::from(vec![
         Span::styled(
             " RAM",
             Style::default().fg(text()).add_modifier(Modifier::BOLD),
         ),
         Span::styled(
-            format!("  {:.1} GB / {:.1} GB", used_gb, total_gb),
+            format!("  {}", fmt_gib(mem.total_bytes)),
             Style::default().fg(subtext()),
         ),
+    ]));
+    // Segmented bar: used (gradient) | cached (sapphire) | free (dim)
+    // Bar shows used vs free only — the cache segment is dropped from the bar
+    // (its GB value still appears in the legend text below), so the bar reads
+    // cleanly and doesn't look "more full" than the headline %.
+    lines.push(Line::from(memory_bar_spans(bar_w, used_ratio, 0.0)));
+    // Legend: breakdown values — cache is reclaimable (page cache), shown in its
+    // own colour so the bar reads used + cache on top of free.
+    lines.push(Line::from(vec![
         Span::styled(
-            format!("  {:>4.0}%", ram_ratio * 100.0),
-            Style::default().fg(ram_color).add_modifier(Modifier::BOLD),
+            format!(" used {}", fmt_gib(mem.used_bytes)),
+            Style::default().fg(gauge_color(used_ratio)),
+        ),
+        Span::styled(
+            format!("  cache {}", fmt_gib(mem.cached_bytes + mem.buffers_bytes)),
+            Style::default().fg(sapphire()),
+        ),
+        Span::styled(
+            format!("  free {}", fmt_gib(mem.free_bytes)),
+            Style::default().fg(overlay()).add_modifier(Modifier::DIM),
         ),
     ]));
-    lines.push(Line::from(""));
-    lines.push(gradient_bar(bar_w, ram_ratio));
 
     lines.push(Line::from(""));
 
-    // Swap
-    if swap_total_gb > 0.0 {
+    // Swap — same layout as RAM: label + total on top, bar, legend below.
+    let swap_total = mem.swap_total_bytes;
+    if swap_total > 0 {
+        let swap_used = mem.swap_used_bytes;
+        let swap_free = swap_total.saturating_sub(swap_used);
+        let swap_ratio = swap_used as f64 / swap_total as f64;
         let swap_color = gauge_color(swap_ratio);
         lines.push(Line::from(vec![
             Span::styled(
@@ -441,7 +520,7 @@ fn render_memory_panel(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: P
                 Style::default().fg(text()).add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                format!("  {:.1} GB / {:.1} GB", swap_used_gb, swap_total_gb),
+                format!("  {}", fmt_gib(swap_total)),
                 Style::default().fg(subtext()),
             ),
             Span::styled(
@@ -449,8 +528,17 @@ fn render_memory_panel(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: P
                 Style::default().fg(swap_color).add_modifier(Modifier::BOLD),
             ),
         ]));
-        lines.push(Line::from(""));
         lines.push(gradient_bar(bar_w, swap_ratio));
+        lines.push(Line::from(vec![
+            Span::styled(
+                format!(" used {}", fmt_gib(swap_used)),
+                Style::default().fg(swap_color),
+            ),
+            Span::styled(
+                format!("  free {}", fmt_gib(swap_free)),
+                Style::default().fg(overlay()).add_modifier(Modifier::DIM),
+            ),
+        ]));
     } else {
         lines.push(Line::from(vec![
             Span::styled(
@@ -466,8 +554,8 @@ fn render_memory_panel(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: P
 
 fn render_top_processes(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: PanelFocus) {
     let title = " Smart Process List ".to_string();
-    let block = panel_block_focused(&title, focus.is_focused(PanelFocus::Panel3));
-    let inner = block.inner(area);
+    let block = panel_block_themed(&title, focus.is_focused(PanelFocus::Panel3), pink());
+    let inner = panel_inner(area, &block);
     f.render_widget(block, area);
 
     if inner.width < 10 || inner.height < 3 {
@@ -501,7 +589,7 @@ fn render_top_processes(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: 
 
     // Rows
     let mut rows = Vec::new();
-    let show_count = (inner.height as usize).saturating_sub(4); // leave space for header and filter
+    let show_count = (inner.height as usize).saturating_sub(2); // header row + breathing room
     for proc_entry in procs.iter().take(show_count) {
         // Value-coloured text (refined) instead of full-row background fills.
         let cpu_color = if proc_entry.cpu_pct > 10.0 {
@@ -545,11 +633,7 @@ fn render_top_processes(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: 
 
     let layout = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1),
-            Constraint::Min(0),
-            Constraint::Length(1),
-        ])
+        .constraints([Constraint::Length(1), Constraint::Min(0)])
         .split(inner);
 
     f.render_widget(
@@ -566,119 +650,165 @@ fn render_top_processes(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: 
     );
     f.render_widget(table, layout[1]);
 
-    // Filter line
-    f.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled("Filter: ", Style::default().fg(subtext())),
-            Span::styled(
-                format!(
-                    "{:width$}",
-                    app.filter_input(),
-                    width = inner.width as usize - 8
-                ),
-                Style::default().bg(surface0()).fg(text()),
-            ),
-        ])),
-        layout[2],
-    );
+    // Filter bar removed — unused; the table now fills the panel.
 }
 
-fn render_system_network_panel(f: &mut Frame, app: &App, area: Rect, nf: bool, focus: PanelFocus) {
-    let title = " System & Network ".to_string();
-    let block = panel_block_focused(&title, focus.is_focused(PanelFocus::Panel4));
-    let inner = block.inner(area);
+fn render_network_panel(f: &mut Frame, app: &App, area: Rect, nf: bool, focus: PanelFocus) {
+    let title = icons::titled(app, icons::NETWORK, icons::fallback::NETWORK, "Network");
+    let block = panel_block_themed(&title, focus.is_focused(PanelFocus::Panel4), sapphire());
+    let inner = panel_inner(area, &block);
+    f.render_widget(block, area);
+
+    if inner.width < 12 || inner.height < 5 {
+        return;
+    }
+
+    let stats = app.network_stats();
+    if stats.is_empty() {
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                "  No network interfaces",
+                Style::default().fg(overlay()),
+            )))
+            .alignment(ratatui::layout::Alignment::Center),
+            inner,
+        );
+        return;
+    }
+
+    // Use the primary (first) interface for the trend graph.
+    let primary = &stats[0];
+    let dl_icon = if nf { icons::NET_DOWNLOAD } else { "↓" };
+    let ul_icon = if nf { icons::NET_UPLOAD } else { "↑" };
+
+    // Header: interface + CUMULATIVE totals (session), not the live speed
+    // (the hero NET card already shows the live speed — avoid duplication).
+    let iface = truncate_str(&primary.interface, 10);
+    let mut hdr = vec![
+        Span::styled(
+            format!(" {}", iface),
+            Style::default().fg(text()).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled("  total ", Style::default().fg(subtext())),
+    ];
+    if let Some(ip) = &primary.local_ip {
+        hdr.push(Span::styled(format!("{}  ", ip), Style::default().fg(overlay()).add_modifier(Modifier::DIM)));
+    }
+    // cumulative RX / TX (humanised)
+    hdr.push(Span::styled(
+        format!("{} {}", dl_icon, fmt_bytes(primary.total_rx_bytes)),
+        Style::default().fg(green()),
+    ));
+    hdr.push(Span::styled("  ", Style::default()));
+    hdr.push(Span::styled(
+        format!("{} {}", ul_icon, fmt_bytes(primary.total_tx_bytes)),
+        Style::default().fg(peach()),
+    ));
+
+    // text (top) + mirrored trend chart (fill)
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Min(4)])
+        .split(inner);
+
+    f.render_widget(Paragraph::new(Line::from(hdr)), chunks[0]);
+
+    // Mirrored btop-style area graph: RX fills UP (green), TX fills DOWN
+    // (peach), zero-axis in the middle. Same smooth 2x4 braille renderer as
+    // the CPU graph, with Y-axis scale labels (peak / 0 / -peak) on the left.
+    // History is stored in KiB/s; use "k" as the unit hint.
+    let g = chunks[1];
+    if g.height >= 4 && g.width >= 10 && !primary.rx_history.is_empty() {
+        sparkline::render_braille_mirrored(
+            f,
+            g,
+            &primary.rx_history,
+            &primary.tx_history,
+            green(),
+            peach(),
+            "k",
+        );
+    }
+}
+
+/// Format an absolute byte count compactly (B / KB / MB / GB / TB).
+pub fn fmt_bytes(bytes: u64) -> String {
+    const KB: f64 = 1024.0;
+    const MB: f64 = KB * 1024.0;
+    const GB: f64 = MB * 1024.0;
+    const TB: f64 = GB * 1024.0;
+    let v = bytes as f64;
+    if v >= TB {
+        format!("{:.1}TB", v / TB)
+    } else if v >= GB {
+        format!("{:.1}GB", v / GB)
+    } else if v >= MB {
+        format!("{:.0}MB", v / MB)
+    } else if v >= KB {
+        format!("{:.0}KB", v / KB)
+    } else {
+        format!("{}B", bytes)
+    }
+}
+
+fn render_disk_panel(f: &mut Frame, app: &App, area: Rect, nf: bool, focus: PanelFocus) {
+    let title = icons::titled(app, icons::DISK, icons::fallback::DISK, "Disk");
+    let block = panel_block_themed(&title, focus.is_focused(PanelFocus::Panel5), yellow());
+    let inner = panel_inner(area, &block);
     f.render_widget(block, area);
 
     if inner.width < 10 || inner.height < 3 {
         return;
     }
 
-    let info = app.system_info();
-    let stats = app.network_stats();
+    let io = app.disk_io();
+    let dl_icon = if nf { icons::NET_DOWNLOAD } else { "↓" }; // read
+    let ul_icon = if nf { icons::NET_UPLOAD } else { "↑" }; // write
+    let bar_w = inner.width;
 
-    let mut lines = Vec::new();
+    let mut lines: Vec<Line<'static>> = Vec::new();
 
-    // OS Info
+    // I/O row: read/write live speeds.
     lines.push(Line::from(vec![
         Span::styled(
-            format!("{:width$}", "OS:", width = 8),
-            Style::default().fg(subtext()),
-        ),
-        Span::styled(&info.os_name, Style::default().fg(text())),
-    ]));
-    lines.push(Line::from(vec![
-        Span::styled(
-            format!("{:width$}", "Kernel:", width = 8),
-            Style::default().fg(subtext()),
-        ),
-        Span::styled(&info.kernel_version, Style::default().fg(text())),
-    ]));
-    lines.push(Line::from(vec![
-        Span::styled(
-            format!("{:width$}", "Uptime:", width = 8),
-            Style::default().fg(subtext()),
-        ),
-        Span::styled(&info.uptime, Style::default().fg(text())),
-    ]));
-    lines.push(Line::from(vec![
-        Span::styled(
-            format!("{:width$}", "Host:", width = 8),
-            Style::default().fg(subtext()),
-        ),
-        Span::styled(&info.hostname, Style::default().fg(text())),
-    ]));
-
-    lines.push(Line::from(""));
-
-    // Network Info
-    let dl_icon = if nf { icons::NET_DOWNLOAD } else { "↓" };
-    let ul_icon = if nf { icons::NET_UPLOAD } else { "↑" };
-
-    // Aggregate all network interfaces
-    let total_rx = stats.iter().map(|n| n.rx_speed_bps).sum::<f64>();
-    let total_tx = stats.iter().map(|n| n.tx_speed_bps).sum::<f64>();
-    // For simplicity, peak speed could be max of history. We'll just show current.
-    // Aggregate network across all interfaces
-    lines.push(Line::from(vec![
-        Span::styled(
-            format!("{:width$}", "Network:", width = 8),
-            Style::default().fg(subtext()),
+            " I/O",
+            Style::default().fg(text()).add_modifier(Modifier::BOLD),
         ),
         Span::styled(
-            format!("{} {}", dl_icon, format_speed(total_rx)),
+            format!(" {} {}", dl_icon, format_speed(io.read_speed_bps)),
             Style::default().fg(green()),
         ),
-        Span::styled("   ", Style::default()),
+        Span::styled("  ", Style::default()),
         Span::styled(
-            format!("{} {}", ul_icon, format_speed(total_tx)),
+            format!("{} {}", ul_icon, format_speed(io.write_speed_bps)),
             Style::default().fg(peach()),
         ),
     ]));
 
-    // Network trend sparklines: aggregate RX/TX history across interfaces,
-    // shown as compact half-block sparklines. Fills the panel and shows the
-    // download/upload trend over time (btop-style).
-    let hist_len = stats
-        .iter()
-        .map(|n| n.rx_history.len())
-        .min()
-        .unwrap_or(0);
-    if hist_len > 1 && inner.height >= 8 {
-        let w = inner.width as usize;
-        let agg_rx: Vec<u64> = (0..hist_len)
-            .map(|i| stats.iter().map(|n| n.rx_history.get(i).copied().unwrap_or(0)).sum())
-            .collect();
-        let agg_tx: Vec<u64> = (0..hist_len)
-            .map(|i| stats.iter().map(|n| n.tx_history.get(i).copied().unwrap_or(0)).sum())
-            .collect();
-        lines.push(Line::from(vec![
-            Span::styled(format!("{} ", dl_icon), Style::default().fg(green())),
-            Span::styled(mini_spark(&agg_rx, w), Style::default().fg(green())),
-        ]));
-        lines.push(Line::from(vec![
-            Span::styled(format!("{} ", ul_icon), Style::default().fg(peach())),
-            Span::styled(mini_spark(&agg_tx, w), Style::default().fg(peach())),
-        ]));
+    lines.push(Line::from(""));
+
+    // Partitions: mount + gradient meter + pct. Disk is absent from the hero,
+    // so these carry the headline usage. Show up to (height-3) partitions.
+    let parts = app.disk_partitions();
+    let max_parts = inner.height.saturating_sub(4) as usize;
+    for p in parts.iter().take(max_parts.max(1)) {
+        let ratio = if p.total_bytes > 0 {
+            p.used_bytes as f64 / p.total_bytes as f64
+        } else {
+            0.0
+        };
+        let mp = truncate_str(&p.mount_point, 8);
+        let lbl_w = 9; // mount padded
+        let meter_w = bar_w.saturating_sub(lbl_w + 5); // +pct
+        let mut spans = vec![
+            Span::styled(format!("{:<8} ", mp), Style::default().fg(subtext())),
+        ];
+        spans.extend(gradient_bar_spans(meter_w.max(1), ratio));
+        spans.push(Span::styled(
+            format!(" {:>3.0}%", ratio * 100.0),
+            Style::default().fg(gauge_color(ratio)),
+        ));
+        lines.push(Line::from(spans));
     }
 
     f.render_widget(Paragraph::new(lines), inner);

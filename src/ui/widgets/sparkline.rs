@@ -437,9 +437,11 @@ fn subpixel_on(hb: usize, h: usize, area: bool) -> bool {
     }
 }
 
-/// Graph smoothing window (centered moving average). Light + always-on, so
-/// live bouncy metrics (real CPU%) render as a smooth curve like btop.
-const GRAPH_SMOOTH_WINDOW: usize = 3;
+/// Graph smoothing window (centered moving average). Tuned for noisy real
+/// metrics (CPU% bounces every tick) so live data renders as a smooth curve
+/// like btop. Window 5 kills the per-tick staircase without lagging the
+/// leading edge; svshot's demo data now carries realistic noise to exercise it.
+const GRAPH_SMOOTH_WINDOW: usize = 5;
 
 /// Centered moving average over `window` samples (half a window on each side).
 /// Smooths per-tick spikes without lagging the leading edge.
@@ -481,7 +483,10 @@ pub fn braille_smooth_graph(
 
     let data_vec: Vec<u64> = data.iter().copied().collect();
     let peak = data_vec.iter().copied().max().unwrap_or(1) as f64;
-    let y_max = dynamic_ceiling(peak).max(1.0);
+    // CPU Y-scale floors at 50%: idle/first-launch tops out at 50 (no empty
+    // graph at low load); only grows above 50 when usage actually exceeds it
+    // (dynamic ceiling). btop-like behaviour.
+    let y_max = dynamic_ceiling(peak.max(50.0)).max(1.0);
 
     let label_w = format!("{:.0}{}", y_max, scale_unit).len() + 1;
     let graph_w = (area_width as usize).saturating_sub(label_w);
@@ -495,12 +500,21 @@ pub fn braille_smooth_graph(
     // bouncy CPU data renders as a smooth curve (btop-style), then resample to
     // 2× horizontal resolution (linear-interpolated → no aliasing).
     let smoothed = moving_average(&data_vec, GRAPH_SMOOTH_WINDOW);
-    let samples = resample(&smoothed, graph_w * 2);
-    let hy: Vec<usize> = samples
-        .iter()
-        .map(|&v| ((v as f64 / y_max) * sub_h as f64).round() as usize)
-        .map(|v| v.min(sub_h))
-        .collect();
+    // RIGHT-TO-LEFT fill: only as many columns as we have history get drawn,
+    // newest sample on the right edge. On first launch (short history) the
+    // left side stays blank and the graph grows from the right — like btop.
+    // We resample just the filled columns (max = graph_w) and right-align them
+    // into the full `graph_w*2` sample array; the left gutter stays 0 (blank).
+    let fill_cols = graph_w.min(smoothed.len()).max(1);
+    let scaled_samples = resample(&smoothed, fill_cols * 2);
+    let mut hy: Vec<usize> = vec![0; graph_w * 2];
+    let off = graph_w * 2 - scaled_samples.len();
+    for (i, &v) in scaled_samples.iter().enumerate() {
+        let h = ((v as f64 / y_max) * sub_h as f64).round() as usize;
+        hy[off + i] = h.min(sub_h);
+    }
+    // The left gutter stays 0 — subpixel_on(hb, 0, area) is always false, so
+    // those columns render blank automatically (no special skip needed).
 
     // Braille dot bits per cell-row (0 = top of cell) for left & right columns.
     const LEFT: [u8; 4] = [0x01, 0x02, 0x04, 0x40];
@@ -587,19 +601,17 @@ pub fn render_braille_smooth(
     }
 }
 
-/// Render a mirrored braille "heartbeat" graph with data going **up** and **down** from
-/// a central zero-axis.
+/// Render a **smooth, mirrored** btop-style area graph with data going **up**
+/// and **down** from a central zero-axis.
 ///
-/// • `up_data` renders upward from center (e.g., RX download, charging power).
-/// • `down_data` renders downward from center (e.g., TX upload, discharging power).
+/// • `up_data` fills upward from center (e.g., RX download) in `up_color`.
+/// • `down_data` fills downward from center (e.g., TX upload) in `down_color`.
 ///
-/// Each cell uses the left column of braille dots for 4 vertical sub-pixels per row.
-/// If `area_height` is odd, a `─` center separator line is inserted between the halves.
-//
-// `#[allow(dead_code)]`: the Network panel now uses ratatui's built-in `Chart`
-// widget (two mirrored datasets) instead of this manual renderer, so this fn is
-// currently uncalled. Kept as a reusable renderer with its tests. (lib+bin hybrid.)
-#[allow(dead_code)]
+/// Rendered on a full **2×4 sub-pixel grid** (both braille columns × 4
+/// vertical sub-pixels) with moving-average smoothing + 2× horizontal
+/// resampling — the same fidelity as `braille_smooth_graph` (CPU), so the
+/// network and CPU graphs share one visual language. Y-axis scale labels
+/// (peak / 0 / -peak) sit in a gutter on the left, matching the CPU graph.
 pub fn braille_mirrored_graph(
     up_data: &VecDeque<u64>,
     down_data: &VecDeque<u64>,
@@ -607,105 +619,173 @@ pub fn braille_mirrored_graph(
     area_height: u16,
     up_color: Color,
     down_color: Color,
+    _scale_unit: &str,
 ) -> Vec<Line<'static>> {
-    if area_width < 4 || area_height < 4 {
+    if (up_data.is_empty() && down_data.is_empty()) || area_width < 2 || area_height < 5 {
         return Vec::new();
     }
 
-    let w = area_width as usize;
-    let h = area_height as usize;
-    let has_center = h % 2 == 1;
-    let half_h = h / 2;
-    let down_h = h - half_h - if has_center { 1 } else { 0 };
+    let graph_w = area_width as usize;
+    let graph_h = area_height as usize;
 
     let up_vec: Vec<u64> = up_data.iter().copied().collect();
     let down_vec: Vec<u64> = down_data.iter().copied().collect();
 
-    let up_max = up_vec.iter().copied().max().unwrap_or(1).max(1) as f64;
-    let down_max = down_vec.iter().copied().max().unwrap_or(1).max(1) as f64;
-
-    let up_samples = resample(&up_vec, w);
-    let down_samples = resample(&down_vec, w);
-
-    // Sub-pixel fill levels per column for each direction
-    let up_total = half_h * 4;
-    let down_total = down_h * 4;
-
-    let up_fill: Vec<usize> = up_samples
+    // SHARED scale: both directions measured against the single peak of
+    // whichever is larger. Upload that's 1/8 of download now renders 1/8 as
+    // tall (btop net_sync). 2x horizontal resample + moving-average for
+    // smoothness, matching the CPU graph.
+    let shared_peak = up_vec
         .iter()
-        .map(|&v| ((v as f64 / up_max) * up_total as f64).round() as usize)
-        .collect();
-    let down_fill: Vec<usize> = down_samples
-        .iter()
-        .map(|&v| ((v as f64 / down_max) * down_total as f64).round() as usize)
-        .collect();
+        .copied()
+        .chain(down_vec.iter().copied())
+        .max()
+        .unwrap_or(1) as f64;
+    let scale_max = dynamic_ceiling(shared_peak).max(1.0);
 
-    // Pre-computed braille fill patterns (left-column dots only)
-    // UP fill: bottom→top within cell (dot7 → dot3 → dot2 → dot1)
-    const UP_FILL: [u32; 5] = [0x00, 0x40, 0x44, 0x46, 0x47];
-    // DOWN fill: top→bottom within cell (dot1 → dot2 → dot3 → dot7)
-    const DOWN_FILL: [u32; 5] = [0x00, 0x01, 0x03, 0x07, 0x47];
-
-    let mut rows: Vec<Line<'static>> = Vec::with_capacity(h);
-
-    // ── Up section (top half, row 0 = topmost) ─────────────────
-    for row in 0..half_h {
-        // Sub-pixel range from center: [sp_low, sp_high)
-        let sp_low = (half_h - 1 - row) * 4;
-        let sp_high = (half_h - row) * 4;
-
-        let mut spans: Vec<Span<'static>> = Vec::with_capacity(w);
-        for fill_val in up_fill.iter().take(w) {
-            let level = if *fill_val >= sp_high {
-                4
-            } else if *fill_val <= sp_low {
-                0
-            } else {
-                fill_val.saturating_sub(sp_low)
-            };
-            spans.push(Span::styled(
-                braille(UP_FILL[level] as usize),
-                Style::default().fg(up_color),
-            ));
-        }
-        rows.push(Line::from(spans));
+    // Layout: [download area][download baseline][upload baseline][upload area].
+    let avail = graph_h.saturating_sub(2);
+    let up_area = avail / 2;
+    let down_area = avail - up_area;
+    if up_area == 0 || down_area == 0 {
+        return Vec::new();
     }
+    let up_base_row = up_area;          // download baseline row (0=top)
+    let down_base_row = up_area + 1;    // upload baseline row
 
-    // ── Center separator (odd height) ───────────────────────────
-    if has_center {
-        let mut spans: Vec<Span<'static>> = Vec::with_capacity(w);
-        for _ in 0..w {
-            spans.push(Span::styled(
-                "─".to_string(),
-                Style::default().fg(Color::DarkGray),
-            ));
+    // 2x horizontal sub-pixel + smoothing (CPU-graph pipeline).
+    let up_cols = graph_w.min(up_vec.len()).max(1);
+    let down_cols = graph_w.min(down_vec.len()).max(1);
+    let up_sm = moving_average(&up_vec, GRAPH_SMOOTH_WINDOW);
+    let up_sx = resample(&up_sm, up_cols * 2);
+    let down_sm = moving_average(&down_vec, GRAPH_SMOOTH_WINDOW);
+    let down_sx = resample(&down_sm, down_cols * 2);
+
+    // Sub-pixel fill height (0..area*4) per 2x-sample, right-aligned.
+    let mk = |sx: &[u64], area: usize| -> Vec<usize> {
+        let sub_h = area * 4;
+        let mut hy = vec![0usize; graph_w * 2];
+        let off = graph_w * 2 - sx.len();
+        for (i, &v) in sx.iter().enumerate() {
+            let h = ((v as f64 / scale_max) * sub_h as f64).round() as usize;
+            hy[off + i] = h.min(sub_h);
         }
-        rows.push(Line::from(spans));
-    }
+        hy
+    };
+    let up_h = mk(&up_sx, up_area);
+    let down_h = mk(&down_sx, down_area);
 
-    // ── Down section (bottom half, row 0 = closest to center) ──
-    for row in 0..down_h {
-        let sp_low = row * 4;
-        let sp_high = (row + 1) * 4;
+    const LEFT: [u8; 4] = [0x01, 0x02, 0x04, 0x40];
+    const RIGHT: [u8; 4] = [0x08, 0x10, 0x20, 0x80];
+    // Baseline half-lines (user's reference): download = lower-half dots,
+    // upload = upper-half dots.
+    const UP_BASE: &str = "\u{28C0}"; // ⣀ dots 7,8 (lower half) — download baseline
+    const DN_BASE: &str = "\u{2809}"; // ⠉ dots 1,4 (upper half) — upload baseline
 
-        let mut spans: Vec<Span<'static>> = Vec::with_capacity(w);
-        for fill_val in down_fill.iter().take(w) {
-            let level = if *fill_val >= sp_high {
-                4
-            } else if *fill_val <= sp_low {
-                0
-            } else {
-                fill_val.saturating_sub(sp_low)
-            };
-            spans.push(Span::styled(
-                braille(DOWN_FILL[level] as usize),
-                Style::default().fg(down_color),
-            ));
+    let mut rows: Vec<Line<'static>> = Vec::with_capacity(graph_h);
+
+    for ry in 0..graph_h {
+        let mut spans: Vec<Span<'static>> = Vec::with_capacity(graph_w);
+
+        if ry < up_base_row {
+            // Download area: fills UPWARD from the baseline row beneath it.
+            // cy within this area, 0 = topmost. Distance above baseline:
+            // up_base_row - ry (1 = row just above baseline).
+            let dist_above = up_base_row - ry; // 1..up_area
+            // sub-pixel distance from baseline top: this cell's BOTTOM sub-row
+            // sits at (dist_above-1)*4 from baseline going up.
+            for cx in 0..graph_w {
+                let mut bits = 0u8;
+                for r in 0..4usize {
+                    // height-from-baseline needed for this sub-pixel to be on:
+                    // r=3 (cell bottom) needs the least height, r=0 (top) most.
+                    let need = (dist_above - 1) * 4 + (3 - r) + 1;
+                    if cx * 2 < up_h.len() && up_h[cx * 2] >= need {
+                        bits |= LEFT[r];
+                    }
+                    if cx * 2 + 1 < up_h.len() && up_h[cx * 2 + 1] >= need {
+                        bits |= RIGHT[r];
+                    }
+                }
+                if bits == 0 {
+                    spans.push(Span::raw(" "));
+                } else {
+                    spans.push(Span::styled(braille(bits as usize), Style::default().fg(up_color)));
+                }
+            }
+        } else if ry == up_base_row {
+            // Download baseline: solid dots where there's fill, else the
+            // permanent lower-half line (so the axis is always visible).
+            for cx in 0..graph_w {
+                let has_fill = (cx * 2 < up_h.len() && up_h[cx * 2] >= 1)
+                    || (cx * 2 + 1 < up_h.len() && up_h[cx * 2 + 1] >= 1);
+                spans.push(Span::styled(
+                    if has_fill { "\u{28FF}" } else { UP_BASE },
+                    Style::default().fg(up_color),
+                ));
+            }
+        } else if ry == down_base_row {
+            // Upload baseline: permanent upper-half line.
+            for cx in 0..graph_w {
+                let has_fill = (cx * 2 < down_h.len() && down_h[cx * 2] >= 1)
+                    || (cx * 2 + 1 < down_h.len() && down_h[cx * 2 + 1] >= 1);
+                spans.push(Span::styled(
+                    if has_fill { "\u{28FF}" } else { DN_BASE },
+                    Style::default().fg(down_color),
+                ));
+            }
+        } else {
+            // Upload area: fills DOWNWARD from the baseline row above it.
+            let dist_below = ry - down_base_row; // 1..down_area
+            for cx in 0..graph_w {
+                let mut bits = 0u8;
+                for r in 0..4usize {
+                    // going DOWN, the cell's TOP sub-row fills first.
+                    let need = (dist_below - 1) * 4 + r + 1;
+                    if cx * 2 < down_h.len() && down_h[cx * 2] >= need {
+                        bits |= LEFT[r];
+                    }
+                    if cx * 2 + 1 < down_h.len() && down_h[cx * 2 + 1] >= need {
+                        bits |= RIGHT[r];
+                    }
+                }
+                if bits == 0 {
+                    spans.push(Span::raw(" "));
+                } else {
+                    spans.push(Span::styled(braille(bits as usize), Style::default().fg(down_color)));
+                }
+            }
         }
+
         rows.push(Line::from(spans));
     }
 
     rows
+}
+
+/// Render a mirrored braille area graph (RX up / TX down) into `area`, matching
+/// `render_braille_smooth`'s signature shape so both graphs render the same way.
+pub fn render_braille_mirrored(
+    frame: &mut ratatui::Frame,
+    area: ratatui::layout::Rect,
+    up_data: &VecDeque<u64>,
+    down_data: &VecDeque<u64>,
+    up_color: Color,
+    down_color: Color,
+    _scale_unit: &str,
+) {
+    let lines = braille_mirrored_graph(
+        up_data,
+        down_data,
+        area.width,
+        area.height,
+        up_color,
+        down_color,
+        _scale_unit,
+    );
+    if !lines.is_empty() {
+        frame.render_widget(ratatui::widgets::Paragraph::new(lines), area);
+    }
 }
 
 /// Render a **half-block** area graph using Unicode half-block characters.

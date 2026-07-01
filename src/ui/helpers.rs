@@ -25,32 +25,59 @@ pub fn panel_block(title: &str) -> Block<'_> {
 /// When `focused` is true, uses LAVENDER border + Plain border type.
 /// When false, uses SURFACE1 border + Rounded type (default muted look).
 pub fn panel_block_focused(title: &str, focused: bool) -> Block<'_> {
+    // Transparent background (no `.style(bg)`) so the terminal's blur/
+    // transparency shows through, like btop. Borders + titles carry the
+    // visual structure instead.
+    let mut block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(if focused { lavender() } else { surface1() }));
     if focused {
-        Block::bordered()
-            .border_type(BorderType::Plain)
-            .border_style(Style::default().fg(lavender()))
-            .style(Style::default().bg(mantle()))
-            .title(Line::styled(
-                format!(" {} ", title),
-                Style::default().fg(text()).add_modifier(Modifier::BOLD),
-            ))
-            .title_alignment(Alignment::Center)
-    } else {
-        Block::bordered()
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(surface1()))
-            .style(Style::default().bg(mantle()))
-            .title(Line::styled(
-                format!(" {} ", title),
-                Style::default().fg(subtext()).add_modifier(Modifier::BOLD),
-            ))
-            .title_alignment(Alignment::Center)
+        block = block.border_style(Style::default().fg(lavender()).add_modifier(Modifier::BOLD));
     }
+    block
+        .title(Line::styled(
+            format!(" {} ", title),
+            Style::default()
+                .fg(if focused { text() } else { subtext() })
+                .add_modifier(Modifier::BOLD),
+        ))
+        .title_alignment(Alignment::Center)
 }
 
-// ═══════════════════════════════════════════════════════════════════════
-// Color functions
-// ═══════════════════════════════════════════════════════════════════════
+/// Like `panel_block_focused`, but the border uses a per-panel accent colour so
+/// each dashboard panel is visually distinct (CPU / Memory / Disk / Network /
+/// Processes). When focused, the accent brightens via BOLD.
+pub fn panel_block_themed(title: &str, focused: bool, accent: Color) -> Block<'_> {
+    let mut style = Style::default().fg(accent);
+    if focused {
+        style = style.add_modifier(Modifier::BOLD);
+    }
+    Block::bordered()
+        .border_type(BorderType::Rounded)
+        .border_style(style)
+        .title(Line::styled(
+            format!(" {} ", title),
+            Style::default().fg(text()).add_modifier(Modifier::BOLD),
+        ))
+        .title_alignment(Alignment::Center)
+}
+
+/// Inner content area for a panel, with a little horizontal breathing room
+/// between the content and the border. ratatui 0.30's `Block` has no padding
+/// method, so we shrink `block.inner(area)` by one column each side.
+pub fn panel_inner(area: Rect, _block: &Block<'_>) -> Rect {
+    let inner = Block::bordered().inner(area);
+    if inner.width < 3 {
+        return inner;
+    }
+    // one column of padding on each horizontal edge
+    Rect {
+        x: inner.x + 1,
+        y: inner.y,
+        width: inner.width.saturating_sub(2),
+        height: inner.height,
+    }
+}
 
 /// Usage colour: 6-level Green → Teal → Yellow → Peach → Red → Maroon.
 pub fn usage_color(pct: f32) -> Color {
@@ -223,8 +250,12 @@ pub fn memory_bar_spans(width: u16, used_ratio: f64, cached_ratio: f64) -> Vec<S
     }
     let cached_end = (i + cached_cells).min(w);
     if cached_end > i {
+        // Cache (page/buffer cache) is reclaimable, so render it with a
+        // MEDIUM SHADE (▒) rather than a solid block — visually distinct from
+        // the solid `used` segment so it reads as "filled-but-freeable", not as
+        // more used memory. (Matches btop's lighter cache shading.)
         spans.push(Span::styled(
-            "\u{2588}".repeat(cached_end - i),
+            "\u{2592}".repeat(cached_end - i),
             Style::default().fg(sapphire()),
         ));
         i = cached_end;
@@ -256,6 +287,12 @@ pub fn battery_color(pct: f64) -> Color {
 // ═══════════════════════════════════════════════════════════════════════
 // Text formatting
 // ═══════════════════════════════════════════════════════════════════════
+
+/// Format a byte count as gibibytes with one decimal (e.g. `12.0GB`).
+pub fn fmt_gib(bytes: u64) -> String {
+    const GIB: f64 = 1_073_741_824.0;
+    format!("{:.1}GB", bytes as f64 / GIB)
+}
 
 /// Format bytes-per-second into a human-readable string (KB/s or MB/s).
 pub fn format_speed(bps: f64) -> String {
@@ -372,4 +409,16 @@ pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
             Constraint::Percentage((100 - percent_x) / 2),
         ])
         .split(popup_layout[1])[1]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fmt_gib_formats_bytes() {
+        assert_eq!(fmt_gib(0), "0.0GB");
+        assert_eq!(fmt_gib(1_073_741_824), "1.0GB");
+        assert_eq!(fmt_gib(12_884_901_888), "12.0GB");
+    }
 }

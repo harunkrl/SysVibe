@@ -1447,6 +1447,10 @@ impl App {
 #[cfg(feature = "preview")]
 #[allow(dead_code)]
 fn sample_wave(len: usize, base: u64, amp: u64) -> VecDeque<u64> {
+    // Mimic REAL noisy telemetry (live CPU% bounces tick-to-tick), so svshot
+    // exercises the graph smoothing path. A smooth sine here would hide the
+    // staircase bug that real data reveals. Deterministic (no RNG) for stable
+    // renders, but carries a per-sample ±noise swing.
     (0..len)
         .map(|i| {
             let t = i as f64;
@@ -1454,7 +1458,10 @@ fn sample_wave(len: usize, base: u64, amp: u64) -> VecDeque<u64> {
                 + 0.30 * (t * 0.18).sin()
                 + 0.14 * (t * 0.071 + 1.3).sin()
                 + 0.06 * (t * 0.41 + 0.5).sin();
-            let v = base as f64 + s.clamp(0.0, 1.0) * amp as f64;
+            // Deterministic high-frequency noise (±15% of amp) — the kind of
+            // tick-to-tick jitter real CPU%/I/O telemetry shows.
+            let noise = (t * 2.73).sin() * 0.075 + (t * 5.11).sin() * 0.075;
+            let v = base as f64 + (s.clamp(0.0, 1.0) + noise).clamp(0.0, 1.0) * amp as f64;
             v.round().max(0.0) as u64
         })
         .collect()
@@ -1502,7 +1509,7 @@ impl App {
             config,
             mode: AppMode::Normal,
             should_quit: false,
-            cpu_history: sample_wave(HISTORY_LEN, 30, 45),
+            cpu_history: sample_wave(HISTORY_LEN, 10, 25),
             per_core_history: (0..num_cores)
                 .map(|i| sample_wave(HISTORY_LEN, 20 + i as u64 * 8, 25))
                 .collect(),
@@ -1518,8 +1525,8 @@ impl App {
                 interface: "eth0".into(),
                 rx_speed_bps: 1_250_000.0,
                 tx_speed_bps: 430_000.0,
-                rx_history: sample_wave(HISTORY_LEN, 0, 100),
-                tx_history: sample_wave(HISTORY_LEN, 0, 40),
+                rx_history: sample_wave(HISTORY_LEN, 0, 30),
+                tx_history: sample_wave(HISTORY_LEN, 0, 4),
                 total_rx_bytes: 4_823_112_000,
                 total_tx_bytes: 912_554_000,
                 local_ip: Some("192.168.1.42".into()),

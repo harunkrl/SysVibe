@@ -437,6 +437,28 @@ fn subpixel_on(hb: usize, h: usize, area: bool) -> bool {
     }
 }
 
+/// Graph smoothing window (centered moving average). Light + always-on, so
+/// live bouncy metrics (real CPU%) render as a smooth curve like btop.
+const GRAPH_SMOOTH_WINDOW: usize = 3;
+
+/// Centered moving average over `window` samples (half a window on each side).
+/// Smooths per-tick spikes without lagging the leading edge.
+fn moving_average(data: &[u64], window: usize) -> Vec<u64> {
+    if data.is_empty() || window <= 1 {
+        return data.to_vec();
+    }
+    let half = window / 2;
+    data.iter()
+        .enumerate()
+        .map(|(i, _)| {
+            let lo = i.saturating_sub(half);
+            let hi = (i + half + 1).min(data.len());
+            let slice = &data[lo..hi];
+            slice.iter().sum::<u64>() / slice.len() as u64
+        })
+        .collect()
+}
+
 /// Smooth braille trend graph rendered on a full **2×4 sub-pixel grid** (both
 /// braille columns × 4 vertical sub-pixels per row) with linear-interpolated
 /// data resampled to 2× horizontal resolution. This is the smoothest rendering
@@ -471,9 +493,11 @@ pub fn braille_smooth_graph(
     }
 
     let sub_h = graph_h * 4;
-    // Resample to 2× horizontal resolution (one height per braille sub-column),
-    // linear-interpolated → smooth curve, no aliasing.
-    let samples = resample(&data_vec, graph_w * 2);
+    // Light moving-average smoothing of the live history (window 3) so real,
+    // bouncy CPU data renders as a smooth curve (btop-style), then resample to
+    // 2× horizontal resolution (linear-interpolated → no aliasing).
+    let smoothed = moving_average(&data_vec, GRAPH_SMOOTH_WINDOW);
+    let samples = resample(&smoothed, graph_w * 2);
     let hy: Vec<usize> = samples
         .iter()
         .map(|&v| ((v as f64 / y_max) * sub_h as f64).round() as usize)

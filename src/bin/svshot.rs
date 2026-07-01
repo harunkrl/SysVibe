@@ -27,6 +27,7 @@ const TABS: [(AppTab, &str); 6] = [
 
 const SIZES: [(u16, u16, &str); 3] = [(120, 40, "wide"), (80, 40, "narrow"), (60, 24, "compact")];
 
+#[allow(clippy::field_reassign_with_default)]
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let theme = arg_value(&args, "--theme").unwrap_or_else(|| "catppuccin-macchiato".into());
@@ -46,16 +47,16 @@ fn main() {
     let mut failures: Vec<(String, String)> = Vec::new(); // (title, reason)
 
     for (tab, tab_name) in TABS {
-        if let Some(ref want) = want_tab {
-            if want != tab_name {
-                continue;
-            }
+        if let Some(ref want) = want_tab
+            && want != tab_name
+        {
+            continue;
         }
         for (w, h, size_name) in SIZES {
-            if let Some(ref want) = want_size {
-                if want != &format!("{}x{}", w, h) {
-                    continue;
-                }
+            if let Some(ref want) = want_size
+                && want != &format!("{}x{}", w, h)
+            {
+                continue;
             }
             let title = format!("{} · {} ({}×{})", tab_name, size_name, w, h);
 

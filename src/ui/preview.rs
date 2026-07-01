@@ -28,6 +28,7 @@ const CELL_H: u32 = 20;
 /// Each cell becomes a background `<rect>` and (when it has a visible glyph)
 /// a `<text>`. Wide glyphs advance past their continuation cells exactly as
 /// ratatui's own buffer-view helper does (width-based skipping).
+#[allow(clippy::collapsible_if)]
 pub fn buffer_to_svg(buffer: &Buffer) -> String {
     let cols = buffer.area.width;
     let rows = buffer.area.height;

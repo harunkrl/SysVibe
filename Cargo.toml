@@ -1,3 +1,6 @@
+[features]
+preview = ["dep:unicode-width"]
+
 [lib]
 name = "sysvibe"
 path = "src/lib.rs"
@@ -5,6 +8,11 @@ path = "src/lib.rs"
 [[bin]]
 name = "sysvibe"
 path = "src/main.rs"
+
+[[bin]]
+name = "svshot"
+path = "src/bin/svshot.rs"
+required-features = ["preview"]
 
 [package]
 name = "sysvibe"
@@ -35,3 +43,4 @@ tokio-stream = "0.1"
 futures-util = "0.3"
 serde_json = "1"
 thiserror = "2"
+unicode-width = { version = "0.2", optional = true }

@@ -116,7 +116,7 @@ fn default_tab() -> String {
     "dashboard".to_string()
 }
 fn default_theme() -> String {
-    "catppuccin-macchiato".to_string()
+    "dracula".to_string()
 }
 
 impl Default for Config {
@@ -246,7 +246,7 @@ impl Config {
             "one-dark",
         ];
         if !valid_themes.contains(&self.theme.to_lowercase().as_str()) {
-            self.theme = "catppuccin-macchiato".to_string();
+            self.theme = "dracula".to_string();
         }
 
         // Validate alert thresholds
@@ -312,7 +312,7 @@ mod tests {
         assert!(cfg.show_gpu);
         assert_eq!(cfg.default_tab, "dashboard");
         assert!(cfg.nerd_fonts);
-        assert_eq!(cfg.theme, "catppuccin-macchiato");
+        assert_eq!(cfg.theme, "dracula");
     }
 
     #[test]
@@ -413,7 +413,7 @@ mod tests {
             ..Config::default()
         };
         cfg.validate();
-        assert_eq!(cfg.theme, "catppuccin-macchiato");
+        assert_eq!(cfg.theme, "dracula");
     }
 
     #[test]

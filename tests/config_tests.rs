@@ -13,7 +13,7 @@ fn default_config_values() {
     assert_eq!(config.max_processes, 50);
     assert!(config.nerd_fonts);
     assert_eq!(config.default_tab, "dashboard");
-    assert_eq!(config.theme, "catppuccin-macchiato");
+    assert_eq!(config.theme, "dracula");
 }
 
 #[test]
@@ -64,7 +64,7 @@ max_processes = 100
     // Optional fields should have defaults
     assert!(config.nerd_fonts);
     assert_eq!(config.default_tab, "dashboard");
-    assert_eq!(config.theme, "catppuccin-macchiato");
+    assert_eq!(config.theme, "dracula");
 }
 
 #[test]

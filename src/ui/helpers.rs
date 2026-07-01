@@ -142,16 +142,26 @@ fn rgb_of(c: Color) -> (u8, u8, u8) {
     }
 }
 
-/// Positional gradient colour across a bar (btop-style): green → yellow → red
-/// as position goes 0.0 → 1.0. Uses the current theme's accents so it respects
-/// theme switching.
+/// Load-calibrated value gradient (green → amber → red), used by meters and
+/// trend graphs. Sharper than a flat linear ramp — solid colour plateaus with
+/// narrow ramps between — and the red zone arrives well before 100% (at ~80%)
+/// so genuinely-high load actually reads red instead of only at absolute max:
+///   < 50%  → solid green (idle/low)
+///   50–70% → green → yellow
+///   70–80% → yellow → red
+///   ≥ 80%  → solid red (high)
+/// Uses the current theme's accents so it respects theme switching.
 pub fn gradient_color_at(pos: f64) -> Color {
-    let p = pos.clamp(0.0, 1.0);
-    let (g_rgb, y_rgb, r_rgb) = (rgb_of(green()), rgb_of(yellow()), rgb_of(red()));
-    let (from, to, t) = if p < 0.5 {
-        (g_rgb, y_rgb, p / 0.5)
+    let v = pos.clamp(0.0, 1.0);
+    let (g, y, r) = (rgb_of(green()), rgb_of(yellow()), rgb_of(red()));
+    let (from, to, t) = if v < 0.50 {
+        (g, g, 0.0) // solid green
+    } else if v < 0.70 {
+        (g, y, (v - 0.50) / 0.20) // green → yellow
+    } else if v < 0.80 {
+        (y, r, (v - 0.70) / 0.10) // yellow → red
     } else {
-        (y_rgb, r_rgb, (p - 0.5) / 0.5)
+        (r, r, 0.0) // solid red
     };
     let lerp = |a: u8, b: u8| -> u8 {
         (a as f64 + (b as f64 - a as f64) * t)

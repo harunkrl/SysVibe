@@ -4,7 +4,7 @@
 //! Build & run: `cargo run --bin svshot --features preview`
 //! Options: `--tab <dashboard|system|hardware|processes|logs|gpu>`
 //!          `--size <WxH>`   (e.g. 120x40)
-//!          `--theme <name>` (default catppuccin-macchiato)
+//!          `--theme <name>` (default follows config = dracula)
 
 use std::fs;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -30,10 +30,11 @@ const SIZES: [(u16, u16, &str); 3] = [(120, 40, "wide"), (80, 40, "narrow"), (60
 #[allow(clippy::field_reassign_with_default)]
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let theme = arg_value(&args, "--theme").unwrap_or_else(|| "catppuccin-macchiato".into());
 
     let mut config = Config::default();
-    config.theme = theme;
+    if let Some(t) = arg_value(&args, "--theme") {
+        config.theme = t;
+    }
     config.nerd_fonts = true; // match the real default look
     palette::load_and_apply(&config.theme);
 

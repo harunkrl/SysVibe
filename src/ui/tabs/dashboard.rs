@@ -340,41 +340,21 @@ fn render_cpu_graph(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: Pane
     let chart_area = cols[0];
     let core_area = cols[1];
 
-    // Gradient-filled braille area graph (btop-style) instead of a thin
-    // single-color line: the area under the CPU curve is filled and coloured
-    // from `cpu_color` (bright, near the line) to a dim base. The `SV_GRAPH`
-    // env var switches the style for A/B/C visual comparison (line | smootharea
-    // | default area); after a style is chosen it will be hardcoded.
+    // Smooth 2×4 sub-pixel braille area graph (btop-style): the area under the
+    // CPU curve is filled and coloured by a vertical gradient from `cpu_color`
+    // (bright, near the line) to a dim base. Rendered on a 2×4 sub-pixel grid
+    // with linear-resampled data, so the curve (peaks and body) stays smooth.
     let n = cpu_lines.len();
     if n >= 2 {
-        match std::env::var("SV_GRAPH").ok().as_deref() {
-            Some("line") => sparkline::render_braille_smooth(
-                f,
-                chart_area,
-                cpu_lines,
-                cpu_color,
-                surface1(),
-                "%",
-                false,
-            ),
-            Some("smootharea") => sparkline::render_braille_smooth(
-                f,
-                chart_area,
-                cpu_lines,
-                cpu_color,
-                surface1(),
-                "%",
-                true,
-            ),
-            _ => sparkline::render_braille_area(
-                f,
-                chart_area,
-                cpu_lines,
-                cpu_color,
-                surface1(),
-                "%",
-            ),
-        };
+        sparkline::render_braille_smooth(
+            f,
+            chart_area,
+            cpu_lines,
+            cpu_color,
+            surface1(),
+            "%",
+            true,
+        );
     } else if n == 1 {
         // Not enough samples to draw a line yet — show the single value.
         f.render_widget(

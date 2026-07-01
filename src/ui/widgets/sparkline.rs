@@ -410,6 +410,7 @@ pub fn braille_area_graph(
 
 /// Render a gradient-filled braille **area** trend graph into `area` (via a
 /// `Paragraph`). Convenience wrapper around [`braille_area_graph`].
+#[allow(dead_code)]
 pub fn render_braille_area(
     frame: &mut ratatui::Frame,
     area: ratatui::layout::Rect,

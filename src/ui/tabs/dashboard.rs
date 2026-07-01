@@ -342,17 +342,39 @@ fn render_cpu_graph(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: Pane
 
     // Gradient-filled braille area graph (btop-style) instead of a thin
     // single-color line: the area under the CPU curve is filled and coloured
-    // from `cpu_color` (bright, near the line) to a dim base.
+    // from `cpu_color` (bright, near the line) to a dim base. The `SV_GRAPH`
+    // env var switches the style for A/B/C visual comparison (line | smootharea
+    // | default area); after a style is chosen it will be hardcoded.
     let n = cpu_lines.len();
     if n >= 2 {
-        sparkline::render_braille_area(
-            f,
-            chart_area,
-            cpu_lines,
-            cpu_color,
-            surface1(),
-            "%",
-        );
+        match std::env::var("SV_GRAPH").ok().as_deref() {
+            Some("line") => sparkline::render_braille_smooth(
+                f,
+                chart_area,
+                cpu_lines,
+                cpu_color,
+                surface1(),
+                "%",
+                false,
+            ),
+            Some("smootharea") => sparkline::render_braille_smooth(
+                f,
+                chart_area,
+                cpu_lines,
+                cpu_color,
+                surface1(),
+                "%",
+                true,
+            ),
+            _ => sparkline::render_braille_area(
+                f,
+                chart_area,
+                cpu_lines,
+                cpu_color,
+                surface1(),
+                "%",
+            ),
+        };
     } else if n == 1 {
         // Not enough samples to draw a line yet — show the single value.
         f.render_widget(

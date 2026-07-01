@@ -424,6 +424,145 @@ pub fn render_braille_area(
     }
 }
 
+/// Whether the sub-pixel at height-from-bottom `hb` is lit, given the line's
+/// filled height `h` (in sub-pixels). `area` fills everything below the line;
+/// a line draws only the top 2 sub-pixels of the fill (a crisp 2-px stroke).
+#[inline]
+fn subpixel_on(hb: usize, h: usize, area: bool) -> bool {
+    if area {
+        hb < h
+    } else {
+        hb < h && hb + 2 >= h
+    }
+}
+
+/// Smooth braille trend graph rendered on a full **2×4 sub-pixel grid** (both
+/// braille columns × 4 vertical sub-pixels per row) with linear-interpolated
+/// data resampled to 2× horizontal resolution. This is the smoothest rendering
+/// braille allows and eliminates the per-column staircase that made sharp peaks
+/// (and curve bodies) zig-zag.
+///
+/// `area = true` → filled area (btop-style gradient body). `area = false` →
+/// crisp 2-px gradient line. Vertical colour gradient from `color` (bright,
+/// near the line) to `fade_color` (dim, near the base).
+pub fn braille_smooth_graph(
+    data: &VecDeque<u64>,
+    area_width: u16,
+    area_height: u16,
+    color: Color,
+    fade_color: Color,
+    scale_unit: &str,
+    area: bool,
+) -> Vec<Line<'static>> {
+    if data.is_empty() || area_width < 10 || area_height < 2 {
+        return Vec::new();
+    }
+
+    let data_vec: Vec<u64> = data.iter().copied().collect();
+    let peak = data_vec.iter().copied().max().unwrap_or(1) as f64;
+    let y_max = dynamic_ceiling(peak).max(1.0);
+
+    let label_w = format!("{:.0}{}", y_max, scale_unit).len() + 1;
+    let graph_w = (area_width as usize).saturating_sub(label_w);
+    let graph_h = area_height as usize;
+    if graph_w < 2 || graph_h < 2 {
+        return Vec::new();
+    }
+
+    let sub_h = graph_h * 4;
+    // Resample to 2× horizontal resolution (one height per braille sub-column),
+    // linear-interpolated → smooth curve, no aliasing.
+    let samples = resample(&data_vec, graph_w * 2);
+    let hy: Vec<usize> = samples
+        .iter()
+        .map(|&v| ((v as f64 / y_max) * sub_h as f64).round() as usize)
+        .map(|v| v.min(sub_h))
+        .collect();
+
+    // Braille dot bits per cell-row (0 = top of cell) for left & right columns.
+    const LEFT: [u8; 4] = [0x01, 0x02, 0x04, 0x40];
+    const RIGHT: [u8; 4] = [0x08, 0x10, 0x20, 0x80];
+
+    let mut rows: Vec<Line<'static>> = Vec::with_capacity(graph_h);
+    for cy in 0..graph_h {
+        // Vertical gradient: top rows bright (`color`), base rows dim (`fade_color`).
+        let frac = (graph_h - cy) as f64 / graph_h.max(1) as f64;
+        let cell_color = interpolate_color(fade_color, color, frac);
+
+        let label = if cy == 0 {
+            format!(
+                "{:>w$} ",
+                format!("{}{}", y_max.round() as u64, scale_unit),
+                w = label_w
+            )
+        } else if cy == graph_h / 2 {
+            format!(
+                "{:>w$} ",
+                format!("{}{}", (y_max * 0.5).round() as u64, scale_unit),
+                w = label_w
+            )
+        } else if cy == graph_h - 1 {
+            format!("{:>w$} ", format!("0{}", scale_unit), w = label_w)
+        } else {
+            " ".repeat(label_w)
+        };
+        let mut spans: Vec<Span<'static>> = vec![Span::styled(
+            label,
+            Style::default().fg(Color::DarkGray),
+        )];
+
+        for cx in 0..graph_w {
+            let mut bits = 0u8;
+            for r in 0..4usize {
+                // Height-from-bottom of this sub-pixel (0 = bottom of graph).
+                let hb = sub_h - 1 - (cy * 4 + r);
+                let sx_l = cx * 2;
+                if sx_l < hy.len() && subpixel_on(hb, hy[sx_l], area) {
+                    bits |= LEFT[r];
+                }
+                let sx_r = cx * 2 + 1;
+                if sx_r < hy.len() && subpixel_on(hb, hy[sx_r], area) {
+                    bits |= RIGHT[r];
+                }
+            }
+            if bits == 0 {
+                spans.push(Span::raw(" "));
+            } else {
+                spans.push(Span::styled(
+                    braille(bits as usize),
+                    Style::default().fg(cell_color),
+                ));
+            }
+        }
+        rows.push(Line::from(spans));
+    }
+    rows
+}
+
+/// Convenience wrapper: render a smooth braille graph (line or area) into `area`.
+pub fn render_braille_smooth(
+    frame: &mut ratatui::Frame,
+    area: ratatui::layout::Rect,
+    data: &VecDeque<u64>,
+    color: Color,
+    fade_color: Color,
+    scale_unit: &str,
+    is_area: bool,
+) {
+    let lines = braille_smooth_graph(
+        data,
+        area.width,
+        area.height,
+        color,
+        fade_color,
+        scale_unit,
+        is_area,
+    );
+    if !lines.is_empty() {
+        frame.render_widget(ratatui::widgets::Paragraph::new(lines), area);
+    }
+}
+
 /// Render a mirrored braille "heartbeat" graph with data going **up** and **down** from
 /// a central zero-axis.
 ///

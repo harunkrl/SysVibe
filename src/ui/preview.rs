@@ -112,6 +112,22 @@ pub fn buffer_to_svg(buffer: &Buffer) -> String {
     svg
 }
 
+use crate::app::App;
+
+/// Render the live SysVibe UI for `app` at `width`×`height` to an SVG string,
+/// using a `TestBackend` (no terminal required). Uses the exact `ui::draw`
+/// code path — so the output is pixel-faithful to the real app.
+pub fn render_app_to_svg(app: &mut App, width: u16, height: u16) -> String {
+    use ratatui::{Terminal, backend::TestBackend};
+
+    let backend = TestBackend::new(width, height);
+    let mut terminal = Terminal::new(backend).expect("test backend must construct");
+    terminal
+        .draw(|f| crate::ui::draw(f, app))
+        .expect("draw must succeed");
+    buffer_to_svg(terminal.backend().buffer())
+}
+
 /// Map a ratatui `Color` to a CSS hex string, or `None` for `Reset`
 /// (transparent / "use default"). Named ANSI colors use standard hex.
 fn color_hex(c: Color) -> Option<String> {
@@ -223,5 +239,17 @@ mod tests {
     #[test]
     fn xml_escape_escamps_ampersand() {
         assert_eq!(xml_escape("a&b<c>"), "a&amp;b&lt;c&gt;");
+    }
+
+    #[test]
+    fn render_app_to_svg_produces_a_closed_svg() {
+        use crate::app::App;
+        use crate::config::Config;
+
+        let mut app = App::new_sample(Config::default());
+        let svg = super::render_app_to_svg(&mut app, 80, 40);
+        assert!(svg.starts_with("<svg"));
+        assert!(svg.contains("</svg>"));
+        assert!(svg.contains("<rect"), "a rendered dashboard has bg rect");
     }
 }

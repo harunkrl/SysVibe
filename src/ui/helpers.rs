@@ -142,26 +142,17 @@ fn rgb_of(c: Color) -> (u8, u8, u8) {
     }
 }
 
-/// Load-calibrated value gradient (green → amber → red), used by meters and
-/// trend graphs. Sharper than a flat linear ramp — solid colour plateaus with
-/// narrow ramps between — and the red zone arrives well before 100% (at ~80%)
-/// so genuinely-high load actually reads red instead of only at absolute max:
-///   < 50%  → solid green (idle/low)
-///   50–70% → green → yellow
-///   70–80% → yellow → red
-///   ≥ 80%  → solid red (high)
-/// Uses the current theme's accents so it respects theme switching.
+/// Even value gradient (green → yellow → red) used by meters and trend
+/// graphs. Smooth and linear — no colour plateaus — so green/yellow/red are
+/// distributed evenly across 0–100%, and a value at X% maps to the colour at
+/// X% of the spectrum. Uses the current theme's accents (vivid under Dracula).
 pub fn gradient_color_at(pos: f64) -> Color {
     let v = pos.clamp(0.0, 1.0);
     let (g, y, r) = (rgb_of(green()), rgb_of(yellow()), rgb_of(red()));
-    let (from, to, t) = if v < 0.50 {
-        (g, g, 0.0) // solid green
-    } else if v < 0.70 {
-        (g, y, (v - 0.50) / 0.20) // green → yellow
-    } else if v < 0.80 {
-        (y, r, (v - 0.70) / 0.10) // yellow → red
+    let (from, to, t) = if v < 0.5 {
+        (g, y, v / 0.5)
     } else {
-        (r, r, 0.0) // solid red
+        (y, r, (v - 0.5) / 0.5)
     };
     let lerp = |a: u8, b: u8| -> u8 {
         (a as f64 + (b as f64 - a as f64) * t)

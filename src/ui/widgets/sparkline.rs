@@ -502,18 +502,24 @@ pub fn braille_smooth_graph(
         .map(|v| v.min(sub_h))
         .collect();
 
+    // Per-column value fraction (0..1) for value-based colouring: each x
+    // column is coloured by its own data value (green low → red high), like
+    // btop's CPU heatmap — NOT a vertical gradient that's always green at the
+    // base. Use the column's peak sub-pixel height as its value.
+    let col_val: Vec<f64> = (0..graph_w)
+        .map(|cx| {
+            let l = hy.get(cx * 2).copied().unwrap_or(0);
+            let r = hy.get(cx * 2 + 1).copied().unwrap_or(0);
+            (l.max(r) as f64 / sub_h as f64).clamp(0.0, 1.0)
+        })
+        .collect();
+
     // Braille dot bits per cell-row (0 = top of cell) for left & right columns.
     const LEFT: [u8; 4] = [0x01, 0x02, 0x04, 0x40];
     const RIGHT: [u8; 4] = [0x08, 0x10, 0x20, 0x80];
 
     let mut rows: Vec<Line<'static>> = Vec::with_capacity(graph_h);
     for cy in 0..graph_h {
-        // Vertical gradient: top rows bright (`color`), base rows dim (`fade_color`).
-        let frac = (graph_h - cy) as f64 / graph_h.max(1) as f64;
-        // Value-based vivid gradient (green low → amber → red high), matching
-        // the meters — not a faded single-colour gradient.
-        let cell_color = crate::ui::helpers::gradient_color_at(frac);
-
         // NB: label rows and spacer rows must be EXACTLY `label_w` chars wide,
         // or the braille cells shift horizontally between rows and the graph
         // looks zig-zag. So right-align the label in `label_w-1` then one
@@ -541,7 +547,7 @@ pub fn braille_smooth_graph(
             Style::default().fg(Color::DarkGray),
         )];
 
-        for cx in 0..graph_w {
+        for (cx, &cv) in col_val.iter().enumerate() {
             let mut bits = 0u8;
             for r in 0..4usize {
                 // Height-from-bottom of this sub-pixel (0 = bottom of graph).
@@ -558,9 +564,12 @@ pub fn braille_smooth_graph(
             if bits == 0 {
                 spans.push(Span::raw(" "));
             } else {
+                // Colour by this column's value (green low → red high), so the
+                // graph reads as a value heatmap over time.
+                let col_color = crate::ui::helpers::gradient_color_at(cv);
                 spans.push(Span::styled(
                     braille(bits as usize),
-                    Style::default().fg(cell_color),
+                    Style::default().fg(col_color),
                 ));
             }
         }

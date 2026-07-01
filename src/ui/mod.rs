@@ -11,6 +11,8 @@ pub mod header;
 pub mod footer;
 pub mod tabs;
 pub mod widgets;
+#[cfg(feature = "preview")]
+pub mod preview;
 
 use ratatui::{
     Frame,

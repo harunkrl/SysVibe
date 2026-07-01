@@ -20,14 +20,14 @@ pub const OS_MACOS: &str = "\u{F179}"; //
 pub const OS_GENERIC: &str = "\u{F233}"; //  (server/computer)
 
 /// Hardware icons
-pub const CPU: &str = "\u{F4B9}"; // 
-pub const RAM: &str = "\u{EFC6}"; // 
+pub const CPU: &str = "\u{F2DB}"; // 
+pub const RAM: &str = "\u{F1C0}"; // 
 pub const TEMP: &str = "\u{F2C9}"; // 
 pub const DISK: &str = "\u{F0A0}"; // 
 pub const DISK_ICON: &str = "\u{F0A0}"; // 
-pub const NETWORK: &str = "\u{F0380}"; // 󰈀
+pub const NETWORK: &str = "\u{F6FF}"; // 󰈀
 pub const BATTERY: &str = "\u{F240}"; // 
-pub const GPU: &str = "\u{F878}"; // 
+pub const GPU: &str = "\u{F108}"; // 
 pub const FAN: &str = "\u{F9AD}"; // 
 pub const CHIP: &str = "\u{F2DB}"; // 
 

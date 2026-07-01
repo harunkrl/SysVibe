@@ -567,10 +567,15 @@ fn render_top_processes(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: 
         .split(inner);
 
     f.render_widget(
-        Paragraph::new(Span::styled(
-            "Top Processes [Smart]",
-            Style::default().fg(text()),
-        )),
+        Paragraph::new(Line::from(vec![
+            Span::styled(
+                format!("{}", app.total_process_count()),
+                Style::default().fg(text()).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" processes", Style::default().fg(subtext())),
+            Span::styled("   sort: ", Style::default().fg(subtext())),
+            Span::styled("CPU%", Style::default().fg(peach()).add_modifier(Modifier::BOLD)),
+        ])),
         layout[0],
     );
     f.render_widget(table, layout[1]);
@@ -663,6 +668,32 @@ fn render_system_network_panel(f: &mut Frame, app: &App, area: Rect, nf: bool, f
             Style::default().fg(peach()),
         ),
     ]));
+
+    // Network trend sparklines: aggregate RX/TX history across interfaces,
+    // shown as compact half-block sparklines. Fills the panel and shows the
+    // download/upload trend over time (btop-style).
+    let hist_len = stats
+        .iter()
+        .map(|n| n.rx_history.len())
+        .min()
+        .unwrap_or(0);
+    if hist_len > 1 && inner.height >= 8 {
+        let w = inner.width as usize;
+        let agg_rx: Vec<u64> = (0..hist_len)
+            .map(|i| stats.iter().map(|n| n.rx_history.get(i).copied().unwrap_or(0)).sum())
+            .collect();
+        let agg_tx: Vec<u64> = (0..hist_len)
+            .map(|i| stats.iter().map(|n| n.tx_history.get(i).copied().unwrap_or(0)).sum())
+            .collect();
+        lines.push(Line::from(vec![
+            Span::styled(format!("{} ", dl_icon), Style::default().fg(green())),
+            Span::styled(mini_spark(&agg_rx, w), Style::default().fg(green())),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled(format!("{} ", ul_icon), Style::default().fg(peach())),
+            Span::styled(mini_spark(&agg_tx, w), Style::default().fg(peach())),
+        ]));
+    }
 
     f.render_widget(Paragraph::new(lines), inner);
 }

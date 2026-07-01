@@ -653,13 +653,14 @@ pub fn braille_mirrored_graph(
     let up_base_row = up_area;          // download baseline row (0=top)
     let down_base_row = up_area + 1;    // upload baseline row
 
-    // 2x horizontal sub-pixel + smoothing (CPU-graph pipeline).
+    // 2x horizontal sub-pixel (high resolution) — NO smoothing. The
+    // sub-pixel grid already gives a crisp, high-resolution shape; smoothing
+    // (moving average) is deliberately omitted so the graph tracks real values
+    // exactly. Only the 2x horizontal resample is kept for crispness.
     let up_cols = graph_w.min(up_vec.len()).max(1);
     let down_cols = graph_w.min(down_vec.len()).max(1);
-    let up_sm = moving_average(&up_vec, GRAPH_SMOOTH_WINDOW);
-    let up_sx = resample(&up_sm, up_cols * 2);
-    let down_sm = moving_average(&down_vec, GRAPH_SMOOTH_WINDOW);
-    let down_sx = resample(&down_sm, down_cols * 2);
+    let up_sx = resample(&up_vec, up_cols * 2);
+    let down_sx = resample(&down_vec, down_cols * 2);
 
     // Sub-pixel fill height (0..area*4) per 2x-sample, right-aligned.
     let mk = |sx: &[u64], area: usize| -> Vec<usize> {

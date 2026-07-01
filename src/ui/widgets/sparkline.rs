@@ -677,23 +677,27 @@ fn dynamic_ceiling(peak: f64) -> f64 {
     ((peak / step).ceil() * step).max(min)
 }
 
-/// Resample data to fit `n` output bins by linear interpolation.
+/// Resample data to `n` output points by **linear interpolation**, mapping the
+/// output indices evenly across the input range [0, len-1]. This avoids both
+/// nearest-neighbour aliasing (which made sharp graph peaks zig-zag) and
+/// zero-padding (which produced a cliff when fewer samples than columns).
 fn resample(data: &[u64], n: usize) -> Vec<u64> {
     if data.is_empty() || n == 0 {
         return Vec::new();
     }
-    if data.len() <= n {
-        // Pad with zeros at the start (data is newer at end)
-        let mut result = vec![0u64; n - data.len()];
-        result.extend_from_slice(data);
-        return result;
+    if data.len() == 1 {
+        return vec![data[0]; n];
     }
-    // Downsample: pick evenly spaced points
-    let step = data.len() as f64 / n as f64;
+    let last = (data.len() - 1) as f64; // index of the final sample
+    let step = if n > 1 { last / (n - 1) as f64 } else { 0.0 };
     (0..n)
         .map(|i| {
-            let idx = ((i as f64 + 0.5) * step) as usize;
-            data.get(idx.min(data.len() - 1)).copied().unwrap_or(0)
+            let pos = i as f64 * step;
+            let lo = pos.floor() as usize;
+            let hi = (lo + 1).min(data.len() - 1);
+            let frac = pos - lo as f64;
+            let v = data[lo] as f64 * (1.0 - frac) + data[hi] as f64 * frac;
+            v.round() as u64
         })
         .collect()
 }

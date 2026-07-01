@@ -205,6 +205,7 @@ pub fn gradient_bar(width: u16, ratio: f64) -> Line<'static> {
 /// green→red gradient (matching `gradient_bar`), the `cached`/buffer portion is
 /// a distinct accent (sapphire), and the remainder is a dim free track. Ratios
 /// are clamped to 0.0..=1.0.
+#[allow(dead_code)]
 pub fn memory_bar_spans(width: u16, used_ratio: f64, cached_ratio: f64) -> Vec<Span<'static>> {
     let w = (width as usize).max(1);
     let used_cells = (used_ratio.clamp(0.0, 1.0) * w as f64).round() as usize;
@@ -213,7 +214,10 @@ pub fn memory_bar_spans(width: u16, used_ratio: f64, cached_ratio: f64) -> Vec<S
     let mut i = 0usize;
     while i < used_cells && i < w {
         let pos = (i as f64 + 0.5) / w as f64;
-        spans.push(Span::styled("\u{2588}", Style::default().fg(gradient_color_at(pos))));
+        spans.push(Span::styled(
+            "\u{2588}",
+            Style::default().fg(gradient_color_at(pos)),
+        ));
         i += 1;
     }
     let cached_end = (i + cached_cells).min(w);
@@ -225,7 +229,10 @@ pub fn memory_bar_spans(width: u16, used_ratio: f64, cached_ratio: f64) -> Vec<S
         i = cached_end;
     }
     if i < w {
-        spans.push(Span::styled("\u{2591}".repeat(w - i), Style::default().fg(surface0())));
+        spans.push(Span::styled(
+            "\u{2591}".repeat(w - i),
+            Style::default().fg(surface0()),
+        ));
     }
     spans
 }

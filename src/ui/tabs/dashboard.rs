@@ -416,11 +416,6 @@ fn render_memory_panel(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: P
     } else {
         0.0
     };
-    // Segmented breakdown for the btop-style memory meter.
-    let mb = app.memory_breakdown();
-    let total_b = mb.total_bytes.max(1) as f64;
-    let mem_used_ratio = mb.used_bytes as f64 / total_b;
-    let mem_cached_ratio = mb.cached_bytes as f64 / total_b;
     let swap_ratio = if swap_total_gb > 0.0 {
         swap_used_gb / swap_total_gb
     } else {
@@ -447,7 +442,7 @@ fn render_memory_panel(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: P
         ),
     ]));
     lines.push(Line::from(""));
-    lines.push(Line::from(memory_bar_spans(bar_w, mem_used_ratio, mem_cached_ratio)));
+    lines.push(gradient_bar(bar_w, ram_ratio));
 
     lines.push(Line::from(""));
 

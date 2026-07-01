@@ -64,12 +64,17 @@ fn load_falls_back_to_macchiato() {
 #[test]
 fn all_themes_have_unique_base_colors() {
     let themes: Vec<(&str, Theme)> = [
-        "catppuccin-macchiato", "catppuccin-mocha", "dracula",
-        "nord", "gruvbox", "tokyo-night", "one-dark",
+        "catppuccin-macchiato",
+        "catppuccin-mocha",
+        "dracula",
+        "nord",
+        "gruvbox",
+        "tokyo-night",
+        "one-dark",
     ]
-        .iter()
-        .map(|name| (*name, Theme::built_in(name).unwrap()))
-        .collect();
+    .iter()
+    .map(|name| (*name, Theme::built_in(name).unwrap()))
+    .collect();
 
     for i in 0..themes.len() {
         for j in (i + 1)..themes.len() {

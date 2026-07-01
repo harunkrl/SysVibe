@@ -2,10 +2,10 @@
 //!
 //! Refreshes global and per-core CPU usage history from `sysinfo`.
 
-use std::collections::VecDeque;
-use sysinfo::System;
 use super::super::helpers::push_history;
 use super::super::state::HISTORY_LEN;
+use std::collections::VecDeque;
+use sysinfo::System;
 
 /// Refresh global and per-core CPU history.
 ///

@@ -3,12 +3,12 @@
 //! The `App` struct owns all runtime state and coordinates data collection
 //! from the various collector modules.
 
-pub mod state;
-pub mod error;
-pub mod helpers;
 pub mod collectors;
+pub mod error;
 pub mod events;
+pub mod helpers;
 pub mod processes;
+pub mod state;
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
@@ -19,8 +19,8 @@ use ratatui::widgets::TableState;
 use sysinfo::{Components, Networks, ProcessesToUpdate, System};
 
 use crate::config::Config;
-use state::*;
 use error::AppResult;
+use state::*;
 
 // ═══════════════════════════════════════════════════════════════════════
 // App struct
@@ -338,8 +338,7 @@ impl App {
 
     pub fn run_selected_command(&mut self) {
         let label = {
-            let indices =
-                crate::ui::widgets::modal::filtered_palette_indices(&self.command_input);
+            let indices = crate::ui::widgets::modal::filtered_palette_indices(&self.command_input);
             let sel = self.command_selected.min(indices.len().saturating_sub(1));
             match indices.get(sel) {
                 Some(&idx) => crate::ui::widgets::modal::palette_commands()[idx].label,
@@ -536,7 +535,12 @@ impl App {
             return;
         }
         let shared = Arc::clone(&self.public_ip);
-        let already = self.public_ip.lock().ok().map(|g| g.is_some()).unwrap_or(false);
+        let already = self
+            .public_ip
+            .lock()
+            .ok()
+            .map(|g| g.is_some())
+            .unwrap_or(false);
         if already {
             return;
         }
@@ -585,7 +589,8 @@ impl App {
         let hw = &self.hardware_data.motherboard;
 
         SystemInfo {
-            os_name: System::long_os_version().unwrap_or_else(|| System::name().unwrap_or_else(|| "Unknown".into())),
+            os_name: System::long_os_version()
+                .unwrap_or_else(|| System::name().unwrap_or_else(|| "Unknown".into())),
             kernel_version: System::kernel_version().unwrap_or_else(|| "Unknown".into()),
             hostname: System::host_name().unwrap_or_else(|| "Unknown".into()),
             uptime: if days > 0 {
@@ -712,7 +717,11 @@ impl App {
 
     pub fn toggle_cpu_normalized(&mut self) {
         self.cpu_normalized = !self.cpu_normalized;
-        let state = if self.cpu_normalized { "Normalized (0-100%)" } else { "Per-Core (0-N*100%)" };
+        let state = if self.cpu_normalized {
+            "Normalized (0-100%)"
+        } else {
+            "Per-Core (0-N*100%)"
+        };
         self.set_status(format!("CPU view: {}", state));
     }
 
@@ -738,11 +747,9 @@ impl App {
         self.log_entries()
             .iter()
             .filter(|e| self.log_level_filter.allows(&e.level))
-            .filter(|e| {
-                match &query {
-                    Some(q) => e.message.to_lowercase().contains(q.as_str()),
-                    None => true,
-                }
+            .filter(|e| match &query {
+                Some(q) => e.message.to_lowercase().contains(q.as_str()),
+                None => true,
             })
             .collect()
     }
@@ -778,19 +785,31 @@ impl App {
 
     pub fn toggle_log_level_error(&mut self) {
         self.log_level_filter.show_errors = !self.log_level_filter.show_errors;
-        let state = if self.log_level_filter.show_errors { "ON" } else { "OFF" };
+        let state = if self.log_level_filter.show_errors {
+            "ON"
+        } else {
+            "OFF"
+        };
         self.set_status(format!("Error logs: {}", state));
     }
 
     pub fn toggle_log_level_warn(&mut self) {
         self.log_level_filter.show_warnings = !self.log_level_filter.show_warnings;
-        let state = if self.log_level_filter.show_warnings { "ON" } else { "OFF" };
+        let state = if self.log_level_filter.show_warnings {
+            "ON"
+        } else {
+            "OFF"
+        };
         self.set_status(format!("Warning logs: {}", state));
     }
 
     pub fn toggle_log_level_info(&mut self) {
         self.log_level_filter.show_info = !self.log_level_filter.show_info;
-        let state = if self.log_level_filter.show_info { "ON" } else { "OFF" };
+        let state = if self.log_level_filter.show_info {
+            "ON"
+        } else {
+            "OFF"
+        };
         self.set_status(format!("Info logs: {}", state));
     }
 
@@ -1013,8 +1032,12 @@ impl App {
             return;
         }
         let len = self.process_list_len();
-        if len == 0 { return; }
-        let i = self.proc_table_state.selected()
+        if len == 0 {
+            return;
+        }
+        let i = self
+            .proc_table_state
+            .selected()
             .map_or(0, |i| if i + 1 < len { i + 1 } else { 0 });
         self.proc_table_state.select(Some(i));
     }
@@ -1025,15 +1048,21 @@ impl App {
             return;
         }
         let len = self.process_list_len();
-        if len == 0 { return; }
-        let i = self.proc_table_state.selected()
+        if len == 0 {
+            return;
+        }
+        let i = self
+            .proc_table_state
+            .selected()
             .map_or(0, |i| if i > 0 { i - 1 } else { len - 1 });
         self.proc_table_state.select(Some(i));
     }
 
     pub fn navigate_page_down(&mut self) {
         let len = self.process_list_len();
-        if len == 0 { return; }
+        if len == 0 {
+            return;
+        }
         let current = self.proc_table_state.selected().unwrap_or(0);
         let target = (current + 20).min(len - 1);
         self.proc_table_state.select(Some(target));
@@ -1041,7 +1070,9 @@ impl App {
 
     pub fn navigate_page_up(&mut self) {
         let len = self.process_list_len();
-        if len == 0 { return; }
+        if len == 0 {
+            return;
+        }
         let current = self.proc_table_state.selected().unwrap_or(0);
         let target = current.saturating_sub(20);
         self.proc_table_state.select(Some(target));
@@ -1202,21 +1233,31 @@ impl App {
             && let Some(max_temp) = self.temperatures.iter().map(|s| s.temp_c).reduce(f32::max)
             && max_temp >= threshold
         {
-            alerts.push(format!("\u{26a0} Temp {:.0}°C >= {:.0}°C", max_temp, threshold));
+            alerts.push(format!(
+                "\u{26a0} Temp {:.0}°C >= {:.0}°C",
+                max_temp, threshold
+            ));
         }
 
         // Disk usage alert (max partition usage)
         if let Some(threshold) = self.config.disk_alert_threshold
-            && let Some(max_usage) = self.cached_partitions.iter().map(|p| {
-                if p.total_bytes > 0 {
-                    p.used_bytes as f32 / p.total_bytes as f32 * 100.0
-                } else {
-                    0.0
-                }
-            }).reduce(f32::max)
+            && let Some(max_usage) = self
+                .cached_partitions
+                .iter()
+                .map(|p| {
+                    if p.total_bytes > 0 {
+                        p.used_bytes as f32 / p.total_bytes as f32 * 100.0
+                    } else {
+                        0.0
+                    }
+                })
+                .reduce(f32::max)
             && max_usage >= threshold
         {
-            alerts.push(format!("\u{26a0} Disk {:.0}% >= {:.0}%", max_usage, threshold));
+            alerts.push(format!(
+                "\u{26a0} Disk {:.0}% >= {:.0}%",
+                max_usage, threshold
+            ));
         }
 
         self.active_alerts = alerts;
@@ -1328,11 +1369,7 @@ impl App {
                 if let Some(new_idx) = self.top_processes.iter().position(|p| p.pid == target_pid) {
                     self.proc_table_state.select(Some(new_idx));
                 } else {
-                    let clamped = self
-                        .proc_table_state
-                        .selected()
-                        .unwrap_or(0)
-                        .min(len - 1);
+                    let clamped = self.proc_table_state.selected().unwrap_or(0).min(len - 1);
                     self.proc_table_state.select(Some(clamped));
                 }
             } else if self.proc_table_state.selected().is_none() {

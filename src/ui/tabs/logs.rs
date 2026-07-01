@@ -1,18 +1,18 @@
 //! SysVibe — Logs tab rendering.
 
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
-    Frame,
 };
 
 use super::super::helpers::*;
 use super::super::icons;
 use super::super::palette::*;
-use crate::app::state::LogLevel;
 use crate::app::App;
+use crate::app::state::LogLevel;
 
 pub fn render_logs_tab(f: &mut Frame, app: &App, area: Rect) {
     // Split area: level filter bar (row 1), text filter bar (row 2), log entries (rest)

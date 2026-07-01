@@ -4,12 +4,12 @@
 //! totals, local IP resolution, and maintains rolling history buffers
 //! for sparkline rendering.
 
+use super::super::helpers::push_history;
+use super::super::state::{HISTORY_LEN, NetworkStats};
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::net::UdpSocket;
 use sysinfo::Networks;
-use super::super::helpers::push_history;
-use super::super::state::{NetworkStats, HISTORY_LEN};
 
 /// Resolve the local IPv4 address by briefly opening a UDP socket.
 pub fn resolve_local_ip() -> Option<String> {
@@ -59,10 +59,7 @@ pub fn refresh_network(
 
         let cur_rx = nd.received();
         let cur_tx = nd.transmitted();
-        let (prev_rx, prev_tx) = prev_bytes
-            .get(name)
-            .copied()
-            .unwrap_or((cur_rx, cur_tx));
+        let (prev_rx, prev_tx) = prev_bytes.get(name).copied().unwrap_or((cur_rx, cur_tx));
 
         let rx_speed_bps = cur_rx.saturating_sub(prev_rx) as f64 / elapsed;
         let tx_speed_bps = cur_tx.saturating_sub(prev_tx) as f64 / elapsed;

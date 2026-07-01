@@ -19,10 +19,10 @@ use std::io;
 use crossterm::{
     event::{self, EventStream},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use futures_util::StreamExt;
-use ratatui::{backend::CrosstermBackend, Terminal};
+use ratatui::{Terminal, backend::CrosstermBackend};
 use tokio::sync::mpsc;
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -80,7 +80,10 @@ pub enum StateUpdate {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 0. Handle CLI arguments
     let args: Vec<String> = std::env::args().collect();
-    if args.iter().any(|a| a == "--init-config" || a == "--generate-config") {
+    if args
+        .iter()
+        .any(|a| a == "--init-config" || a == "--generate-config")
+    {
         match config::Config::generate_default_file() {
             Ok(path) => {
                 println!("✓ Default config written to: {}", path.display());
@@ -92,7 +95,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     if args.iter().any(|a| a == "--list-themes") {
         println!("Available themes:");
-        for name in &["catppuccin-macchiato", "catppuccin-mocha", "dracula", "nord", "gruvbox", "tokyo-night", "one-dark"] {
+        for name in &[
+            "catppuccin-macchiato",
+            "catppuccin-mocha",
+            "dracula",
+            "nord",
+            "gruvbox",
+            "tokyo-night",
+            "one-dark",
+        ] {
             if let Some(theme) = ui::theme::Theme::built_in(name) {
                 println!("  {} — {}", name, theme.name);
             } else {
@@ -103,7 +114,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
     if args.iter().any(|a| a == "--help" || a == "-h") {
-        println!("SysVibe v{} — A visually striking system monitor TUI", env!("CARGO_PKG_VERSION"));
+        println!(
+            "SysVibe v{} — A visually striking system monitor TUI",
+            env!("CARGO_PKG_VERSION")
+        );
         println!();
         println!("USAGE:");
         println!("  sysvibe [OPTIONS]");
@@ -190,8 +204,15 @@ fn spawn_collector_tasks(tx: mpsc::Sender<StateUpdate>, config: &Config) {
             .collect();
         let local_ip = app::collectors::network::resolve_local_ip();
 
+        // Persistent history buffers for network + disk so history accumulates
+        // across ticks. Previously these were recreated fresh every iteration,
+        // so each history only ever held a single sample and no graph line could
+        // be drawn (network/disk charts looked empty).
+        let mut network_stats: Vec<app::state::NetworkStats> = Vec::new();
+
         let (prev_disk_read, prev_disk_write) = app::collectors::disk::read_disk_bytes();
         let mut prev_disk_bytes = (prev_disk_read, prev_disk_write);
+        let mut disk_io = app::state::DiskIoStats::default();
         let mut last_tick = std::time::Instant::now();
 
         let interval = std::time::Duration::from_millis(data_refresh_ms);
@@ -206,7 +227,8 @@ fn spawn_collector_tasks(tx: mpsc::Sender<StateUpdate>, config: &Config) {
             // CPU + Memory
             sys.refresh_cpu_all();
             let cpu_usage = sys.global_cpu_usage() as u64;
-            let per_core_usage: Vec<u64> = sys.cpus().iter().map(|c| c.cpu_usage() as u64).collect();
+            let per_core_usage: Vec<u64> =
+                sys.cpus().iter().map(|c| c.cpu_usage() as u64).collect();
             sys.refresh_memory();
 
             let ram_used = sys.used_memory();
@@ -215,9 +237,8 @@ fn spawn_collector_tasks(tx: mpsc::Sender<StateUpdate>, config: &Config) {
             let swap_used = sys.used_swap();
             let swap_total = sys.total_swap();
 
-            // Network
+            // Network — merge into the persistent buffer so rx/tx history grows.
             networks.refresh(false);
-            let mut network_stats = Vec::new();
             app::collectors::network::refresh_network(
                 &networks,
                 &mut prev_network_bytes,
@@ -226,8 +247,8 @@ fn spawn_collector_tasks(tx: mpsc::Sender<StateUpdate>, config: &Config) {
                 &local_ip,
             );
 
-            // Disk I/O
-            let mut disk_io = app::state::DiskIoStats::default();
+            // Disk I/O — accumulate into the persistent buffer so read/write
+            // history grows across ticks.
             app::collectors::disk::refresh_disk(&mut disk_io, &mut prev_disk_bytes, elapsed);
 
             drop(tx_fast.blocking_send(StateUpdate::FastMetrics {
@@ -238,8 +259,8 @@ fn spawn_collector_tasks(tx: mpsc::Sender<StateUpdate>, config: &Config) {
                 ram_free,
                 swap_used,
                 swap_total,
-                network_stats,
-                disk_io,
+                network_stats: network_stats.clone(),
+                disk_io: disk_io.clone(),
             }));
         }
     });
@@ -401,9 +422,12 @@ fn apply_state_update(app: &mut App, update: StateUpdate) {
 
             // Resize per-core history if core count changed
             if app.num_cores() != per_core_usage.len() {
-                app.set_per_core_history(
-                    vec![std::collections::VecDeque::with_capacity(app::state::HISTORY_LEN); per_core_usage.len()]
-                );
+                app.set_per_core_history(vec![
+                    std::collections::VecDeque::with_capacity(
+                        app::state::HISTORY_LEN
+                    );
+                    per_core_usage.len()
+                ]);
             }
             for (i, &usage) in per_core_usage.iter().enumerate() {
                 if let Some(history) = app.per_core_history_mut(i) {

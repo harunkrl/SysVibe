@@ -69,10 +69,7 @@ impl LogCollector {
         let count = if !self.initialized { 200 } else { 50 };
         let cmd = format!("logcat -d -v time -t {}", count);
 
-        let output = match Command::new("su")
-            .args(["-c", &cmd])
-            .output()
-        {
+        let output = match Command::new("su").args(["-c", &cmd]).output() {
             Ok(o) if o.status.success() => o,
             _ => {
                 // Root failed, try normal

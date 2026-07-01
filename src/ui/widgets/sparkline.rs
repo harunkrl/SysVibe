@@ -7,7 +7,9 @@
 
 use ratatui::{
     style::{Color, Style},
+    symbols,
     text::{Line, Span},
+    widgets::{Axis, Chart, Dataset, GraphType},
 };
 use std::collections::VecDeque;
 
@@ -87,6 +89,14 @@ pub fn braille_graph(
 /// - Draws a continuous **line** by interpolating between data points
 ///
 /// Returns lines ready for `Paragraph`, with Y-axis labels on the left.
+//
+// `#[allow(dead_code)]`: the Dashboard CPU graph now uses ratatui's built-in
+// `Chart` widget (wattea-style) instead of this manual renderer, so this fn is
+// currently uncalled. Kept as a reusable renderer with its regression tests
+// (e.g. for the half-block panels in system.rs/hardware.rs to adopt later).
+// This crate is a lib+bin hybrid (src/main.rs re-declares `mod ui;` privately),
+// so an uncalled `pub fn` is flagged dead_code in the bin target.
+#[allow(dead_code)]
 pub fn braille_line_graph(
     data: &VecDeque<u64>,
     area_width: u16,
@@ -238,6 +248,73 @@ pub fn braille_line_graph(
     rows
 }
 
+/// Spec for [`render_braille_line_chart`]: a single-series Braille line chart.
+/// Bundling the axis bounds/labels into a struct keeps the helper's argument
+/// list short (avoids `clippy::too_many_arguments`) and makes call sites readable.
+pub struct BrailleLineChartSpec<'a> {
+    /// History to plot, index-based (x = sample index, y = value).
+    pub data: &'a VecDeque<u64>,
+    /// Line colour.
+    pub color: Color,
+    /// Axis (tick + label) colour.
+    pub axis_color: Color,
+    /// X-axis bounds (usually `[0, n-1]`).
+    pub x_bounds: [f64; 2],
+    /// X-axis tick labels.
+    pub x_labels: Vec<Span<'static>>,
+    /// Y-axis bounds.
+    pub y_bounds: [f64; 2],
+    /// Y-axis tick labels.
+    pub y_labels: Vec<Span<'static>>,
+}
+
+/// Render a wattea-style single-series Braille **line** chart into `area` using
+/// ratatui's built-in `Chart` widget (the same engine wattea's trend/live charts
+/// use: `Marker::Braille` + `GraphType::Line`, no fill, single colour). `data` is
+/// plotted index-based (x = sample index 0..n-1, y = value). The caller supplies
+/// axis bounds + labels, so the same helper drives the System power-draw graph
+/// and the Hardware disk read/write graphs.
+///
+/// Rendering happens inside this fn (the chart is consumed immediately) so the
+/// borrowed `data` points never need to outlive the call — ratatui's `Chart`
+/// borrows its `Dataset::data` for the render scope only.
+pub fn render_braille_line_chart(
+    frame: &mut ratatui::Frame,
+    area: ratatui::layout::Rect,
+    spec: BrailleLineChartSpec<'_>,
+) {
+    let pts: Vec<(f64, f64)> = spec
+        .data
+        .iter()
+        .enumerate()
+        .map(|(i, &v)| (i as f64, v as f64))
+        .collect();
+    let mut datasets = Vec::with_capacity(1);
+    if !pts.is_empty() {
+        datasets.push(
+            Dataset::default()
+                .marker(symbols::Marker::Braille)
+                .graph_type(GraphType::Line)
+                .style(Style::default().fg(spec.color))
+                .data(&pts),
+        );
+    }
+    let chart = Chart::new(datasets)
+        .x_axis(
+            Axis::default()
+                .style(Style::default().fg(spec.axis_color))
+                .bounds(spec.x_bounds)
+                .labels(spec.x_labels),
+        )
+        .y_axis(
+            Axis::default()
+                .style(Style::default().fg(spec.axis_color))
+                .bounds(spec.y_bounds)
+                .labels(spec.y_labels),
+        );
+    frame.render_widget(chart, area);
+}
+
 /// Render a mirrored braille "heartbeat" graph with data going **up** and **down** from
 /// a central zero-axis.
 ///
@@ -246,6 +323,11 @@ pub fn braille_line_graph(
 ///
 /// Each cell uses the left column of braille dots for 4 vertical sub-pixels per row.
 /// If `area_height` is odd, a `─` center separator line is inserted between the halves.
+//
+// `#[allow(dead_code)]`: the Network panel now uses ratatui's built-in `Chart`
+// widget (two mirrored datasets) instead of this manual renderer, so this fn is
+// currently uncalled. Kept as a reusable renderer with its tests. (lib+bin hybrid.)
+#[allow(dead_code)]
 pub fn braille_mirrored_graph(
     up_data: &VecDeque<u64>,
     down_data: &VecDeque<u64>,

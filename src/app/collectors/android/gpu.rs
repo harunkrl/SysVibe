@@ -32,19 +32,17 @@ fn collect_adreno_stats() -> Option<Vec<GpuStats>> {
     let gpu_busy_path = "/sys/class/kgsl/kgsl-3d0/gpu_busy_percentage";
 
     // Try root read first, then direct
-    let busy_pct = read_with_root_fallback(gpu_busy_path)
-        .and_then(|v| v.trim().parse::<f32>().ok())?;
+    let busy_pct =
+        read_with_root_fallback(gpu_busy_path).and_then(|v| v.trim().parse::<f32>().ok())?;
 
     // Try to get GPU clock
-    let clock_mhz = read_with_root_fallback("/sys/class/kgsl/kgsl-3d0/max_gpuclk")
-        .and_then(|v| {
-            let hz: u64 = v.trim().parse().ok()?;
-            Some((hz / 1_000_000) as u32)
-        });
+    let clock_mhz = read_with_root_fallback("/sys/class/kgsl/kgsl-3d0/max_gpuclk").and_then(|v| {
+        let hz: u64 = v.trim().parse().ok()?;
+        Some((hz / 1_000_000) as u32)
+    });
 
     // Try to get GPU temperature from thermal zone
-    let temperature = read_thermal_zone("gpu")
-        .or_else(|| read_thermal_zone("kgsl-3d0"));
+    let temperature = read_thermal_zone("gpu").or_else(|| read_thermal_zone("kgsl-3d0"));
 
     // Try to get VRAM (mem store) usage
     let (vram_used_mb, vram_total_mb) = {
@@ -80,9 +78,9 @@ fn collect_devfreq_stats() -> Option<Vec<GpuStats>> {
         let name = entry.file_name().to_string_lossy().to_string();
 
         // Check if this devfreq device is a GPU
-        let device_name = read_with_root_fallback(
-            &format!("{}/device/name", entry.path().display())
-        ).unwrap_or_default();
+        let device_name =
+            read_with_root_fallback(&format!("{}/device/name", entry.path().display()))
+                .unwrap_or_default();
 
         let is_gpu = name.contains("gpu")
             || name.contains("kgsl")
@@ -95,20 +93,20 @@ fn collect_devfreq_stats() -> Option<Vec<GpuStats>> {
         }
 
         // Read current frequency
-        let cur_freq = read_with_root_fallback(
-            &format!("{}/cur_freq", entry.path().display())
-        ).and_then(|v| {
-            let hz: u64 = v.trim().parse().ok()?;
-            Some((hz / 1_000_000) as u32)
-        });
+        let cur_freq = read_with_root_fallback(&format!("{}/cur_freq", entry.path().display()))
+            .and_then(|v| {
+                let hz: u64 = v.trim().parse().ok()?;
+                Some((hz / 1_000_000) as u32)
+            });
 
         // Read load (available on some devices)
-        let usage_pct = read_with_root_fallback(
-            &format!("{}/device/load", entry.path().display())
-        )
-            .or_else(|| read_with_root_fallback(
-                &format!("{}/device/gpu_busy_percentage", entry.path().display())
-            ))
+        let usage_pct = read_with_root_fallback(&format!("{}/device/load", entry.path().display()))
+            .or_else(|| {
+                read_with_root_fallback(&format!(
+                    "{}/device/gpu_busy_percentage",
+                    entry.path().display()
+                ))
+            })
             .and_then(|v| v.trim().parse::<f32>().ok())
             .unwrap_or(0.0);
 
@@ -118,7 +116,8 @@ fn collect_devfreq_stats() -> Option<Vec<GpuStats>> {
             "Adreno GPU"
         } else {
             "GPU"
-        }.to_string();
+        }
+        .to_string();
 
         return Some(vec![GpuStats {
             name: gpu_name,
@@ -140,7 +139,10 @@ fn collect_devfreq_stats() -> Option<Vec<GpuStats>> {
 /// Try reading a file with root (`su -c cat`), then fall back to direct read.
 fn read_with_root_fallback(path: &str) -> Option<String> {
     // Try root first
-    if let Ok(output) = Command::new("su").args(["-c", &format!("cat {}", path)]).output() {
+    if let Ok(output) = Command::new("su")
+        .args(["-c", &format!("cat {}", path)])
+        .output()
+    {
         if output.status.success() {
             let val = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if !val.is_empty() {

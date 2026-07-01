@@ -3,17 +3,17 @@
 //! Mode-aware keybinding hints and transient status messages.
 
 use ratatui::{
+    Frame,
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
-    Frame,
 };
 
 use super::icons;
 use super::palette::*;
-use crate::app::state::{AppMode, AppTab};
 use crate::app::App;
+use crate::app::state::{AppMode, AppTab};
 
 /// Separator dot between keybinds.
 fn sep() -> Span<'static> {

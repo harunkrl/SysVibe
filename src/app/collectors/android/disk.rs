@@ -81,11 +81,7 @@ pub fn read_disk_bytes() -> (u64, u64) {
 }
 
 /// Refresh disk I/O stats: speed, IOPS, and history.
-pub fn refresh_disk(
-    disk_stats: &mut DiskIoStats,
-    prev_disk_bytes: &mut (u64, u64),
-    elapsed: f64,
-) {
+pub fn refresh_disk(disk_stats: &mut DiskIoStats, prev_disk_bytes: &mut (u64, u64), elapsed: f64) {
     let (cur_read_bytes, cur_write_bytes, cur_reads, cur_writes) = read_diskstats();
 
     let read_delta = cur_read_bytes.saturating_sub(prev_disk_bytes.0);
@@ -102,7 +98,12 @@ pub fn refresh_disk(
 
     *prev_disk_bytes = (cur_read_bytes, cur_write_bytes);
 
-    let (read_iops, write_iops) = match (cur_reads, cur_writes, disk_stats.prev_read_ops, disk_stats.prev_write_ops) {
+    let (read_iops, write_iops) = match (
+        cur_reads,
+        cur_writes,
+        disk_stats.prev_read_ops,
+        disk_stats.prev_write_ops,
+    ) {
         (Some(cr), Some(cw), Some(pr), Some(pw)) => {
             let dr = cr.saturating_sub(pr);
             let dw = cw.saturating_sub(pw);
@@ -140,7 +141,7 @@ pub fn enumerate_partitions(_sys: &System, disks: &Disks) -> Vec<DiskPartitionIn
             total_bytes: total,
             used_bytes: used,
             available_bytes: available,
-            model: None,            // Not available on Android
+            model: None,                    // Not available on Android
             disk_type: "Flash".to_string(), // Android uses eMMC/UFS
             vendor: None,
             serial: None,

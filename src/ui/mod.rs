@@ -3,21 +3,21 @@
 //! Exposes the single `draw` entry point that routes rendering
 //! to the appropriate tab module based on the application state.
 
-pub mod helpers;
-pub mod palette;
-pub mod theme;
-pub mod icons;
-pub mod header;
 pub mod footer;
+pub mod header;
+pub mod helpers;
+pub mod icons;
+pub mod palette;
 pub mod tabs;
+pub mod theme;
 pub mod widgets;
 #[cfg(feature = "preview")]
 pub mod preview;
 
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout, Rect, Alignment},
-    style::{Style, Modifier},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
 };
@@ -38,14 +38,17 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             area.width, area.height, MIN_WIDTH, MIN_HEIGHT
         );
         let paragraph = Paragraph::new(msg)
-            .style(Style::default().fg(palette::red()).add_modifier(Modifier::BOLD))
+            .style(
+                Style::default()
+                    .fg(palette::red())
+                    .add_modifier(Modifier::BOLD),
+            )
             .alignment(Alignment::Center);
         f.render_widget(paragraph, area);
         return;
     }
 
-    let outer_block = Block::default()
-        .style(Style::default().bg(palette::base()));
+    let outer_block = Block::default().style(Style::default().bg(palette::base()));
     let inner_area = outer_block.inner(area);
     f.render_widget(outer_block, area);
 
@@ -58,7 +61,11 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         ])
         .split(inner_area);
 
-    // 1. Header
+    // 1. Header — rendered on a darker `crust` band for 3-level surface depth.
+    f.render_widget(
+        Block::default().style(Style::default().bg(palette::crust())),
+        chunks[0],
+    );
     header::render_header(f, app, chunks[0]);
 
     // Calculate tab hit regions after header render for mouse click detection
@@ -68,7 +75,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     // 2. Main content area (tab routing)
     // We add a subtle bottom border to the tab content to separate it from the footer
     let tab_area = chunks[1];
-    let tab_block = Block::default().borders(Borders::BOTTOM).border_style(ratatui::style::Style::default().fg(palette::surface1()));
+    let tab_block = Block::default()
+        .borders(Borders::BOTTOM)
+        .border_style(ratatui::style::Style::default().fg(palette::surface1()));
     let inner_tab_area = tab_block.inner(tab_area);
     f.render_widget(tab_block, tab_area);
 
@@ -81,7 +90,11 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         AppTab::Gpu => tabs::gpu::render_gpu_tab(f, app, inner_tab_area),
     }
 
-    // 3. Footer
+    // 3. Footer — darker `crust` band, bookending the header for a framed look.
+    f.render_widget(
+        Block::default().style(Style::default().bg(palette::crust())),
+        chunks[2],
+    );
     footer::render_footer(f, app, chunks[2]);
 
     // 3b. Alert toast overlay — prominent banner while thresholds are exceeded.

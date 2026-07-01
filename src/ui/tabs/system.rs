@@ -12,12 +12,12 @@ use ratatui::{
     widgets::{Gauge, Paragraph},
 };
 
+use crate::app::state::{HISTORY_LEN, PanelFocus};
 use crate::app::App;
-use crate::app::state::PanelFocus;
 use crate::ui::helpers::*;
 use crate::ui::icons;
 use crate::ui::palette::*;
-use crate::ui::widgets::sparkline::halfblock_graph;
+use crate::ui::widgets::sparkline::{render_braille_line_chart, BrailleLineChartSpec};
 
 // ═══════════════════════════════════════════════════════════════════════
 // Public entry point
@@ -30,11 +30,7 @@ pub fn render_system_tab(f: &mut Frame, app: &App, area: Rect) {
         // Narrow (Android/Termux): stack OS info, battery, disks vertically.
         let rows = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Min(8),
-                Constraint::Min(7),
-                Constraint::Min(7),
-            ])
+            .constraints([Constraint::Min(8), Constraint::Min(7), Constraint::Min(7)])
             .split(area);
         render_os_info(f, rows[0], app);
         if cfg.show_battery {
@@ -46,10 +42,7 @@ pub fn render_system_tab(f: &mut Frame, app: &App, area: Rect) {
     } else {
         let columns = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Percentage(58),
-                Constraint::Percentage(42),
-            ])
+            .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
             .split(area);
 
         // ── Left column: OS Info (full height) ───────────────────
@@ -59,10 +52,7 @@ pub fn render_system_tab(f: &mut Frame, app: &App, area: Rect) {
         if cfg.show_battery {
             let right_rows = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Min(8),
-                    Constraint::Percentage(60),
-                ])
+                .constraints([Constraint::Min(8), Constraint::Percentage(60)])
                 .split(columns[1]);
             render_battery(f, right_rows[0], app);
             render_disk_partitions(f, right_rows[1], app);
@@ -75,6 +65,19 @@ pub fn render_system_tab(f: &mut Frame, app: &App, area: Rect) {
 // ═══════════════════════════════════════════════════════════════════════
 // Left Column — OS Information Panel
 // ═══════════════════════════════════════════════════════════════════════
+
+/// A muted, full-width section divider with a label — groups the key/value rows
+/// of the System tab so the spec sheet reads as organised sections instead of a
+/// flat wall of text. Label in `overlay` (readable), rule in `surface1` (ties to
+/// the panel borders for a quiet, consistent look).
+fn section_divider(label: &str, width: usize) -> Line<'static> {
+    let head = format!(" {} ", label);
+    let dash_count = width.saturating_sub(head.chars().count());
+    Line::from(vec![
+        Span::styled(head, Style::default().fg(overlay())),
+        Span::styled("─".repeat(dash_count), Style::default().fg(surface1())),
+    ])
+}
 
 fn render_os_info(f: &mut Frame, area: Rect, app: &App) {
     let focus = app.panel_focus();
@@ -98,9 +101,10 @@ fn render_os_info(f: &mut Frame, area: Rect, app: &App) {
     // Public IP — shown only when the user opted in (off by default; no
     // outbound requests are made unless `resolve_public_ip = true`).
     if app.config().resolve_public_ip
-        && let Some(ip) = app.public_ip() {
-            lines.push(kv_line("Public IP", ip.as_str(), peach()));
-        }
+        && let Some(ip) = app.public_ip()
+    {
+        lines.push(kv_line("Public IP", ip.as_str(), peach()));
+    }
 
     // Motherboard & Platform
     let hw = app.hardware_data();
@@ -129,11 +133,7 @@ fn render_os_info(f: &mut Frame, area: Rect, app: &App) {
     if let Some(ref bv) = mb.bios_vendor {
         lines.push(kv_line(
             "BIOS",
-            &format!(
-                "{} {}",
-                bv,
-                mb.bios_version.as_deref().unwrap_or("")
-            ),
+            &format!("{} {}", bv, mb.bios_version.as_deref().unwrap_or("")),
             mauve(),
         ));
     } else if let Some(ref bios) = info.bios_version {
@@ -142,6 +142,11 @@ fn render_os_info(f: &mut Frame, area: Rect, app: &App) {
     if let Some(ref bd) = mb.bios_date {
         lines.push(kv_line("Date", bd, overlay()));
     }
+
+    // ── Compute ───────────────────────────────────────────────────────────
+    // Groups CPU brand, RAM details, and core/swap totals under one header so
+    // they read as a single section rather than bleeding into the platform block.
+    lines.push(section_divider("Compute", max_w));
 
     // CPU brand
     let cpu_max_val_w = max_w.saturating_sub(6);
@@ -161,10 +166,7 @@ fn render_os_info(f: &mut Frame, area: Rect, app: &App) {
         ),
     ];
     if let Some(ref mt) = ram.mem_type {
-        ram_parts.push(Span::styled(
-            format!(" {}", mt),
-            Style::default().fg(sky()),
-        ));
+        ram_parts.push(Span::styled(format!(" {}", mt), Style::default().fg(sky())));
     }
     if let Some(speed) = ram.speed_mt {
         ram_parts.push(Span::styled(
@@ -178,20 +180,14 @@ fn render_os_info(f: &mut Frame, area: Rect, app: &App) {
             Style::default().fg(overlay()),
         ));
         if let Some(ref ff) = ram.form_factor {
-            ram_parts.push(Span::styled(
-                ff.clone(),
-                Style::default().fg(overlay()),
-            ));
+            ram_parts.push(Span::styled(ff.clone(), Style::default().fg(overlay())));
         } else {
             ram_parts.push(Span::styled(
                 "DIMM".to_string(),
                 Style::default().fg(overlay()),
             ));
         }
-        ram_parts.push(Span::styled(
-            ")",
-            Style::default().fg(overlay()),
-        ));
+        ram_parts.push(Span::styled(")", Style::default().fg(overlay())));
     }
     lines.push(Line::from(ram_parts));
 
@@ -201,10 +197,7 @@ fn render_os_info(f: &mut Frame, area: Rect, app: &App) {
             " Cores:",
             Style::default().fg(subtext()).add_modifier(Modifier::BOLD),
         ),
-        Span::styled(
-            format!(" {}", info.cpu_cores),
-            Style::default().fg(text()),
-        ),
+        Span::styled(format!(" {}", info.cpu_cores), Style::default().fg(text())),
         Span::styled(
             "  Swap:",
             Style::default().fg(subtext()).add_modifier(Modifier::BOLD),
@@ -215,7 +208,7 @@ fn render_os_info(f: &mut Frame, area: Rect, app: &App) {
         ),
     ]));
 
-    lines.push(Line::raw(""));
+    lines.push(section_divider("Graphics", max_w));
 
     // GPU(s)
     if hw.gpus.is_empty() {
@@ -240,10 +233,7 @@ fn render_os_info(f: &mut Frame, area: Rect, app: &App) {
                     format!(" {}:", prefix),
                     Style::default().fg(teal()).add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(
-                    format!(" {}", gpu_text),
-                    Style::default().fg(text()),
-                ),
+                Span::styled(format!(" {}", gpu_text), Style::default().fg(text())),
             ];
             if let Some(ref drv) = gpu.driver {
                 gpu_spans.push(Span::styled(
@@ -255,7 +245,7 @@ fn render_os_info(f: &mut Frame, area: Rect, app: &App) {
         }
     }
 
-    lines.push(Line::raw(""));
+    lines.push(section_divider("Session", max_w));
 
     // Desktop / Display
     lines.push(kv_line("Desktop", &info.desktop_env, mauve()));
@@ -270,7 +260,7 @@ fn render_os_info(f: &mut Frame, area: Rect, app: &App) {
         lines.push(kv_line("Session", &xs, mauve()));
     }
 
-    lines.push(Line::raw(""));
+    lines.push(section_divider("Load", max_w));
 
     // Load averages
     let load = info.load_average;
@@ -280,10 +270,7 @@ fn render_os_info(f: &mut Frame, area: Rect, app: &App) {
             Style::default().fg(subtext()).add_modifier(Modifier::BOLD),
         ),
         Span::styled(format!(" {:.2}", load.0), Style::default().fg(green())),
-        Span::styled(
-            " {:.2}".to_string(),
-            Style::default().fg(yellow()),
-        ),
+        Span::styled(" {:.2}".to_string(), Style::default().fg(yellow())),
         Span::styled(format!(" {:.2}", load.2), Style::default().fg(peach())),
         Span::styled(" (1/5/15m)", Style::default().fg(overlay())),
     ]));
@@ -316,10 +303,7 @@ fn render_battery(f: &mut Frame, area: Rect, app: &App) {
                 format!(" {:>5.1}% ", pct),
                 Style::default().fg(color).add_modifier(Modifier::BOLD),
             ),
-            Span::styled(
-                format!(" {}", bat.state),
-                Style::default().fg(text()),
-            ),
+            Span::styled(format!(" {}", bat.state), Style::default().fg(text())),
         ]));
     } else {
         lines.push(Line::from(Span::styled(
@@ -340,24 +324,23 @@ fn render_battery(f: &mut Frame, area: Rect, app: &App) {
                     " Power:",
                     Style::default().fg(subtext()).add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(
-                    format!(" {:.2} W", power),
-                    Style::default().fg(yellow()),
-                ),
+                Span::styled(format!(" {:.2} W", power), Style::default().fg(yellow())),
             ]));
         }
 
         // Compact hardware info
         let mut hw_spans: Vec<Span<'static>> = vec![Span::raw(" ")];
         if let Some(ref tech) = bat.technology {
-            hw_spans.push(Span::styled(
-                tech.to_string(),
-                Style::default().fg(text()),
-            ));
+            hw_spans.push(Span::styled(tech.to_string(), Style::default().fg(text())));
         }
         if let Some(health) = bat.health_pct {
-            let hcolor =
-                if health > 80.0 { green() } else if health > 50.0 { yellow() } else { red() };
+            let hcolor = if health > 80.0 {
+                green()
+            } else if health > 50.0 {
+                yellow()
+            } else {
+                red()
+            };
             hw_spans.push(Span::styled(
                 format!("  Health: {:.1}%", health),
                 Style::default().fg(hcolor),
@@ -427,35 +410,65 @@ fn render_battery(f: &mut Frame, area: Rect, app: &App) {
         idx += 1;
     }
 
-    // Render power-draw braille graph
+    // Render power-draw wattea-style line chart
     if has_graph {
-        let peak = app.battery_power_history.iter().copied().max().unwrap_or(1);
-        // Header
+        let peak = app.battery_power_history.iter().copied().max().unwrap_or(0) as f64;
+        let now = app.battery_power_history.back().copied().unwrap_or(0) as f64;
+        // Header (wattea-style now/peak badge)
         f.render_widget(
             Paragraph::new(Line::from(vec![
                 Span::styled(" Power Draw", Style::default().fg(subtext())),
                 Span::styled(
-                    format!("  peak {:.1} W", peak as f64),
+                    format!("  now {:.1}W", now),
                     Style::default().fg(yellow()),
+                ),
+                Span::styled(" · ", Style::default().fg(subtext())),
+                Span::styled(
+                    format!("peak {:.1}W", peak),
+                    Style::default().fg(peach()),
                 ),
             ])),
             sections[idx],
         );
         idx += 1;
 
-        // Graph body
+        // Graph body: ratatui Chart (Marker::Braille + GraphType::Line),
+        // dynamic Y bounds floored at 10W so light draws don't flatten.
         let graph_area = sections[idx];
         if graph_area.height >= 3 && graph_area.width > 12 {
-            let rows = halfblock_graph(
-                &app.battery_power_history,
-                graph_area.width,
-                graph_area.height,
-                yellow(),
-                None,
-                "W",
+            let y_max = peak.max(10.0);
+            let n = app.battery_power_history.len();
+            render_braille_line_chart(
+                f,
+                graph_area,
+                BrailleLineChartSpec {
+                    data: &app.battery_power_history,
+                    color: yellow(),
+                    axis_color: subtext(),
+                    x_bounds: [0.0, (n.saturating_sub(1) as f64).max(1.0)],
+                    x_labels: vec![Span::raw(power_window_label(app)), Span::raw("now")],
+                    y_bounds: [0.0, y_max],
+                    y_labels: vec![
+                        Span::raw("0"),
+                        Span::raw(format!("{:.0}", y_max / 2.0)),
+                        Span::raw(format!("{:.0}W", y_max)),
+                    ],
+                },
             );
-            f.render_widget(Paragraph::new(rows), graph_area);
         }
+    }
+}
+
+/// X-axis start label for the power history window (e.g. "-60s", "-2m").
+/// `HISTORY_LEN` samples at the data refresh interval (battery power rides
+/// the main data-refresh loop).
+fn power_window_label(app: &App) -> String {
+    let interval_ms = app.config().data_refresh_rate;
+    let secs = (HISTORY_LEN as u64 * interval_ms) / 1000;
+    if secs >= 60 && secs.is_multiple_of(60) {
+        format!("-{}m", secs / 60)
+    } else {
+        format!("-{secs}s")
     }
 }
 

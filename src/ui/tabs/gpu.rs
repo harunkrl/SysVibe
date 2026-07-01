@@ -5,15 +5,15 @@
 //! Supports multi-GPU systems with scroll navigation.
 
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Gauge, Paragraph},
-    Frame,
 };
 
-use crate::app::state::PanelFocus;
 use crate::app::App;
+use crate::app::state::PanelFocus;
 use crate::ui::helpers::*;
 use crate::ui::icons;
 use crate::ui::palette::*;

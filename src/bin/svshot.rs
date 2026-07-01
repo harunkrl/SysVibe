@@ -65,9 +65,7 @@ fn main() {
             // the whole gallery is still produced and the failure is reported.
             let mut app = App::new_sample(config.clone());
             app.tab = tab;
-            let result = catch_unwind(AssertUnwindSafe(|| {
-                render_app_to_svg(&mut app, w, h)
-            }));
+            let result = catch_unwind(AssertUnwindSafe(|| render_app_to_svg(&mut app, w, h)));
 
             match result {
                 Ok(svg) => {
@@ -84,8 +82,11 @@ fn main() {
         }
     }
 
-    fs::write(out_dir.join("index.html"), render_index_html(&gallery, &failures))
-        .expect("write index.html");
+    fs::write(
+        out_dir.join("index.html"),
+        render_index_html(&gallery, &failures),
+    )
+    .expect("write index.html");
 
     println!(
         "✓ Wrote {} SVG(s) + index.html to {}",

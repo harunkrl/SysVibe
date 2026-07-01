@@ -4,16 +4,16 @@ use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
+    symbols,
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Cell, Paragraph, Row, Table},
+    widgets::{Axis, Block, BorderType, Borders, Cell, Chart, Dataset, GraphType, Paragraph, Row, Table},
 };
 
 use super::super::helpers::*;
 use super::super::icons;
 use super::super::palette::*;
-use super::super::widgets::sparkline;
 use crate::app::App;
-use crate::app::state::PanelFocus;
+use crate::app::state::{HISTORY_LEN, PanelFocus};
 
 pub fn render_dashboard_tab(f: &mut Frame, app: &App, area: Rect) {
     let nf = app.config().nerd_fonts;
@@ -288,7 +288,29 @@ fn mini_spark(data: &[u64], width: usize) -> String {
 
 fn render_cpu_graph(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: PanelFocus) {
     let title = icons::titled(app, icons::CPU, icons::fallback::CPU, "CPU Info");
-    let block = panel_block_focused(&title, focus.is_focused(PanelFocus::Panel1));
+    let cpu_lines = &app.cpu_history;
+    let current_pct = cpu_lines.back().copied().unwrap_or(0) as f64;
+    let avg_pct = current_pct.min(100.0);
+    let cpu_color = usage_color(avg_pct as f32);
+    let num_cores = app.num_cores();
+
+    // wattea-style title badge (top-right): now% · cores. Replaces the old
+    // manual bottom "avg / Cores" row — the Chart widget renders its own axes.
+    let block = panel_block_focused(&title, focus.is_focused(PanelFocus::Panel1)).title_top(
+        Line::from(vec![
+            Span::raw(" "),
+            Span::styled(
+                format!("now {:.0}%", avg_pct),
+                Style::default().fg(cpu_color).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" · ", Style::default().fg(subtext())),
+            Span::styled(
+                format!("{num_cores} cores"),
+                Style::default().fg(overlay()),
+            ),
+        ])
+        .right_aligned(),
+    );
     let inner = block.inner(area);
     f.render_widget(block, area);
 
@@ -296,63 +318,81 @@ fn render_cpu_graph(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: Pane
         return;
     }
 
-    // Split inner into graph (left) and core list (right)
+    // Split inner into chart (left) and per-core list (right, compact).
     let cols = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Min(0), Constraint::Length(14)])
+        .constraints([Constraint::Min(0), Constraint::Length(13)])
         .split(inner);
-
-    let graph_area = cols[0];
+    let chart_area = cols[0];
     let core_area = cols[1];
 
-    // Current CPU %
-    let cpu_lines = &app.cpu_history;
-    let current_pct = cpu_lines.back().copied().unwrap_or(0) as f64;
-    let avg_pct = current_pct.min(100.0);
-    let cpu_color = usage_color(avg_pct as f32);
+    // ratatui Chart widget — the same engine wattea's trend/live charts use:
+    // Marker::Braille + GraphType::Line for a smooth single-color trend line,
+    // fixed 0–100 Y axis (CPU %) and an index-based X axis (time window).
+    let n = cpu_lines.len();
+    if n >= 2 {
+        let pts: Vec<(f64, f64)> = cpu_lines
+            .iter()
+            .enumerate()
+            .map(|(i, &v)| (i as f64, v as f64))
+            .collect();
+        let x_max = (n - 1) as f64; // last sample index
 
-    // Draw a higher-resolution dotted braille trend line (no fill).
-    let graph_lines = sparkline::braille_line_graph(
-        cpu_lines,
-        graph_area.width,
-        graph_area.height.saturating_sub(1),
-        cpu_color,
-        "%",
-    );
+        let chart = Chart::new(vec![Dataset::default()
+            .marker(symbols::Marker::Braille)
+            .graph_type(GraphType::Line)
+            .style(Style::default().fg(cpu_color))
+            .data(&pts)])
+        .x_axis(
+            Axis::default()
+                .style(Style::default().fg(subtext()))
+                .bounds([0.0, x_max.max(1.0)])
+                .labels(vec![Span::raw(cpu_window_label(app)), Span::raw("now")]),
+        )
+        .y_axis(
+            Axis::default()
+                .style(Style::default().fg(subtext()))
+                .bounds([0.0, 100.0])
+                .labels(vec![Span::raw("0"), Span::raw("50"), Span::raw("100")]),
+        );
+        f.render_widget(chart, chart_area);
+    } else if n == 1 {
+        // Not enough samples to draw a line yet — show the single value.
+        f.render_widget(
+            Paragraph::new(Span::styled(
+                format!(" {:.0}%", avg_pct),
+                Style::default().fg(cpu_color).add_modifier(Modifier::BOLD),
+            )),
+            chart_area,
+        );
+    }
 
-    let mut lines: Vec<Line<'_>> = graph_lines;
-    let cpu_label = format!("{:.1}% avg", avg_pct);
-    let cores_label = format!("{:.1}% {} Cores", avg_pct, app.num_cores());
-
-    // Bottom row spacing to spread avg and cores
-    let spacer_len = graph_area
-        .width
-        .saturating_sub(cpu_label.len() as u16 + cores_label.len() as u16 + 2);
-    lines.push(Line::from(vec![
-        Span::styled(
-            cpu_label.to_string(),
-            Style::default().fg(cpu_color).add_modifier(Modifier::BOLD),
-        ),
-        Span::raw(" ".repeat(spacer_len as usize)),
-        Span::styled(format!("■ {}", cores_label), Style::default().fg(cpu_color)),
-    ]));
-
-    f.render_widget(Paragraph::new(lines), graph_area);
-
-    // Core list
+    // Per-core list (compact), colour-coded by load.
     let cores = app.per_core_usage();
     let show_count = cores.len().min(core_area.height as usize);
     let mut core_lines = Vec::new();
-    for usage in cores.iter().take(show_count) {
+    for (i, usage) in cores.iter().enumerate().take(show_count) {
         core_lines.push(Line::from(vec![
-            Span::styled("Core ", Style::default().fg(subtext())),
+            Span::styled(format!("{:>2}", i), Style::default().fg(subtext())),
             Span::styled(
-                format!("{:>4.1}%", usage),
+                format!(" {:>4.0}%", usage),
                 Style::default().fg(usage_color(*usage)),
             ),
         ]));
     }
     f.render_widget(Paragraph::new(core_lines), core_area);
+}
+
+/// X-axis start label for the CPU history window (e.g. "-60s", "-2m").
+/// `HISTORY_LEN` samples at the effective CPU refresh interval.
+fn cpu_window_label(app: &App) -> String {
+    let interval_ms = app.config().cpu_refresh_ms.unwrap_or(app.config().data_refresh_rate);
+    let secs = (HISTORY_LEN as u64 * interval_ms) / 1000;
+    if secs >= 60 && secs.is_multiple_of(60) {
+        format!("-{}m", secs / 60)
+    } else {
+        format!("-{secs}s")
+    }
 }
 
 fn render_memory_panel(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: PanelFocus) {

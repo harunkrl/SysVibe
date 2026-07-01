@@ -97,13 +97,27 @@ pub struct Config {
     pub gpu_refresh_ms: Option<u64>,
 }
 
-fn default_process_refresh() -> u64 { 2000 }
-fn default_sensor_refresh() -> u64 { 5000 }
-fn default_log_source() -> String { "auto".to_string() }
-fn default_log_max_lines() -> usize { 500 }
-fn default_true() -> bool { true }
-fn default_tab() -> String { "dashboard".to_string() }
-fn default_theme() -> String { "catppuccin-macchiato".to_string() }
+fn default_process_refresh() -> u64 {
+    2000
+}
+fn default_sensor_refresh() -> u64 {
+    5000
+}
+fn default_log_source() -> String {
+    "auto".to_string()
+}
+fn default_log_max_lines() -> usize {
+    500
+}
+fn default_true() -> bool {
+    true
+}
+fn default_tab() -> String {
+    "dashboard".to_string()
+}
+fn default_theme() -> String {
+    "catppuccin-macchiato".to_string()
+}
 
 impl Default for Config {
     fn default() -> Self {
@@ -211,13 +225,25 @@ impl Config {
         if lower != "celsius" && lower != "fahrenheit" {
             self.temperature_unit = "celsius".to_string();
         }
-        let valid_tabs = ["dashboard", "system", "hardware", "processes", "logs", "gpu"];
+        let valid_tabs = [
+            "dashboard",
+            "system",
+            "hardware",
+            "processes",
+            "logs",
+            "gpu",
+        ];
         if !valid_tabs.contains(&self.default_tab.to_lowercase().as_str()) {
             self.default_tab = "dashboard".to_string();
         }
         let valid_themes = [
-            "catppuccin-macchiato", "catppuccin-mocha", "dracula",
-            "nord", "gruvbox", "tokyo-night", "one-dark",
+            "catppuccin-macchiato",
+            "catppuccin-mocha",
+            "dracula",
+            "nord",
+            "gruvbox",
+            "tokyo-night",
+            "one-dark",
         ];
         if !valid_themes.contains(&self.theme.to_lowercase().as_str()) {
             self.theme = "catppuccin-macchiato".to_string();
@@ -301,12 +327,12 @@ mod tests {
             ..Config::default()
         };
         cfg.validate();
-        assert_eq!(cfg.ui_tick_rate, 50);          // clamped to min
-        assert_eq!(cfg.data_refresh_rate, 250);     // clamped to min
-        assert_eq!(cfg.max_processes, 5);           // clamped to min
-        assert_eq!(cfg.process_refresh_rate, 500);  // clamped to min
-        assert_eq!(cfg.sensor_refresh_rate, 1000);  // clamped to min
-        assert_eq!(cfg.log_max_lines, 50);          // clamped to min
+        assert_eq!(cfg.ui_tick_rate, 50); // clamped to min
+        assert_eq!(cfg.data_refresh_rate, 250); // clamped to min
+        assert_eq!(cfg.max_processes, 5); // clamped to min
+        assert_eq!(cfg.process_refresh_rate, 500); // clamped to min
+        assert_eq!(cfg.sensor_refresh_rate, 1000); // clamped to min
+        assert_eq!(cfg.log_max_lines, 50); // clamped to min
     }
 
     #[test]
@@ -363,7 +389,14 @@ mod tests {
 
     #[test]
     fn test_config_valid_tabs() {
-        for tab in &["dashboard", "system", "hardware", "processes", "logs", "gpu"] {
+        for tab in &[
+            "dashboard",
+            "system",
+            "hardware",
+            "processes",
+            "logs",
+            "gpu",
+        ] {
             let mut cfg = Config {
                 default_tab: tab.to_string(),
                 ..Config::default()
@@ -386,8 +419,13 @@ mod tests {
     #[test]
     fn test_config_valid_themes() {
         for theme in &[
-            "catppuccin-macchiato", "catppuccin-mocha", "dracula",
-            "nord", "gruvbox", "tokyo-night", "one-dark",
+            "catppuccin-macchiato",
+            "catppuccin-mocha",
+            "dracula",
+            "nord",
+            "gruvbox",
+            "tokyo-night",
+            "one-dark",
         ] {
             let mut cfg = Config {
                 theme: theme.to_string(),

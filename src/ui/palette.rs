@@ -74,4 +74,3 @@ theme_color!(focus_tab, focus_tab);
 // respect the current theme. This ensures theme switching works
 // correctly across all UI elements.
 // ═══════════════════════════════════════════════════════════════════════
-

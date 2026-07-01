@@ -8,7 +8,7 @@
 use std::fs;
 use std::process::Command;
 
-use crate::app::state::{HardwareData, MotherboardInfo, GpuInfo, RamInfo};
+use crate::app::state::{GpuInfo, HardwareData, MotherboardInfo, RamInfo};
 
 // Struct definitions moved to state.rs (shared across Linux/Android)
 
@@ -35,14 +35,14 @@ pub fn fetch_hardware_data() -> HardwareData {
 
 fn fetch_motherboard() -> MotherboardInfo {
     MotherboardInfo {
-        vendor:      sysfs_read("board_vendor"),
-        name:        sysfs_read("board_name"),
-        version:     sysfs_read("board_version"),
+        vendor: sysfs_read("board_vendor"),
+        name: sysfs_read("board_name"),
+        version: sysfs_read("board_version"),
         bios_vendor: sysfs_read("bios_vendor"),
-        bios_version:sysfs_read("bios_version"),
-        bios_date:   sysfs_read("bios_date"),
-        sys_vendor:  sysfs_read("sys_vendor"),
-        product_name:sysfs_read("product_name"),
+        bios_version: sysfs_read("bios_version"),
+        bios_date: sysfs_read("bios_date"),
+        sys_vendor: sysfs_read("sys_vendor"),
+        product_name: sysfs_read("product_name"),
     }
 }
 
@@ -107,21 +107,19 @@ fn fetch_gpus() -> Vec<GpuInfo> {
             .trim();
 
         // Try to discover the driver from SysFS
-        let driver = pci_slot
-            .as_deref()
-            .and_then(|slot| {
-                // Convert "01:00.0" → "0000:01:00.0" for SysFS path
-                let normalized = if slot.starts_with(|c: char| c.is_ascii_digit()) {
-                    format!("0000:{slot}")
-                } else {
-                    slot.to_string()
-                };
-                // Try the generic Linux kernel path
-                let path = format!("/sys/bus/pci/devices/{normalized}/driver");
-                fs::read_link(path)
-                    .ok()
-                    .and_then(|p| p.file_name().map(|f| f.to_string_lossy().to_string()))
-            });
+        let driver = pci_slot.as_deref().and_then(|slot| {
+            // Convert "01:00.0" → "0000:01:00.0" for SysFS path
+            let normalized = if slot.starts_with(|c: char| c.is_ascii_digit()) {
+                format!("0000:{slot}")
+            } else {
+                slot.to_string()
+            };
+            // Try the generic Linux kernel path
+            let path = format!("/sys/bus/pci/devices/{normalized}/driver");
+            fs::read_link(path)
+                .ok()
+                .and_then(|p| p.file_name().map(|f| f.to_string_lossy().to_string()))
+        });
 
         gpus.push(GpuInfo {
             model: clean.to_string(),
@@ -197,10 +195,7 @@ fn parse_lshw_memory() -> Option<RamDetails> {
     }
 
     // Try the full (non-short) output for richer details
-    let full_output = Command::new("lshw")
-        .args(["-C", "memory"])
-        .output()
-        .ok();
+    let full_output = Command::new("lshw").args(["-C", "memory"]).output().ok();
 
     let mut speed: Option<u32> = None;
     let mut mem_type: Option<String> = None;
@@ -215,10 +210,12 @@ fn parse_lshw_memory() -> Option<RamDetails> {
 
             // "clock: 3200MHz"
             if trimmed.starts_with("clock:") && speed.is_none() {
-                speed = trimmed
-                    .split_whitespace()
-                    .nth(1)
-                    .and_then(|v| v.trim_end_matches("MHz").trim_end_matches("MT/s").parse().ok());
+                speed = trimmed.split_whitespace().nth(1).and_then(|v| {
+                    v.trim_end_matches("MHz")
+                        .trim_end_matches("MT/s")
+                        .parse()
+                        .ok()
+                });
             }
 
             // "description: DDR4 SODIMM"
@@ -243,8 +240,7 @@ fn parse_lshw_memory() -> Option<RamDetails> {
             }
 
             // Count DIMM entries (lines that contain "DIMM" or "SODIMM" with a size)
-            if (trimmed.contains("DIMM") || trimmed.contains("SODIMM"))
-                && trimmed.contains("size:")
+            if (trimmed.contains("DIMM") || trimmed.contains("SODIMM")) && trimmed.contains("size:")
             {
                 dimm_count += 1;
             }
@@ -261,7 +257,16 @@ fn parse_lshw_memory() -> Option<RamDetails> {
         dimm_count = dimm_count.saturating_sub(1); // Don't count the parent "system memory" line
     }
 
-    Some((speed, mem_type, if dimm_count > 0 { Some(dimm_count) } else { None }, form_factor))
+    Some((
+        speed,
+        mem_type,
+        if dimm_count > 0 {
+            Some(dimm_count)
+        } else {
+            None
+        },
+        form_factor,
+    ))
 }
 
 /// Try `dmidecode -t memory` — requires root but provides accurate data.
@@ -295,10 +300,12 @@ fn parse_dmidecode_output(stdout: &str) -> Option<RamDetails> {
 
         // "Speed: 3200 MT/s" or "Speed: 3200 MHz"
         if trimmed.starts_with("Speed:") && speed.is_none() {
-            speed = trimmed
-                .split_whitespace()
-                .nth(1)
-                .and_then(|v| v.trim_end_matches("MT/s").trim_end_matches("MHz").parse().ok());
+            speed = trimmed.split_whitespace().nth(1).and_then(|v| {
+                v.trim_end_matches("MT/s")
+                    .trim_end_matches("MHz")
+                    .parse()
+                    .ok()
+            });
         }
 
         // "Type: DDR4"
@@ -320,13 +327,23 @@ fn parse_dmidecode_output(stdout: &str) -> Option<RamDetails> {
         // Count populated DIMMs: "Size: 8192 MB" (non-zero size means populated)
         if trimmed.starts_with("Size:") {
             let size_str = trimmed.trim_start_matches("Size:").trim();
-            if size_str != "No Module Installed" && size_str != "0 MB" && !size_str.starts_with('0') {
+            if size_str != "No Module Installed" && size_str != "0 MB" && !size_str.starts_with('0')
+            {
                 dimm_count += 1;
             }
         }
     }
 
-    Some((speed, mem_type, if dimm_count > 0 { Some(dimm_count) } else { None }, form_factor))
+    Some((
+        speed,
+        mem_type,
+        if dimm_count > 0 {
+            Some(dimm_count)
+        } else {
+            None
+        },
+        form_factor,
+    ))
 }
 
 /// Fallback: try to read DMI data from SysFS (works without root).
@@ -362,22 +379,41 @@ fn guess_ram_heuristic(total_bytes: u64) -> RamDetails {
     let model_name = cpuinfo
         .lines()
         .find(|l| l.starts_with("model name"))
-        .and_then(|l| l.split_once(':').map(|x| x.1).map(|s| s.trim().to_lowercase()));
+        .and_then(|l| {
+            l.split_once(':')
+                .map(|x| x.1)
+                .map(|s| s.trim().to_lowercase())
+        });
 
     // Heuristic based on CPU model + total RAM
     let (guessed_type, guessed_speed) = if let Some(ref model) = model_name {
-        if model.contains("rembrandt") || model.contains("raphael") || model.contains("dragon")
-            || model.contains("6800u") || model.contains("6900") || model.contains("7700")
-            || model.contains("7800x3d") || model.contains("7950x") || model.contains("7900x")
+        if model.contains("rembrandt")
+            || model.contains("raphael")
+            || model.contains("dragon")
+            || model.contains("6800u")
+            || model.contains("6900")
+            || model.contains("7700")
+            || model.contains("7800x3d")
+            || model.contains("7950x")
+            || model.contains("7900x")
         {
             ("DDR5".to_string(), Some(4800u32))
-        } else if model.contains("cezanne") || model.contains("renoir") || model.contains("picasso")
-            || model.contains("5800x") || model.contains("5900x") || model.contains("5950x")
-            || model.contains("5600x") || model.contains("5700g")
+        } else if model.contains("cezanne")
+            || model.contains("renoir")
+            || model.contains("picasso")
+            || model.contains("5800x")
+            || model.contains("5900x")
+            || model.contains("5950x")
+            || model.contains("5600x")
+            || model.contains("5700g")
         {
             ("DDR4".to_string(), Some(3200u32))
-        } else if model.contains("meteor") || model.contains("raptor") || model.contains("alder")
-            || model.contains("14700") || model.contains("13900") || model.contains("14900")
+        } else if model.contains("meteor")
+            || model.contains("raptor")
+            || model.contains("alder")
+            || model.contains("14700")
+            || model.contains("13900")
+            || model.contains("14900")
         {
             ("DDR5".to_string(), Some(4800u32))
         } else if model.contains("ryzen") {
@@ -399,11 +435,7 @@ fn guess_ram_heuristic(total_bytes: u64) -> RamDetails {
     };
 
     // Guess DIMM count from total size
-    let dimm_count = if total_gib > 8.0 {
-        Some(2)
-    } else {
-        Some(1)
-    };
+    let dimm_count = if total_gib > 8.0 { Some(2) } else { Some(1) };
 
     (guessed_speed, Some(guessed_type), dimm_count, None)
 }

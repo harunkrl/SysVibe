@@ -2,18 +2,18 @@
 //!
 //! Includes both flat list and hierarchical tree view (toggle with F5/p).
 
+use super::super::helpers::*;
+use super::super::icons;
+use super::super::palette::*;
+use crate::app::App;
+use crate::app::state::{AppMode, ProcessEntry, SortBy};
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Cell, Paragraph, Row, Table},
 };
-use crate::app::App;
-use crate::app::state::{AppMode, ProcessEntry, SortBy};
-use super::super::palette::*;
-use super::super::helpers::*;
-use super::super::icons;
 
 pub fn render_processes_tab(f: &mut Frame, app: &mut App, area: Rect) {
     let rows = Layout::default()
@@ -40,7 +40,11 @@ fn render_filter_bar(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(block, area);
 
     let nf = app.config().nerd_fonts;
-    let search_icon = if nf { icons::SEARCH } else { icons::fallback::SEARCH };
+    let search_icon = if nf {
+        icons::SEARCH
+    } else {
+        icons::fallback::SEARCH
+    };
     let prefix = if is_filtering {
         format!(" {} > ", search_icon)
     } else {
@@ -51,11 +55,17 @@ fn render_filter_bar(f: &mut Frame, app: &App, area: Rect) {
     let text = if input.is_empty() && !is_filtering {
         Line::from(vec![
             Span::styled(prefix, Style::default().fg(overlay())),
-            Span::styled("Press '/' to filter by name...", Style::default().fg(surface2())),
+            Span::styled(
+                "Press '/' to filter by name...",
+                Style::default().fg(surface2()),
+            ),
         ])
     } else {
         let mut spans = vec![
-            Span::styled(prefix, Style::default().fg(peach()).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                prefix,
+                Style::default().fg(peach()).add_modifier(Modifier::BOLD),
+            ),
             Span::styled(input, Style::default().fg(text())),
         ];
         if is_filtering {
@@ -74,9 +84,20 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
 
     let view_label = if app.tree_view() { "Tree" } else { "Flat" };
     let title = if nf {
-        format!("{} Processes [{}] ({}/{})", icons::TAB_PROCESSES, view_label, total_procs, app.total_process_count())
+        format!(
+            "{} Processes [{}] ({}/{})",
+            icons::TAB_PROCESSES,
+            view_label,
+            total_procs,
+            app.total_process_count()
+        )
     } else {
-        format!("Processes [{}] ({}/{})", view_label, total_procs, app.total_process_count())
+        format!(
+            "Processes [{}] ({}/{})",
+            view_label,
+            total_procs,
+            app.total_process_count()
+        )
     };
     let block = panel_block_focused(&title, true);
 
@@ -107,19 +128,43 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
     };
 
     let header_base = Style::default().fg(subtext()).add_modifier(Modifier::BOLD);
-    let header_active = Style::default().fg(focus_border()).add_modifier(Modifier::BOLD);
+    let header_active = Style::default()
+        .fg(focus_border())
+        .add_modifier(Modifier::BOLD);
 
-    let pid_style = if app.sort_by == SortBy::Pid { header_active } else { header_base };
-    let name_style = if app.sort_by == SortBy::Name { header_active } else { header_base };
-    let cpu_style = if app.sort_by == SortBy::Cpu { header_active } else { header_base };
-    let mem_style = if app.sort_by == SortBy::Mem { header_active } else { header_base };
+    let pid_style = if app.sort_by == SortBy::Pid {
+        header_active
+    } else {
+        header_base
+    };
+    let name_style = if app.sort_by == SortBy::Name {
+        header_active
+    } else {
+        header_base
+    };
+    let cpu_style = if app.sort_by == SortBy::Cpu {
+        header_active
+    } else {
+        header_base
+    };
+    let mem_style = if app.sort_by == SortBy::Mem {
+        header_active
+    } else {
+        header_base
+    };
 
     let pid_icon = if nf { icons::PROCESS } else { "#" };
     let name_icon = if nf { icons::SORT } else { "" };
 
     let header = Row::new(vec![
-        Span::styled(format!("{} PID{}", pid_icon, sort_indicator(SortBy::Pid)), pid_style),
-        Span::styled(format!("{} NAME{}", name_icon, sort_indicator(SortBy::Name)), name_style),
+        Span::styled(
+            format!("{} PID{}", pid_icon, sort_indicator(SortBy::Pid)),
+            pid_style,
+        ),
+        Span::styled(
+            format!("{} NAME{}", name_icon, sort_indicator(SortBy::Name)),
+            name_style,
+        ),
         Span::styled(format!("CPU%{}", sort_indicator(SortBy::Cpu)), cpu_style),
         Span::styled(format!("MEM%{}", sort_indicator(SortBy::Mem)), mem_style),
     ])
@@ -149,26 +194,46 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
         let row_bg = if row_idx % 2 == 1 {
             surface0()
         } else {
-            Color::Reset
+            mantle()
         };
 
         // Visual mini-bars (compact: 4 chars wide to fit in Length(10) column)
         let bar_len = 4;
         let c_fill = ((p.cpu_pct / 100.0) * bar_len as f32).round() as usize;
-        let c_bar = format!("{}{}", "█".repeat(c_fill.min(bar_len)), "░".repeat(bar_len.saturating_sub(c_fill)));
+        let c_bar = format!(
+            "{}{}",
+            "█".repeat(c_fill.min(bar_len)),
+            "░".repeat(bar_len.saturating_sub(c_fill))
+        );
 
         let m_fill = ((p.mem_pct / 100.0) * bar_len as f32).round() as usize;
-        let m_bar = format!("{}{}", "█".repeat(m_fill.min(bar_len)), "░".repeat(bar_len.saturating_sub(m_fill)));
+        let m_bar = format!(
+            "{}{}",
+            "█".repeat(m_fill.min(bar_len)),
+            "░".repeat(bar_len.saturating_sub(m_fill))
+        );
 
         Row::new(vec![
-            Cell::from(Span::styled(format!("{}", p.pid), Style::default().fg(overlay()).bg(row_bg))),
-            Cell::from(Span::styled(format!("{}{}{}", prefix, proc_icon, p.name), Style::default().fg(name_color).bg(row_bg))),
+            Cell::from(Span::styled(
+                format!("{}", p.pid),
+                Style::default().fg(overlay()).bg(row_bg),
+            )),
+            Cell::from(Span::styled(
+                format!("{}{}{}", prefix, proc_icon, p.name),
+                Style::default().fg(name_color).bg(row_bg),
+            )),
             Cell::from(Line::from(vec![
-                Span::styled(format!(" {:>4.0}%", p.cpu_pct), Style::default().fg(cpu_color).bg(row_bg)),
+                Span::styled(
+                    format!(" {:>4.0}%", p.cpu_pct),
+                    Style::default().fg(cpu_color).bg(row_bg),
+                ),
                 Span::styled(c_bar, Style::default().fg(cpu_color).bg(row_bg)),
             ])),
             Cell::from(Line::from(vec![
-                Span::styled(format!(" {:>4.0}%", p.mem_pct), Style::default().fg(mem_color).bg(row_bg)),
+                Span::styled(
+                    format!(" {:>4.0}%", p.mem_pct),
+                    Style::default().fg(mem_color).bg(row_bg),
+                ),
                 Span::styled(m_bar, Style::default().fg(mem_color).bg(row_bg)),
             ])),
         ])
@@ -212,7 +277,13 @@ fn calculate_scroll_offset(selected: usize, total: usize, viewport: usize) -> us
 }
 
 /// Render a minimal vertical scroll indicator on the right edge.
-fn render_scroll_indicator(f: &mut Frame, area: Rect, offset: usize, total: usize, viewport: usize) {
+fn render_scroll_indicator(
+    f: &mut Frame,
+    area: Rect,
+    offset: usize,
+    total: usize,
+    viewport: usize,
+) {
     if total == 0 || viewport == 0 || area.width == 0 || area.height == 0 {
         return;
     }
@@ -256,13 +327,12 @@ impl TreeNode {
 
 /// Build a tree from flat process entries.
 fn build_tree(procs: &[&ProcessEntry], max_depth: usize) -> Vec<TreeNode> {
-    let pid_map: std::collections::HashMap<u32, &ProcessEntry> = procs
-        .iter()
-        .map(|p| (p.pid, *p))
-        .collect();
+    let pid_map: std::collections::HashMap<u32, &ProcessEntry> =
+        procs.iter().map(|p| (p.pid, *p)).collect();
 
     // Build parent→children map
-    let mut children_map: std::collections::HashMap<u32, Vec<u32>> = std::collections::HashMap::new();
+    let mut children_map: std::collections::HashMap<u32, Vec<u32>> =
+        std::collections::HashMap::new();
     let mut root_pids: Vec<u32> = Vec::new();
 
     for p in procs {
@@ -277,7 +347,9 @@ fn build_tree(procs: &[&ProcessEntry], max_depth: usize) -> Vec<TreeNode> {
     let sort_by_cpu = |a: u32, b: u32| -> std::cmp::Ordering {
         let a_cpu = pid_map.get(&a).map(|p| p.cpu_pct).unwrap_or(0.0);
         let b_cpu = pid_map.get(&b).map(|p| p.cpu_pct).unwrap_or(0.0);
-        b_cpu.partial_cmp(&a_cpu).unwrap_or(std::cmp::Ordering::Equal)
+        b_cpu
+            .partial_cmp(&a_cpu)
+            .unwrap_or(std::cmp::Ordering::Equal)
     };
 
     root_pids.sort_by(|a, b| sort_by_cpu(*a, *b));
@@ -361,9 +433,18 @@ fn render_tree_view(f: &mut Frame, app: &mut App, area: Rect) {
     let nf = app.config().nerd_fonts;
 
     let title = if nf {
-        format!("{} Processes [Tree] ({}/{})", icons::TAB_PROCESSES, procs.len(), app.total_process_count())
+        format!(
+            "{} Processes [Tree] ({}/{})",
+            icons::TAB_PROCESSES,
+            procs.len(),
+            app.total_process_count()
+        )
     } else {
-        format!("Processes [Tree] ({}/{})", procs.len(), app.total_process_count())
+        format!(
+            "Processes [Tree] ({}/{})",
+            procs.len(),
+            app.total_process_count()
+        )
     };
     let block = panel_block_focused(&title, true);
     let inner = block.inner(area);
@@ -371,7 +452,10 @@ fn render_tree_view(f: &mut Frame, app: &mut App, area: Rect) {
 
     if procs.is_empty() {
         f.render_widget(
-            Paragraph::new(Line::styled("  No processes to display", Style::default().fg(subtext()))),
+            Paragraph::new(Line::styled(
+                "  No processes to display",
+                Style::default().fg(subtext()),
+            )),
             inner,
         );
         return;
@@ -389,7 +473,9 @@ fn render_tree_view(f: &mut Frame, app: &mut App, area: Rect) {
     let tree_rows = app.cached_tree_rows();
 
     let visible_height = inner.height as usize;
-    let start = app.proc_table_state.selected()
+    let start = app
+        .proc_table_state
+        .selected()
         .map(|s| s.saturating_sub(visible_height.saturating_sub(1)))
         .unwrap_or(0);
 
@@ -399,9 +485,18 @@ fn render_tree_view(f: &mut Frame, app: &mut App, area: Rect) {
 
     // Header
     lines.push(Line::from(vec![
-        Span::styled(" PID     ", Style::default().fg(subtext()).add_modifier(Modifier::BOLD)),
-        Span::styled("NAME", Style::default().fg(subtext()).add_modifier(Modifier::BOLD)),
-        Span::styled("                  CPU%   MEM%", Style::default().fg(subtext()).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            " PID     ",
+            Style::default().fg(subtext()).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            "NAME",
+            Style::default().fg(subtext()).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            "                  CPU%   MEM%",
+            Style::default().fg(subtext()).add_modifier(Modifier::BOLD),
+        ),
     ]));
     lines.push(Line::from(Span::styled(
         "─".repeat(inner.width as usize),
@@ -410,11 +505,16 @@ fn render_tree_view(f: &mut Frame, app: &mut App, area: Rect) {
 
     let selected_idx = app.proc_table_state.selected().unwrap_or(0);
 
-    for (idx, row) in tree_rows.iter().skip(start).take(visible_height.saturating_sub(2)).enumerate() {
+    for (idx, row) in tree_rows
+        .iter()
+        .skip(start)
+        .take(visible_height.saturating_sub(2))
+        .enumerate()
+    {
         let (pid, name, cpu_pct, mem_pct, indent, _is_last) = row;
         let actual_idx = start + idx;
-        let is_selected = actual_idx == selected_idx ||
-            app.selected_pids.iter().any(|(spid, _)| *spid == *pid);
+        let is_selected =
+            actual_idx == selected_idx || app.selected_pids.iter().any(|(spid, _)| *spid == *pid);
 
         let cpu_color = usage_color(*cpu_pct);
         let mem_color = usage_color(*mem_pct);
@@ -422,7 +522,7 @@ fn render_tree_view(f: &mut Frame, app: &mut App, area: Rect) {
         let bg = if actual_idx == selected_idx {
             surface0()
         } else {
-            Color::Reset
+            mantle()
         };
         let name_fg = if is_selected { peach() } else { text() };
         let indent_fg = surface2();
@@ -441,7 +541,10 @@ fn render_tree_view(f: &mut Frame, app: &mut App, area: Rect) {
         };
 
         lines.push(Line::from(vec![
-            Span::styled(format!("{:<8}", *pid), Style::default().fg(overlay()).bg(bg)),
+            Span::styled(
+                format!("{:<8}", *pid),
+                Style::default().fg(overlay()).bg(bg),
+            ),
             Span::styled(tree_prefix, Style::default().fg(indent_fg).bg(bg)),
             Span::styled(
                 format!("{}{}", proc_icon, name_display),

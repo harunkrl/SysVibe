@@ -9,10 +9,10 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
+use super::super::error::{AppError, AppResult};
 use super::super::state::{
     DiskIoStats, DiskPartitionInfo, GpuStats, NetworkStats, ProcessEntry, SystemInfo,
 };
-use super::super::error::{AppError, AppResult};
 
 // ── Serializable export snapshot ────────────────────────────────────
 
@@ -230,12 +230,12 @@ pub fn export_to_file(snapshot: &ExportSnapshot, format: ExportFormat) -> AppRes
     Ok(path)
 }
 
-
 // ── Helpers ─────────────────────────────────────────────────────────
 
 /// Ensure `$XDG_DATA_DIR/sysvibe/exports/` exists.
 fn ensure_export_dir() -> AppResult<PathBuf> {
-    let base = dirs::data_dir().ok_or_else(|| AppError::export("Cannot determine XDG data directory"))?;
+    let base =
+        dirs::data_dir().ok_or_else(|| AppError::export("Cannot determine XDG data directory"))?;
     let export_dir = base.join("sysvibe").join("exports");
     fs::create_dir_all(&export_dir)?;
     Ok(export_dir)
@@ -253,7 +253,9 @@ fn snapshot_to_csv(snap: &ExportSnapshot) -> String {
 
     // ── System Info ───────────────────────────────────────
     out.push_str("[System Info]\n");
-    out.push_str("os,kernel,hostname,uptime,cpu_brand,cpu_cores,architecture,load_1m,load_5m,load_15m\n");
+    out.push_str(
+        "os,kernel,hostname,uptime,cpu_brand,cpu_cores,architecture,load_1m,load_5m,load_15m\n",
+    );
     let s = &snap.system;
     out.push_str(&csv_row(&[
         &s.os,

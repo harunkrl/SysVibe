@@ -6,7 +6,7 @@
 use std::fs;
 use std::process::Command;
 
-use crate::app::state::{HardwareData, MotherboardInfo, GpuInfo, RamInfo};
+use crate::app::state::{GpuInfo, HardwareData, MotherboardInfo, RamInfo};
 
 /// Fetch static hardware data from Android system properties.
 /// Safe to call — failures silently stored as `None` / empty.
@@ -27,7 +27,7 @@ fn fetch_motherboard() -> MotherboardInfo {
         vendor: getprop("ro.product.manufacturer"),
         name: getprop("ro.product.model"),
         version: getprop("ro.product.device"),
-        bios_vendor: None,   // No BIOS on Android
+        bios_vendor: None, // No BIOS on Android
         bios_version: None,
         bios_date: None,
         sys_vendor: getprop("ro.product.brand"),
@@ -136,15 +136,23 @@ fn guess_android_ram_type() -> String {
         .to_lowercase();
 
     // Modern SoCs (2022+) use LPDDR5
-    if platform.contains("sm8450") || platform.contains("sm8550") || platform.contains("sm8650")
-        || platform.contains("pineapple") || platform.contains("taro") || platform.contains("kalama")
-        || platform.contains("dimensity 9") || platform.contains("mt6983")
+    if platform.contains("sm8450")
+        || platform.contains("sm8550")
+        || platform.contains("sm8650")
+        || platform.contains("pineapple")
+        || platform.contains("taro")
+        || platform.contains("kalama")
+        || platform.contains("dimensity 9")
+        || platform.contains("mt6983")
     {
         "LPDDR5".to_string()
     }
     // Mid-range 2020+ → LPDDR4X
-    else if platform.contains("sm7") || platform.contains("sm6") || platform.contains("sdm7")
-        || platform.contains("dimensity") || platform.contains("mt6")
+    else if platform.contains("sm7")
+        || platform.contains("sm6")
+        || platform.contains("sdm7")
+        || platform.contains("dimensity")
+        || platform.contains("mt6")
     {
         "LPDDR4X".to_string()
     }

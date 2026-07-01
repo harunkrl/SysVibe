@@ -1,8 +1,6 @@
 //! Tests for application state types and enums.
 
-use sysvibe::app::state::{
-    AppTab, AppMode, PanelFocus, SortBy, LogLevelFilter, LogLevel,
-};
+use sysvibe::app::state::{AppMode, AppTab, LogLevel, LogLevelFilter, PanelFocus, SortBy};
 
 // ═══════════════════════════════════════════════════════════════════
 // AppTab
@@ -15,7 +13,13 @@ fn default_tab_is_dashboard() {
 
 #[test]
 fn all_tabs_are_distinct() {
-    let tabs = [AppTab::Dashboard, AppTab::System, AppTab::Hardware, AppTab::Processes, AppTab::Logs];
+    let tabs = [
+        AppTab::Dashboard,
+        AppTab::System,
+        AppTab::Hardware,
+        AppTab::Processes,
+        AppTab::Logs,
+    ];
     for i in 0..tabs.len() {
         for j in (i + 1)..tabs.len() {
             assert_ne!(tabs[i], tabs[j], "All tabs should be distinct");
@@ -60,7 +64,11 @@ fn panel_focus_roundtrip() {
         let mut p = PanelFocus::Panel1;
         p = p.next();
         p = p.prev();
-        assert_eq!(p, PanelFocus::Panel1, "next then prev should return to start");
+        assert_eq!(
+            p,
+            PanelFocus::Panel1,
+            "next then prev should return to start"
+        );
     }
 }
 

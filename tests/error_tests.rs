@@ -79,7 +79,10 @@ fn app_result_err_branch() {
 fn app_error_chain_with_source() {
     let io_err = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "no access");
     let app_err = AppError::Io(io_err);
-    assert!(app_err.source().is_some(), "Io variant should have a source");
+    assert!(
+        app_err.source().is_some(),
+        "Io variant should have a source"
+    );
 }
 
 #[test]
@@ -87,7 +90,10 @@ fn app_error_display_all_variants() {
     // Ensure no panic in Display for any variant
     let errors: Vec<AppError> = vec![
         AppError::Io(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "pipe")),
-        AppError::Command { command: "test", reason: "failed".into() },
+        AppError::Command {
+            command: "test",
+            reason: "failed".into(),
+        },
         AppError::Export("exp".into()),
         AppError::Config("cfg".into()),
         AppError::Theme("thm".into()),

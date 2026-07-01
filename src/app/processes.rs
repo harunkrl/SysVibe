@@ -1,8 +1,8 @@
 //! SysVibe — Process management: listing, sorting, filtering, kill.
 
-use sysinfo::System;
-use super::state::{ProcessEntry, SortBy};
 use super::error::{AppError, AppResult};
+use super::state::{ProcessEntry, SortBy};
+use sysinfo::System;
 
 /// Build the sorted top-N process list.
 ///
@@ -24,11 +24,11 @@ pub fn build_process_list(
 
     procs.sort_by(|a, b| {
         let primary = match sort_by {
-            SortBy::Cpu => b
-                .1
-                .cpu_usage()
-                .partial_cmp(&a.1.cpu_usage())
-                .unwrap_or(std::cmp::Ordering::Equal),
+            SortBy::Cpu => {
+                b.1.cpu_usage()
+                    .partial_cmp(&a.1.cpu_usage())
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            }
             SortBy::Mem => b.1.memory().cmp(&a.1.memory()),
             SortBy::Pid => return a.0.cmp(b.0),
             SortBy::Name => a.1.name().cmp(b.1.name()),
@@ -174,9 +174,9 @@ mod tests {
         let mut procs = mock_processes();
         sort_process_entries(&mut procs, &SortBy::Mem);
         assert_eq!(procs[0].name, "firefox"); // 35%
-        assert_eq!(procs[1].name, "chrome");  // 20%
+        assert_eq!(procs[1].name, "chrome"); // 20%
         assert_eq!(procs[2].name, "systemd"); // 5%
-        assert_eq!(procs[3].name, "bash");    // 1%
+        assert_eq!(procs[3].name, "bash"); // 1%
         for i in 0..procs.len() - 1 {
             assert!(procs[i].mem_pct >= procs[i + 1].mem_pct);
         }
@@ -205,8 +205,20 @@ mod tests {
     #[test]
     fn test_process_sort_by_cpu_tiebreak_pid() {
         let mut procs = vec![
-            ProcessEntry { pid: 200, parent_pid: 1, name: "a".to_string(), cpu_pct: 50.0, mem_pct: 0.0 },
-            ProcessEntry { pid: 100, parent_pid: 1, name: "b".to_string(), cpu_pct: 50.0, mem_pct: 0.0 },
+            ProcessEntry {
+                pid: 200,
+                parent_pid: 1,
+                name: "a".to_string(),
+                cpu_pct: 50.0,
+                mem_pct: 0.0,
+            },
+            ProcessEntry {
+                pid: 100,
+                parent_pid: 1,
+                name: "b".to_string(),
+                cpu_pct: 50.0,
+                mem_pct: 0.0,
+            },
         ];
         sort_process_entries(&mut procs, &SortBy::Cpu);
         // Same CPU% — should tiebreak by PID ascending

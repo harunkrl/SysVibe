@@ -3,11 +3,11 @@
 //! Help panel and Kill Confirmation popup overlays.
 
 use ratatui::{
+    Frame,
     layout::{Alignment, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Clear, Paragraph, Wrap},
-    Frame,
 };
 
 use crate::app::App;

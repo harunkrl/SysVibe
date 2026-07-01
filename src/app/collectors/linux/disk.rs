@@ -4,10 +4,10 @@
 //! uses sysinfo `Disks` for partition enumeration, and extracts hardware
 //! details (model, vendor, serial, SSD/HDD type) from `/sys/block/`.
 
-use std::fs;
-use sysinfo::{Disks, System};
 use crate::app::helpers::push_history;
 use crate::app::state::{DiskIoStats, DiskPartitionInfo};
+use std::fs;
+use sysinfo::{Disks, System};
 
 /// Read aggregate disk bytes from `/proc/diskstats`.
 #[allow(dead_code)]
@@ -33,8 +33,14 @@ pub fn read_disk_bytes() -> (u64, u64) {
         if name.contains('p') && name.chars().last().is_some_and(|c| c.is_ascii_digit()) {
             continue;
         }
-        let sectors_read: u64 = fields.get(5).and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
-        let sectors_written: u64 = fields.get(9).and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
+        let sectors_read: u64 = fields
+            .get(5)
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(0);
+        let sectors_written: u64 = fields
+            .get(9)
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(0);
         total_read += sectors_read * 512;
         total_write += sectors_written * 512;
     }
@@ -69,8 +75,14 @@ fn read_diskstats() -> (u64, u64, Option<u64>, Option<u64>) {
             continue;
         }
         // Bytes from sectors
-        let sectors_read: u64 = fields.get(5).and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
-        let sectors_written: u64 = fields.get(9).and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
+        let sectors_read: u64 = fields
+            .get(5)
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(0);
+        let sectors_written: u64 = fields
+            .get(9)
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(0);
         total_read_bytes += sectors_read * 512;
         total_write_bytes += sectors_written * 512;
         // IOPS
@@ -93,11 +105,7 @@ fn read_diskstats() -> (u64, u64, Option<u64>, Option<u64>) {
 }
 
 /// Refresh disk I/O stats: speed, IOPS, and history.
-pub fn refresh_disk(
-    disk_stats: &mut DiskIoStats,
-    prev_disk_bytes: &mut (u64, u64),
-    elapsed: f64,
-) {
+pub fn refresh_disk(disk_stats: &mut DiskIoStats, prev_disk_bytes: &mut (u64, u64), elapsed: f64) {
     let (cur_read_bytes, cur_write_bytes, cur_reads, cur_writes) = read_diskstats();
 
     let read_delta = cur_read_bytes.saturating_sub(prev_disk_bytes.0);
@@ -114,7 +122,12 @@ pub fn refresh_disk(
 
     *prev_disk_bytes = (cur_read_bytes, cur_write_bytes);
 
-    let (read_iops, write_iops) = match (cur_reads, cur_writes, disk_stats.prev_read_ops, disk_stats.prev_write_ops) {
+    let (read_iops, write_iops) = match (
+        cur_reads,
+        cur_writes,
+        disk_stats.prev_read_ops,
+        disk_stats.prev_write_ops,
+    ) {
         (Some(cr), Some(cw), Some(pr), Some(pw)) => {
             let dr = cr.saturating_sub(pr);
             let dw = cw.saturating_sub(pw);
@@ -184,10 +197,22 @@ fn is_ssd(dev_name: &str) -> bool {
 }
 
 /// Extract full hardware details for a disk from /sys/block.
-fn disk_hardware_info(dev_name: &str) -> (Option<String>, String, Option<String>, Option<String>, Option<u32>) {
+fn disk_hardware_info(
+    dev_name: &str,
+) -> (
+    Option<String>,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<u32>,
+) {
     let parent = parent_block_dev(dev_name).unwrap_or(dev_name.to_string());
     let is_ssd_val = is_ssd(&parent);
-    let disk_type = if is_ssd_val { "SSD".to_string() } else { "HDD".to_string() };
+    let disk_type = if is_ssd_val {
+        "SSD".to_string()
+    } else {
+        "HDD".to_string()
+    };
 
     let model = sys_attr(&parent, "model")
         .or_else(|| sys_attr(&parent, "device/model"))
@@ -205,7 +230,9 @@ fn disk_hardware_info(dev_name: &str) -> (Option<String>, String, Option<String>
         // For HDDs, rotational=1 but no RPM field in /sys; default to 5400/7200 heuristic
         // The rotational flag itself isn't useful as RPM data, so return None.
         if !is_ssd_val {
-            sys_attr(&parent, "queue/rotational").and(Some(None)).flatten()
+            sys_attr(&parent, "queue/rotational")
+                .and(Some(None))
+                .flatten()
         } else {
             Some(0)
         }

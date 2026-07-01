@@ -1,8 +1,8 @@
 //! Tests for process management functions.
 
-use sysvibe::app::state::SortBy;
-use sysvibe::app::processes::{build_process_list, kill_process, kill_process_force};
 use sysinfo::System;
+use sysvibe::app::processes::{build_process_list, kill_process, kill_process_force};
+use sysvibe::app::state::SortBy;
 
 fn create_test_system() -> System {
     let mut sys = System::new_all();
@@ -33,7 +33,8 @@ fn build_process_list_normalized_cpu() {
         assert!(
             p.cpu_pct <= 101.0,
             "Normalized CPU {} should be <= 100% (got {}%)",
-            p.name, p.cpu_pct,
+            p.name,
+            p.cpu_pct,
         );
     }
 }
@@ -55,7 +56,8 @@ fn build_process_list_sorted_by_cpu() {
         assert!(
             window[0].cpu_pct >= window[1].cpu_pct,
             "Processes should be sorted by CPU desc: {}% >= {}%",
-            window[0].cpu_pct, window[1].cpu_pct,
+            window[0].cpu_pct,
+            window[1].cpu_pct,
         );
     }
 }
@@ -68,7 +70,8 @@ fn build_process_list_sorted_by_mem() {
         assert!(
             window[0].mem_pct >= window[1].mem_pct,
             "Processes should be sorted by MEM desc: {}% >= {}%",
-            window[0].mem_pct, window[1].mem_pct,
+            window[0].mem_pct,
+            window[1].mem_pct,
         );
     }
 }
@@ -81,7 +84,8 @@ fn build_process_list_sorted_by_pid() {
         assert!(
             window[0].pid <= window[1].pid,
             "Processes should be sorted by PID asc: {} <= {}",
-            window[0].pid, window[1].pid,
+            window[0].pid,
+            window[1].pid,
         );
     }
 }
@@ -106,7 +110,8 @@ fn build_process_list_has_parent_pid() {
         assert!(
             p.parent_pid > 0 || p.pid <= 10, // PID 1 (init) has parent 0
             "Process {} (PID {}) should have parent_pid > 0 or be an early process",
-            p.name, p.pid,
+            p.name,
+            p.pid,
         );
     }
 }
@@ -119,7 +124,8 @@ fn build_process_list_mem_pct_non_negative() {
         assert!(
             p.mem_pct >= 0.0,
             "Memory percentage should be non-negative, got {}% for {}",
-            p.mem_pct, p.name,
+            p.mem_pct,
+            p.name,
         );
     }
 }

@@ -85,8 +85,8 @@ fn read_sysfs_battery() -> Option<BatteryStatus> {
         .and_then(|v| v.trim().parse::<f64>().ok())
         .unwrap_or(0.0);
 
-    let status = read_sysfs_value(&format!("{}/status", path))
-        .unwrap_or_else(|| "Unknown".to_string());
+    let status =
+        read_sysfs_value(&format!("{}/status", path)).unwrap_or_else(|| "Unknown".to_string());
 
     let technology = read_sysfs_value(&format!("{}/technology", path));
     let manufacturer = read_sysfs_value(&format!("{}/manufacturer", path));
@@ -129,8 +129,8 @@ fn read_sysfs_battery_alt() -> Option<BatteryStatus> {
         .and_then(|v| v.trim().parse::<f64>().ok())
         .unwrap_or(0.0);
 
-    let status = read_sysfs_value(&format!("{}/status", path))
-        .unwrap_or_else(|| "Unknown".to_string());
+    let status =
+        read_sysfs_value(&format!("{}/status", path)).unwrap_or_else(|| "Unknown".to_string());
 
     Some(BatteryStatus {
         percentage: capacity,
@@ -171,7 +171,12 @@ fn parse_dumpsys_battery(text: &str) -> Option<BatteryStatus> {
                 .nth(1)
                 .and_then(|v| v.trim().parse::<f64>().ok());
         } else if trimmed.starts_with("status:") {
-            status = trimmed.split(':').nth(1).unwrap_or("Unknown").trim().to_string();
+            status = trimmed
+                .split(':')
+                .nth(1)
+                .unwrap_or("Unknown")
+                .trim()
+                .to_string();
         } else if trimmed.starts_with("technology:") {
             technology = Some(trimmed.split(':').nth(1).unwrap_or("").trim().to_string());
         } else if trimmed.starts_with("health:") {
@@ -245,7 +250,10 @@ fn json_extract_string(json: &str, key: &str) -> Option<String> {
         if part.starts_with(&pattern) {
             let val = part.trim_start_matches(&pattern).trim();
             // Remove surrounding quotes
-            let val = val.trim_start_matches('"').trim_end_matches('"').trim_end_matches('}');
+            let val = val
+                .trim_start_matches('"')
+                .trim_end_matches('"')
+                .trim_end_matches('}');
             return Some(val.to_string());
         }
     }

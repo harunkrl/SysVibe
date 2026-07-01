@@ -1,8 +1,8 @@
 //! SysVibe — Temperature sensor and battery data collection.
 
-use sysinfo::Components;
 use crate::app::helpers;
-use crate::app::state::{SensorReading, HISTORY_LEN};
+use crate::app::state::{HISTORY_LEN, SensorReading};
+use sysinfo::Components;
 
 /// Refresh temperature readings from system components, maintaining per-sensor
 /// history for braille sparklines.
@@ -10,9 +10,7 @@ pub fn refresh_temperatures(components: &Components, prev: &mut Vec<SensorReadin
     let fresh: Vec<(String, f32)> = components
         .list()
         .iter()
-        .filter_map(|c| {
-            c.temperature().map(|t| (clean_sensor_label(c.label()), t))
-        })
+        .filter_map(|c| c.temperature().map(|t| (clean_sensor_label(c.label()), t)))
         .filter(|(label, t)| !label.is_empty() && *t > 0.0)
         .collect();
 
@@ -37,7 +35,6 @@ pub fn refresh_temperatures(components: &Components, prev: &mut Vec<SensorReadin
     *prev = updated;
 }
 
-
 /// Clean raw sensor labels into human-readable names.
 pub(crate) fn clean_sensor_label(raw: &str) -> String {
     let lower = raw.to_lowercase();
@@ -48,7 +45,7 @@ pub(crate) fn clean_sensor_label(raw: &str) -> String {
         return "CPU".into();
     }
     if lower.contains("package") || lower.contains("pkg") {
-        return "CPU Package".into();
+        return "CPU Pkg".into();
     }
     if lower.contains("composite") {
         return "NVMe Composite".into();
@@ -135,8 +132,8 @@ mod tests {
 
     #[test]
     fn test_clean_sensor_label_package() {
-        assert_eq!(clean_sensor_label("Package id 0"), "CPU Package");
-        assert_eq!(clean_sensor_label("pkg temp"), "CPU Package");
+        assert_eq!(clean_sensor_label("Package id 0"), "CPU Pkg");
+        assert_eq!(clean_sensor_label("pkg temp"), "CPU Pkg");
     }
 
     #[test]

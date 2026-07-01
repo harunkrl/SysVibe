@@ -46,10 +46,22 @@ fn collect_nvidia_stats() -> Vec<GpuStats> {
         }
 
         let name = parts[0].to_string();
-        let usage_pct = parts.get(1).and_then(|v| v.parse::<f32>().ok()).unwrap_or(0.0);
-        let vram_used_mb = parts.get(2).and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
-        let vram_total_mb = parts.get(3).and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
-        let temperature = parts.get(4).and_then(|v| v.parse::<f32>().ok()).unwrap_or(0.0);
+        let usage_pct = parts
+            .get(1)
+            .and_then(|v| v.parse::<f32>().ok())
+            .unwrap_or(0.0);
+        let vram_used_mb = parts
+            .get(2)
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(0);
+        let vram_total_mb = parts
+            .get(3)
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(0);
+        let temperature = parts
+            .get(4)
+            .and_then(|v| v.parse::<f32>().ok())
+            .unwrap_or(0.0);
         let power_w = parts.get(5).and_then(|v| v.parse::<f32>().ok());
         let fan_speed_pct = parts.get(6).and_then(|v| v.parse::<f32>().ok());
         let clock_mhz = parts.get(7).and_then(|v| v.parse::<u32>().ok());
@@ -161,7 +173,10 @@ fn collect_amd_stats() -> Vec<GpuStats> {
                 .and_then(|s| {
                     for line in s.lines() {
                         if line.starts_with("PCI_ID=") {
-                            return Some(format!("AMD GPU ({})", line.trim_start_matches("PCI_ID=")));
+                            return Some(format!(
+                                "AMD GPU ({})",
+                                line.trim_start_matches("PCI_ID=")
+                            ));
                         }
                     }
                     None
@@ -223,9 +238,11 @@ fn collect_intel_stats() -> Vec<GpuStats> {
             .ok()
             .and_then(|p| p.file_name().map(|f| f.to_string_lossy().to_string()));
         if let Some(ref drv) = driver
-            && drv != "i915" && drv != "xe" {
-                continue;
-            }
+            && drv != "i915"
+            && drv != "xe"
+        {
+            continue;
+        }
 
         // Read GPU busy percent (available on newer kernels for Intel)
         let usage_pct = fs::read_to_string(entry.path().join("gpu_busy_percent"))
@@ -243,15 +260,21 @@ fn collect_intel_stats() -> Vec<GpuStats> {
             }
             // Try Xe driver path
             if clock.is_none()
-                && let Ok(freq_str) = fs::read_to_string(drm_subdev.join("freq0/cur_freq")) {
-                    clock = freq_str.trim().parse::<u32>().ok();
-                }
+                && let Ok(freq_str) = fs::read_to_string(drm_subdev.join("freq0/cur_freq"))
+            {
+                clock = freq_str.trim().parse::<u32>().ok();
+            }
             // Fallback: max freq as proxy
             if clock.is_none()
                 && let Ok(freq_str) = fs::read_to_string(drm_subdev.join("gt_RP0_freq_mhz"))
-                    && let Ok(max_freq) = freq_str.trim().parse::<u32>() {
-                        clock = if usage_pct > 0.0 { Some(max_freq) } else { None };
-                    }
+                && let Ok(max_freq) = freq_str.trim().parse::<u32>()
+            {
+                clock = if usage_pct > 0.0 {
+                    Some(max_freq)
+                } else {
+                    None
+                };
+            }
             clock
         };
 
@@ -263,10 +286,11 @@ fn collect_intel_stats() -> Vec<GpuStats> {
                 for hwmon_entry in hwmon_entries.flatten() {
                     let temp_input = hwmon_entry.path().join("temp1_input");
                     if let Ok(val) = fs::read_to_string(&temp_input)
-                        && let Ok(millidegrees) = val.trim().parse::<f32>() {
-                            temp = millidegrees / 1000.0;
-                            break;
-                        }
+                        && let Ok(millidegrees) = val.trim().parse::<f32>()
+                    {
+                        temp = millidegrees / 1000.0;
+                        break;
+                    }
                 }
             }
             temp
@@ -288,9 +312,7 @@ fn collect_intel_stats() -> Vec<GpuStats> {
                     }
                     None
                 })
-                .or_else(|| {
-                    driver.as_ref().map(|d| format!("Intel GPU ({d})"))
-                })
+                .or_else(|| driver.as_ref().map(|d| format!("Intel GPU ({d})")))
                 .unwrap_or_else(|| "Intel GPU".to_string())
         };
 

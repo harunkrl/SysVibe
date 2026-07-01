@@ -17,7 +17,6 @@ use ratatui::{
 
 use chrono::Local;
 
-use super::icons;
 use super::palette::*;
 use crate::app::state::{AppTab, TabRectEntry};
 use crate::app::App;
@@ -134,23 +133,33 @@ pub fn render_header(f: &mut Frame, app: &App, area: Rect) {
                 Style::default().fg(subtext()),
             ),
         ]))
+        .alignment(Alignment::Left),
+        top_cols[0],
+    );
+
+    let title_center = match app.tab {
+        AppTab::Dashboard => "TUI Dashboard Overview",
+        AppTab::System => "TUI System Information",
+        AppTab::Hardware => "TUI Hardware Monitoring",
+        AppTab::Processes => "TUI Process Manager",
+        AppTab::Logs => "TUI Kernel Logs",
+        AppTab::Gpu => "TUI GPU Performance",
+    };
+
+    f.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            title_center,
+            Style::default().fg(text()).add_modifier(Modifier::BOLD),
+        )))
         .alignment(Alignment::Center),
         top_cols[1],
     );
 
-    let gear = if app.config().nerd_fonts {
-        icons::GEAR
-    } else {
-        "⚙"
-    };
     f.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(format!("{} ", gear), Style::default().fg(surface2())),
-            Span::styled(
-                Local::now().format("%H:%M:%S").to_string(),
-                Style::default().fg(subtext()),
-            ),
-        ]))
+        Paragraph::new(Line::from(Span::styled(
+            Local::now().format("%H:%M:%S").to_string(),
+            Style::default().fg(subtext()),
+        )))
         .alignment(Alignment::Right),
         top_cols[2],
     );
@@ -162,6 +171,13 @@ pub fn render_header(f: &mut Frame, app: &App, area: Rect) {
     let mut x = start_x;
     for (i, (name, tab_enum)) in TAB_ORDER.iter().enumerate() {
         let w = widths[i];
+        // Narrow-width safety: stop once pills no longer fully fit within the
+        // tab bar, so no widget ever renders outside the buffer (ratatui
+        // panics on out-of-bounds writes). Remaining tabs stay reachable via
+        // their number keys (1-6).
+        if x + w > tabs_area.x + tabs_area.width {
+            break;
+        }
         let rect = Rect {
             x,
             y: tabs_area.y,
@@ -172,33 +188,51 @@ pub fn render_header(f: &mut Frame, app: &App, area: Rect) {
 
         let is_active = app.tab == *tab_enum;
         let (border_color, text_color, bg_color) = if is_active {
-            (sky(), crust(), sky())
+            (lavender(), crust(), lavender())
         } else {
-            (mauve(), subtext(), base())
+            (mauve(), subtext(), crust())
         };
 
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
+            .border_type(BorderType::Plain)
             .border_style(Style::default().fg(border_color).bg(bg_color))
             .style(Style::default().bg(bg_color));
 
         let label = if show_number {
             Line::from(vec![
                 Span::styled(
-                    format!("{} ", i + 1),
+                    "[",
+                    Style::default().fg(if is_active { crust() } else { overlay() }),
+                ),
+                Span::styled(
+                    format!("{}", i + 1),
+                    Style::default().fg(if is_active { crust() } else { overlay() }),
+                ),
+                Span::styled(
+                    format!(" {}", name),
+                    Style::default().fg(text_color).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    "]",
+                    Style::default().fg(if is_active { crust() } else { overlay() }),
+                ),
+            ])
+        } else {
+            Line::from(vec![
+                Span::styled(
+                    "[",
                     Style::default().fg(if is_active { crust() } else { overlay() }),
                 ),
                 Span::styled(
                     *name,
                     Style::default().fg(text_color).add_modifier(Modifier::BOLD),
                 ),
+                Span::styled(
+                    "]",
+                    Style::default().fg(if is_active { crust() } else { overlay() }),
+                ),
             ])
-        } else {
-            Line::from(Span::styled(
-                *name,
-                Style::default().fg(text_color).add_modifier(Modifier::BOLD),
-            ))
         };
 
         f.render_widget(

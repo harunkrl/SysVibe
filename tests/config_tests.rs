@@ -18,8 +18,10 @@ fn default_config_values() {
 
 #[test]
 fn config_validation_clamps_tick_rate() {
-    let mut config = Config::default();
-    config.ui_tick_rate = 5;
+    let config = Config {
+        ui_tick_rate: 5,
+        ..Default::default()
+    };
     // Validation is pub(crate), test via serialization trick:
     // The default config should always have valid values
     assert!(config.ui_tick_rate >= 50 || config.ui_tick_rate == 5); // sanity

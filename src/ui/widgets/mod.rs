@@ -1,4 +1,4 @@
 //! SysVibe — Reusable UI widgets.
 
-pub mod sparkline;
 pub mod modal;
+pub mod sparkline;

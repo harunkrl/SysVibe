@@ -29,6 +29,7 @@ pub fn panel_block_focused(title: &str, focused: bool) -> Block<'_> {
         Block::bordered()
             .border_type(BorderType::Plain)
             .border_style(Style::default().fg(lavender()))
+            .style(Style::default().bg(mantle()))
             .title(Line::styled(
                 format!(" {} ", title),
                 Style::default().fg(text()).add_modifier(Modifier::BOLD),
@@ -38,6 +39,7 @@ pub fn panel_block_focused(title: &str, focused: bool) -> Block<'_> {
         Block::bordered()
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(surface1()))
+            .style(Style::default().bg(mantle()))
             .title(Line::styled(
                 format!(" {} ", title),
                 Style::default().fg(subtext()).add_modifier(Modifier::BOLD),

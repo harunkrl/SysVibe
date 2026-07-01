@@ -16,9 +16,16 @@ fn push_history_respects_capacity_limit() {
     for i in 0..(HISTORY_LEN * 3) {
         push_history(&mut buf, i as u64);
     }
-    assert_eq!(buf.len(), HISTORY_LEN, "buffer should be capped at HISTORY_LEN");
+    assert_eq!(
+        buf.len(),
+        HISTORY_LEN,
+        "buffer should be capped at HISTORY_LEN"
+    );
     // The oldest values should have been dropped
-    assert_eq!(*buf.front().unwrap(), (HISTORY_LEN * 3 - HISTORY_LEN) as u64);
+    assert_eq!(
+        *buf.front().unwrap(),
+        (HISTORY_LEN * 3 - HISTORY_LEN) as u64
+    );
     assert_eq!(*buf.back().unwrap(), (HISTORY_LEN * 3 - 1) as u64);
 }
 
@@ -36,8 +43,7 @@ fn push_history_appends_correctly() {
 #[test]
 fn push_history_per_core_multiple_cores() {
     let core_count = 8;
-    let mut per_core: Vec<VecDeque<u64>> =
-        vec![VecDeque::with_capacity(HISTORY_LEN); core_count];
+    let mut per_core: Vec<VecDeque<u64>> = vec![VecDeque::with_capacity(HISTORY_LEN); core_count];
 
     // Simulate 5 ticks
     for tick in 0..5 {
@@ -54,8 +60,7 @@ fn push_history_per_core_multiple_cores() {
 #[test]
 fn push_history_handles_core_count_change() {
     // Start with 4 cores
-    let mut per_core: Vec<VecDeque<u64>> =
-        vec![VecDeque::with_capacity(HISTORY_LEN); 4];
+    let mut per_core: Vec<VecDeque<u64>> = vec![VecDeque::with_capacity(HISTORY_LEN); 4];
     for history in &mut per_core {
         push_history(history, 50);
     }
@@ -77,8 +82,7 @@ fn simulate_fast_metrics_update_cycle() {
     // receive instantaneous values and push into App-maintained history.
 
     let mut cpu_history: VecDeque<u64> = VecDeque::with_capacity(HISTORY_LEN);
-    let mut per_core_history: Vec<VecDeque<u64>> =
-        vec![VecDeque::with_capacity(HISTORY_LEN); 4];
+    let mut per_core_history: Vec<VecDeque<u64>> = vec![VecDeque::with_capacity(HISTORY_LEN); 4];
 
     // Simulate 100 ticks (25 seconds at 250ms)
     for tick in 0..100 {
@@ -92,9 +96,17 @@ fn simulate_fast_metrics_update_cycle() {
         }
     }
 
-    assert_eq!(cpu_history.len(), HISTORY_LEN, "global history should be capped");
+    assert_eq!(
+        cpu_history.len(),
+        HISTORY_LEN,
+        "global history should be capped"
+    );
     for history in &per_core_history {
-        assert_eq!(history.len(), HISTORY_LEN, "per-core history should be capped");
+        assert_eq!(
+            history.len(),
+            HISTORY_LEN,
+            "per-core history should be capped"
+        );
     }
 }
 

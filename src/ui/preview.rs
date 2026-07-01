@@ -13,10 +13,12 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-/// SVG font stack. A Nerd Font is listed first so Nerd Font glyphs render
-/// in-browser when the author has one installed; `monospace` is the fallback.
+/// SVG font stack. CSS font names are single-quoted so they never clash with
+/// the surrounding double-quoted `style="..."` XML attribute. A Nerd Font is
+/// listed first so Nerd Font glyphs render in-browser when one is installed;
+/// `monospace` is the fallback.
 const FONT_FAMILY: &str =
-    "\"Symbols Nerd Font Mono\",\"Hack Nerd Font\",\"JetBrainsMono Nerd Font\",monospace";
+    "'Symbols Nerd Font Mono','Hack Nerd Font','JetBrainsMono Nerd Font',monospace";
 
 const CELL_W: u32 = 10;
 const CELL_H: u32 = 20;
@@ -118,7 +120,7 @@ use crate::app::App;
 /// using a `TestBackend` (no terminal required). Uses the exact `ui::draw`
 /// code path — so the output is pixel-faithful to the real app.
 pub fn render_app_to_svg(app: &mut App, width: u16, height: u16) -> String {
-    use ratatui::{Terminal, backend::TestBackend};
+    use ratatui::{backend::TestBackend, Terminal};
 
     let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend).expect("test backend must construct");
@@ -228,6 +230,35 @@ mod tests {
         assert!(svg.contains("#ff0000"));
         assert!(svg.contains(">A<"));
         assert!(svg.contains("font-weight:bold"));
+    }
+
+    #[test]
+    fn buffer_to_svg_emits_well_formed_attributes() {
+        // Regression guard: CSS font names must be single-quoted so the
+        // double-quoted `style="..."` attribute stays valid XML. A raw `"`
+        // mid-attribute would break SVG parsers (rsvg-convert, browsers).
+        let mut buf = Buffer::empty(Rect::new(0, 0, 2, 1));
+        buf[(0u16, 0u16)].fg = Color::Rgb(0xc0, 0xd0, 0xf0);
+        buf[(0u16, 0u16)].set_symbol("Z");
+        let svg = buffer_to_svg(&buf);
+
+        assert!(
+            svg.contains("font-family:'Symbols Nerd Font Mono'"),
+            "font names should be single-quoted"
+        );
+        // No text element should carry a raw double-quote inside its style attr.
+        for text_el in svg.split("<text").skip(1) {
+            let attr_section = text_el.split('>').next().unwrap_or("");
+            let style_value = attr_section
+                .split("style=\"")
+                .nth(1)
+                .and_then(|rest| rest.split('"').next())
+                .unwrap_or("");
+            assert!(
+                !style_value.contains('"'),
+                "style attribute must not contain a raw double-quote: {attr_section}"
+            );
+        }
     }
 
     #[test]

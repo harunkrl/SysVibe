@@ -14,6 +14,7 @@ use super::super::palette::*;
 use super::super::widgets::sparkline;
 use crate::app::App;
 use crate::app::state::{HISTORY_LEN, PanelFocus};
+use std::collections::VecDeque;
 
 pub fn render_dashboard_tab(f: &mut Frame, app: &App, area: Rect) {
     let nf = app.config().nerd_fonts;
@@ -676,32 +677,50 @@ fn render_network_panel(f: &mut Frame, app: &App, area: Rect, nf: bool, focus: P
         return;
     }
 
-    // Use the primary (first) interface for the trend graph.
-    let primary = &stats[0];
+    // AGGREGATE across all interfaces (matches the hero NET card, which
+    // sums rx/tx over every interface). Totals are summed; the trend graph
+    // uses a per-tick aggregate history (sum of each interface's history at
+    // the same offset) so the graph reflects total traffic, not just iface 0.
     let dl_icon = if nf { icons::NET_DOWNLOAD } else { "↓" };
     let ul_icon = if nf { icons::NET_UPLOAD } else { "↑" };
 
-    // Header: interface + CUMULATIVE totals (session), not the live speed
-    // (the hero NET card already shows the live speed — avoid duplication).
-    let iface = truncate_str(&primary.interface, 10);
+    let agg_total_rx: u64 = stats.iter().map(|s| s.total_rx_bytes).sum();
+    let agg_total_tx: u64 = stats.iter().map(|s| s.total_tx_bytes).sum();
+    let agg_iface = if stats.len() == 1 {
+        truncate_str(&stats[0].interface, 10).to_string()
+    } else {
+        format!("{} ifs", stats.len())
+    };
+
+    // Aggregate per-tick history: sum every interface's history value at the
+    // same offset (newest aligned to the right). Length = shortest history.
+    let hist_len = stats.iter().map(|s| s.rx_history.len()).min().unwrap_or(0);
+    let agg_rx: Vec<u64> = (0..hist_len)
+        .map(|i| stats.iter().map(|s| s.rx_history.get(i).copied().unwrap_or(0)).sum())
+        .collect();
+    let agg_tx: Vec<u64> = (0..hist_len)
+        .map(|i| stats.iter().map(|s| s.tx_history.get(i).copied().unwrap_or(0)).sum())
+        .collect();
+
+    // Header: interface(s) + CUMULATIVE totals (session).
     let mut hdr = vec![
         Span::styled(
-            format!(" {}", iface),
+            format!(" {}", agg_iface),
             Style::default().fg(text()).add_modifier(Modifier::BOLD),
         ),
         Span::styled("  total ", Style::default().fg(subtext())),
     ];
-    if let Some(ip) = &primary.local_ip {
+    if let Some(ip) = &stats[0].local_ip {
         hdr.push(Span::styled(format!("{}  ", ip), Style::default().fg(overlay()).add_modifier(Modifier::DIM)));
     }
     // cumulative RX / TX (humanised)
     hdr.push(Span::styled(
-        format!("{} {}", dl_icon, fmt_bytes(primary.total_rx_bytes)),
+        format!("{} {}", dl_icon, fmt_bytes(agg_total_rx)),
         Style::default().fg(green()),
     ));
     hdr.push(Span::styled("  ", Style::default()));
     hdr.push(Span::styled(
-        format!("{} {}", ul_icon, fmt_bytes(primary.total_tx_bytes)),
+        format!("{} {}", ul_icon, fmt_bytes(agg_total_tx)),
         Style::default().fg(peach()),
     ));
 
@@ -713,17 +732,18 @@ fn render_network_panel(f: &mut Frame, app: &App, area: Rect, nf: bool, focus: P
 
     f.render_widget(Paragraph::new(Line::from(hdr)), chunks[0]);
 
-    // Mirrored btop-style area graph: RX fills UP (green), TX fills DOWN
-    // (peach), zero-axis in the middle. Same smooth 2x4 braille renderer as
-    // the CPU graph, with Y-axis scale labels (peak / 0 / -peak) on the left.
-    // History is stored in KiB/s; use "k" as the unit hint.
+    // Mirrored btop-style area graph built from the AGGREGATE history (total
+    // traffic across all interfaces). High-res 2x4 sub-pixel, no smoothing;
+    // dynamic scale with a floor (see braille_mirrored_graph).
     let g = chunks[1];
-    if g.height >= 4 && g.width >= 10 && !primary.rx_history.is_empty() {
+    let agg_rx_q: VecDeque<u64> = agg_rx.iter().copied().collect();
+    let agg_tx_q: VecDeque<u64> = agg_tx.iter().copied().collect();
+    if g.height >= 4 && g.width >= 10 && !agg_rx_q.is_empty() {
         sparkline::render_braille_mirrored(
             f,
             g,
-            &primary.rx_history,
-            &primary.tx_history,
+            &agg_rx_q,
+            &agg_tx_q,
             green(),
             peach(),
             "k",

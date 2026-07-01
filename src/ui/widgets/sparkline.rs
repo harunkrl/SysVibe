@@ -497,16 +497,14 @@ pub fn braille_smooth_graph(
 
     let sub_h = graph_h * 4;
     // Light moving-average smoothing of the live history (window 3) so real,
-    // bouncy CPU data renders as a smooth curve (btop-style), then resample to
-    // 2× horizontal resolution (linear-interpolated → no aliasing).
-    let smoothed = moving_average(&data_vec, GRAPH_SMOOTH_WINDOW);
+    // High-resolution sub-pixel grid (2x4) — NO smoothing. The sub-pixel grid
+    // already gives crisp detail; moving-average would only lag real values.
+    // We resample to 2x horizontal resolution for crispness (linear interp).
     // RIGHT-TO-LEFT fill: only as many columns as we have history get drawn,
     // newest sample on the right edge. On first launch (short history) the
     // left side stays blank and the graph grows from the right — like btop.
-    // We resample just the filled columns (max = graph_w) and right-align them
-    // into the full `graph_w*2` sample array; the left gutter stays 0 (blank).
-    let fill_cols = graph_w.min(smoothed.len()).max(1);
-    let scaled_samples = resample(&smoothed, fill_cols * 2);
+    let fill_cols = graph_w.min(data_vec.len()).max(1);
+    let scaled_samples = resample(&data_vec, fill_cols * 2);
     let mut hy: Vec<usize> = vec![0; graph_w * 2];
     let off = graph_w * 2 - scaled_samples.len();
     for (i, &v) in scaled_samples.iter().enumerate() {
@@ -633,15 +631,20 @@ pub fn braille_mirrored_graph(
 
     // SHARED scale: both directions measured against the single peak of
     // whichever is larger. Upload that's 1/8 of download now renders 1/8 as
-    // tall (btop net_sync). 2x horizontal resample + moving-average for
-    // smoothness, matching the CPU graph.
+    // DYNAMIC scale with a floor — like the CPU graph's 50% floor. Both
+    // directions share ONE scale (net_sync): upload that's 1/8 of download
+    // renders 1/8 as tall. The floor (~10 Mbps in KiB/s) keeps low-traffic
+    // graphs from looking pinned-to-max when the peak is tiny; the ceiling
+    // grows with the real peak above the floor. No smoothing (sub-pixel grid
+    // is high-res already); 2x horizontal resample only.
+    const NET_FLOOR_KIB: f64 = 1000.0; // ~1 MB/s ≈ 8 Mbps
     let shared_peak = up_vec
         .iter()
         .copied()
         .chain(down_vec.iter().copied())
         .max()
         .unwrap_or(1) as f64;
-    let scale_max = dynamic_ceiling(shared_peak).max(1.0);
+    let scale_max = dynamic_ceiling(shared_peak.max(NET_FLOOR_KIB)).max(1.0);
 
     // Layout: [download area][download baseline][upload baseline][upload area].
     let avail = graph_h.saturating_sub(2);

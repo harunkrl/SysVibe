@@ -437,30 +437,6 @@ fn subpixel_on(hb: usize, h: usize, area: bool) -> bool {
     }
 }
 
-/// Graph smoothing window (centered moving average). Tuned for noisy real
-/// metrics (CPU% bounces every tick) so live data renders as a smooth curve
-/// like btop. Window 5 kills the per-tick staircase without lagging the
-/// leading edge; svshot's demo data now carries realistic noise to exercise it.
-const GRAPH_SMOOTH_WINDOW: usize = 5;
-
-/// Centered moving average over `window` samples (half a window on each side).
-/// Smooths per-tick spikes without lagging the leading edge.
-fn moving_average(data: &[u64], window: usize) -> Vec<u64> {
-    if data.is_empty() || window <= 1 {
-        return data.to_vec();
-    }
-    let half = window / 2;
-    data.iter()
-        .enumerate()
-        .map(|(i, _)| {
-            let lo = i.saturating_sub(half);
-            let hi = (i + half + 1).min(data.len());
-            let slice = &data[lo..hi];
-            slice.iter().sum::<u64>() / slice.len() as u64
-        })
-        .collect()
-}
-
 /// Smooth braille trend graph rendered on a full **2×4 sub-pixel grid** (both
 /// braille columns × 4 vertical sub-pixels per row) with linear-interpolated
 /// data resampled to 2× horizontal resolution. This is the smoothest rendering

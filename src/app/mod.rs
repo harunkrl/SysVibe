@@ -1439,14 +1439,23 @@ impl App {
 // stays warning-free under `--features preview`.)
 // ═══════════════════════════════════════════════════════════════════════
 
-/// Generate a smooth sample history wave (used for sparklines/graphs).
+/// Generate a smooth, realistic sample history (used for sparklines/graphs).
+/// Sum of sines at different frequencies (no `.max(0)` rectification, so no
+/// cusps or flat gaps) → a smooth wander in `[base, base+amp]`. Sharp cuspy
+/// data made trend graphs look jagged no matter the renderer; this mirrors
+/// how real sampled metrics actually move.
 #[cfg(feature = "preview")]
 #[allow(dead_code)]
 fn sample_wave(len: usize, base: u64, amp: u64) -> VecDeque<u64> {
     (0..len)
         .map(|i| {
-            let s = (i as f64 * 0.5).sin().max(0.0);
-            base + (s * amp as f64) as u64
+            let t = i as f64;
+            let s = 0.5
+                + 0.30 * (t * 0.18).sin()
+                + 0.14 * (t * 0.071 + 1.3).sin()
+                + 0.06 * (t * 0.41 + 0.5).sin();
+            let v = base as f64 + s.clamp(0.0, 1.0) * amp as f64;
+            v.round().max(0.0) as u64
         })
         .collect()
 }

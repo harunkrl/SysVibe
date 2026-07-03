@@ -86,20 +86,38 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
     let total_procs = procs.len();
 
     let view_label = if app.tree_view() { "Tree" } else { "Flat" };
+
+    // Aggregate CPU/MEM across the full filtered list, and the live
+    // multi-selection count (if any).
+    let vis_cpu: f32 = procs.iter().map(|p| p.cpu_pct).sum();
+    let vis_mem: f32 = procs.iter().map(|p| p.mem_pct).sum();
+    let sel_n = app.selected_pids.len();
+    let sel_suffix = if sel_n > 0 {
+        format!("  sel:{}", sel_n)
+    } else {
+        String::new()
+    };
+
     let title = if nf {
         format!(
-            "{} Processes [{}] ({}/{})",
+            "{} Processes [{}] ({}/{})  Σ {:.0}%/{:.0}%{}",
             icons::TAB_PROCESSES,
             view_label,
             total_procs,
-            app.total_process_count()
+            app.total_process_count(),
+            vis_cpu,
+            vis_mem,
+            sel_suffix,
         )
     } else {
         format!(
-            "Processes [{}] ({}/{})",
+            "Processes [{}] ({}/{})  Σ {:.0}%/{:.0}%{}",
             view_label,
             total_procs,
-            app.total_process_count()
+            app.total_process_count(),
+            vis_cpu,
+            vis_mem,
+            sel_suffix,
         )
     };
     let block = panel_block_themed(&title, true, sky());
@@ -466,18 +484,33 @@ fn render_tree_view(f: &mut Frame, app: &mut App, area: Rect) {
     let procs = app.filtered_processes();
     let nf = app.config().nerd_fonts;
 
+    let sel_n = app.selected_pids.len();
+    let sel_suffix = if sel_n > 0 {
+        format!("  sel:{}", sel_n)
+    } else {
+        String::new()
+    };
+    let vis_cpu: f32 = procs.iter().map(|p| p.cpu_pct).sum();
+    let vis_mem: f32 = procs.iter().map(|p| p.mem_pct).sum();
+
     let title = if nf {
         format!(
-            "{} Processes [Tree] ({}/{})",
+            "{} Processes [Tree] ({}/{})  Σ {:.0}%/{:.0}%{}",
             icons::TAB_PROCESSES,
             procs.len(),
-            app.total_process_count()
+            app.total_process_count(),
+            vis_cpu,
+            vis_mem,
+            sel_suffix,
         )
     } else {
         format!(
-            "Processes [Tree] ({}/{})",
+            "Processes [Tree] ({}/{})  Σ {:.0}%/{:.0}%{}",
             procs.len(),
-            app.total_process_count()
+            app.total_process_count(),
+            vis_cpu,
+            vis_mem,
+            sel_suffix,
         )
     };
     let block = panel_block_themed(&title, true, sky());

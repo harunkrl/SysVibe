@@ -1129,6 +1129,14 @@ impl App {
     /// current column/direction). Called on first load and on `r`.
     pub fn apply_pending_processes(&mut self) {
         if let Some(mut processes) = self.pending_top_processes.take() {
+            // Remember the selected PID so the view doesn't jump when the
+            // underlying list is replaced (first load, or an explicit `r`
+            // refresh re-sorts the data).
+            let selected_pid = self
+                .proc_table_state
+                .selected()
+                .and_then(|idx| self.top_processes.get(idx).map(|p| p.pid));
+
             processes::sort_process_entries_dir(
                 &mut processes,
                 &self.sort_by,
@@ -1136,6 +1144,16 @@ impl App {
             );
             self.top_processes = processes;
             self.total_process_count_fresh = self.pending_total;
+
+            // Restore the selection onto the same PID (clamp to range).
+            let len = self.top_processes.len();
+            let new_idx = selected_pid
+                .and_then(|pid| self.top_processes.iter().position(|p| p.pid == pid))
+                .unwrap_or_else(|| self.proc_table_state.selected().unwrap_or(0).min(len.saturating_sub(1)));
+            if len > 0 {
+                self.proc_table_state.select(Some(new_idx.min(len - 1)));
+            }
+
             self.filtered_processes_dirty = true;
             self.tree_dirty = true;
             self.processes_initialized = true;

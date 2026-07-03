@@ -115,6 +115,10 @@ pub struct App {
     log_collector: collectors::logs::LogCollector,
     log_follow: bool,
     log_scroll_offset: usize,
+    /// Shared with the background log collector thread: 0 = Kernel, 1 = System.
+    log_scope: Arc<std::sync::atomic::AtomicU8>,
+    /// Shared reset signal: set to true to force the collector to re-fetch.
+    log_reset: Arc<std::sync::atomic::AtomicBool>,
     log_filter_input: String,
     log_filter_active: bool,
     log_level_filter: LogLevelFilter,
@@ -262,6 +266,8 @@ impl App {
             log_collector,
             log_follow: true,
             log_scroll_offset: 0,
+            log_scope: Arc::new(std::sync::atomic::AtomicU8::new(0)),
+            log_reset: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             log_filter_input: String::new(),
             log_filter_active: false,
             log_level_filter: LogLevelFilter::all(),
@@ -763,6 +769,41 @@ impl App {
 
     /// Jump to the newest entry (bottom) and re-enable follow.
     pub fn log_scroll_end(&mut self) {
+        self.log_follow = true;
+        self.log_scroll_offset = 0;
+    }
+
+    /// Handles shared with the background log collector thread.
+    pub fn log_scope_handle(&self) -> Arc<std::sync::atomic::AtomicU8> {
+        Arc::clone(&self.log_scope)
+    }
+    pub fn log_reset_handle(&self) -> Arc<std::sync::atomic::AtomicBool> {
+        Arc::clone(&self.log_reset)
+    }
+
+    /// Current log collection scope (Kernel / System).
+    pub fn log_scope(&self) -> collectors::logs::LogScope {
+        collectors::logs::LogScope::from_u8(
+            self.log_scope.load(std::sync::atomic::Ordering::Relaxed),
+        )
+    }
+
+    /// Toggle between Kernel-only and full-system journal scope. Signals the
+    /// background collector to re-fetch with the new scope.
+    pub fn toggle_log_scope(&mut self) {
+        let cur = self.log_scope();
+        let next = if matches!(cur, collectors::logs::LogScope::Kernel) {
+            collectors::logs::LogScope::System
+        } else {
+            collectors::logs::LogScope::Kernel
+        };
+        self.log_scope
+            .store(next.as_u8(), std::sync::atomic::Ordering::Relaxed);
+        self.log_reset
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        self.log_collector.set_scope(next);
+        self.set_status(format!("Log scope: {}", next.label()));
+        // Return to following so the re-fetched tail is visible.
         self.log_follow = true;
         self.log_scroll_offset = 0;
     }
@@ -1825,6 +1866,8 @@ impl App {
             log_collector: LogCollector::new(),
             log_follow: true,
             log_scroll_offset: 0,
+            log_scope: Arc::new(std::sync::atomic::AtomicU8::new(0)),
+            log_reset: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             log_filter_input: String::new(),
             log_filter_active: false,
             log_level_filter: LogLevelFilter::all(),

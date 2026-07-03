@@ -1,18 +1,18 @@
 //! SysVibe — Logs tab rendering.
 
 use ratatui::{
-    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
+    Frame,
 };
 
 use super::super::helpers::*;
 use super::super::icons;
 use super::super::palette::*;
-use crate::app::App;
 use crate::app::state::LogLevel;
+use crate::app::App;
 
 pub fn render_logs_tab(f: &mut Frame, app: &App, area: Rect) {
     // Split area: level filter bar (row 1), text filter bar (row 2), log entries (rest)
@@ -126,17 +126,28 @@ fn render_log_entries(f: &mut Frame, app: &App, area: Rect) {
     let filtered_count = filtered.len();
     let nf = app.config().nerd_fonts;
 
-    let (log_label, empty_hint) = if cfg!(target_os = "android") {
+    let (base_label, empty_hint) = if cfg!(target_os = "android") {
         (
             "Logcat Logs",
             "No logcat logs available — requires logcat access",
         )
     } else {
+        // Scope-aware label: "Kernel Logs" (kernel-only) or "System Logs"
+        // (whole journal). Falls back to the kernel hint wording.
+        let is_system = matches!(
+            app.log_scope(),
+            crate::app::collectors::logs::LogScope::System
+        );
         (
-            "Kernel Logs",
-            "No kernel logs available — requires journalctl or dmesg access",
+            if is_system { "System Logs" } else { "Kernel Logs" },
+            if is_system {
+                "No system logs available — requires journalctl access"
+            } else {
+                "No kernel logs available — requires journalctl or dmesg access"
+            },
         )
     };
+    let log_label = base_label;
     let block = panel_block_themed("", true, red());
     let inner = block.inner(area);
 
@@ -160,7 +171,13 @@ fn render_log_entries(f: &mut Frame, app: &App, area: Rect) {
         }
         // Still draw the (titled) border on the empty panel.
         let title = if nf {
-            format!("{} {}  ({}/{})", icons::TAB_LOGS, log_label, filtered_count, total_count)
+            format!(
+                "{} {}  ({}/{})",
+                icons::TAB_LOGS,
+                log_label,
+                filtered_count,
+                total_count
+            )
         } else {
             format!("{}  ({}/{})", log_label, filtered_count, total_count)
         };
@@ -191,10 +208,17 @@ fn render_log_entries(f: &mut Frame, app: &App, area: Rect) {
     let title = if nf {
         format!(
             "{} {}  ({}/{})  {}",
-            icons::TAB_LOGS, log_label, filtered_count, total_count, position
+            icons::TAB_LOGS,
+            log_label,
+            filtered_count,
+            total_count,
+            position
         )
     } else {
-        format!("{}  ({}/{})  {}", log_label, filtered_count, total_count, position)
+        format!(
+            "{}  ({}/{})  {}",
+            log_label, filtered_count, total_count, position
+        )
     };
     let block = panel_block_themed(&title, true, red());
     f.render_widget(block, area);

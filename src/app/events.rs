@@ -4,9 +4,9 @@
 
 use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind};
 
-use super::App;
 use super::error::AppResult;
 use super::state::{AppMode, AppTab, SortBy};
+use super::App;
 
 /// Top-level event dispatcher.
 pub fn handle_event(app: &mut App, event: Event) -> AppResult<()> {
@@ -47,14 +47,18 @@ fn handle_normal_key(app: &mut App, code: KeyCode, _mods: KeyModifiers) {
         KeyCode::Home => app.navigate_home(),
         KeyCode::End => app.navigate_end(),
         KeyCode::Char('s') => {
-            let next = match app.sort_by {
-                SortBy::Cpu => SortBy::Mem,
-                SortBy::Mem => SortBy::Pid,
-                SortBy::Pid => SortBy::Name,
-                SortBy::Name => SortBy::Cpu,
-            };
-            app.sort_by = next;
-            app.refresh_top_processes();
+            if app.tab == AppTab::Logs {
+                app.toggle_log_scope();
+            } else {
+                let next = match app.sort_by {
+                    SortBy::Cpu => SortBy::Mem,
+                    SortBy::Mem => SortBy::Pid,
+                    SortBy::Pid => SortBy::Name,
+                    SortBy::Name => SortBy::Cpu,
+                };
+                app.sort_by = next;
+                app.refresh_top_processes();
+            }
         }
         KeyCode::Char('r') => {
             if app.tab == AppTab::Logs {

@@ -16,8 +16,9 @@ pub fn format_timestamp_us(us: u64) -> String {
     let hh = tod / 3600;
     let mm = (tod % 3600) / 60;
     let ss = tod % 60;
-    let mon = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-        [(m - 1) as usize];
+    let mon = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ][(m - 1) as usize];
     format!("{} {:02} {:02}:{:02}:{:02}", mon, d, hh, mm, ss)
 }
 
@@ -71,10 +72,52 @@ fn detect_log_level(msg: &str) -> LogLevel {
 }
 
 /// Collector for kernel log entries.
+/// Which journal entries to collect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LogScope {
+    /// Kernel messages only (`journalctl -k`). Focused, low-noise. Default.
+    #[default]
+    Kernel,
+    /// The whole system journal (`journalctl`, no `-k`) — services, syslog,
+    /// applications. Noisier but matches the "Logs" tab name.
+    System,
+}
+
+impl LogScope {
+    /// `true` when the `journalctl -k` flag should be passed.
+    pub fn is_kernel(self) -> bool {
+        matches!(self, LogScope::Kernel)
+    }
+
+    /// Short display label.
+    pub fn label(self) -> &'static str {
+        match self {
+            LogScope::Kernel => "Kernel",
+            LogScope::System => "System",
+        }
+    }
+
+    /// Encode/decode to an atomic-friendly integer.
+    pub fn as_u8(self) -> u8 {
+        match self {
+            LogScope::Kernel => 0,
+            LogScope::System => 1,
+        }
+    }
+    pub fn from_u8(v: u8) -> Self {
+        if v == 1 {
+            LogScope::System
+        } else {
+            LogScope::Kernel
+        }
+    }
+}
+
 pub struct LogCollector {
     entries: VecDeque<LogEntry>,
     use_journalctl: bool,
     initialized: bool,
+    scope: LogScope,
 }
 
 impl Default for LogCollector {
@@ -96,7 +139,24 @@ impl LogCollector {
             entries: VecDeque::with_capacity(MAX_LOG_LINES),
             use_journalctl,
             initialized: false,
+            scope: LogScope::Kernel,
         }
+    }
+
+    /// Set the collection scope and force a full re-fetch on the next refresh.
+    pub fn set_scope(&mut self, scope: LogScope) {
+        if self.scope != scope {
+            self.scope = scope;
+            self.initialized = false; // force a clean re-fetch
+            self.entries.clear();
+        }
+    }
+
+    /// Force the next refresh to re-fetch the whole tail (e.g. after a scope
+    /// change signalled from elsewhere).
+    pub fn reset(&mut self) {
+        self.initialized = false;
+        self.entries.clear();
     }
 
     /// Refresh log entries from the system.
@@ -131,9 +191,14 @@ impl LogCollector {
         // of which the `short` format collapses or drops.
         let n = if !self.initialized { 200 } else { 50 };
         let n_str = n.to_string();
-        let args = ["-k", "--no-pager", "-o", "json", "-n", &n_str, "--no-hostname"];
+        // `-k` (kernel only) is added only for the Kernel scope; System shows
+        // the whole journal (services, syslog, applications).
+        let mut args: Vec<&str> = vec!["--no-pager", "-o", "json", "-n", &n_str, "--no-hostname"];
+        if self.scope.is_kernel() {
+            args.insert(0, "-k");
+        }
 
-        let output = match Command::new("journalctl").args(args).output() {
+        let output = match Command::new("journalctl").args(&args).output() {
             Ok(o) if o.status.success() => o,
             _ => return,
         };
@@ -249,7 +314,11 @@ fn parse_journal_json(line: &str) -> Option<LogEntry> {
         .get("SYSLOG_IDENTIFIER")
         .and_then(|s| s.as_str())
         .map(|s| s.to_string())
-        .or_else(|| v.get("_COMM").and_then(|s| s.as_str()).map(|s| s.to_string()));
+        .or_else(|| {
+            v.get("_COMM")
+                .and_then(|s| s.as_str())
+                .map(|s| s.to_string())
+        });
 
     Some(LogEntry {
         timestamp,
@@ -264,7 +333,10 @@ fn parse_dmesg_line(line: &str) -> LogEntry {
     // dmesg reltime format: "[  123.456789] module: message"
     let (ts_display, message) = if line.starts_with('[') {
         if let Some(end) = line.find(']') {
-            (line[1..end].trim().to_string(), line[end + 1..].trim().to_string())
+            (
+                line[1..end].trim().to_string(),
+                line[end + 1..].trim().to_string(),
+            )
         } else {
             (String::new(), line.to_string())
         }

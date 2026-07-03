@@ -15,6 +15,7 @@ mod ui;
 use app::App;
 use config::Config;
 use std::io;
+use std::sync::Arc;
 
 use crossterm::{
     event::{self, EventStream},
@@ -156,7 +157,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (tx, mut rx) = mpsc::channel::<StateUpdate>(64);
 
     // 6. Spawn background data collection tasks
-    spawn_collector_tasks(tx, &config);
+    spawn_collector_tasks(
+        tx,
+        &config,
+        app.log_scope_handle(),
+        app.log_reset_handle(),
+    );
 
     // 7. Run the async UI loop
     let res = run_async_app(&mut terminal, &mut app, &mut rx).await;
@@ -181,7 +187,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 // Background collector tasks
 // ═══════════════════════════════════════════════════════════════════════
 
-fn spawn_collector_tasks(tx: mpsc::Sender<StateUpdate>, config: &Config) {
+fn spawn_collector_tasks(
+    tx: mpsc::Sender<StateUpdate>,
+    config: &Config,
+    log_scope: Arc<std::sync::atomic::AtomicU8>,
+    log_reset: Arc<std::sync::atomic::AtomicBool>,
+) {
     let data_refresh_ms = config.data_refresh_rate;
     let sensor_refresh_ms = config.sensor_refresh_rate;
     let process_refresh_ms = config.process_refresh_rate;
@@ -334,6 +345,19 @@ fn spawn_collector_tasks(tx: mpsc::Sender<StateUpdate>, config: &Config) {
 
         loop {
             std::thread::sleep(interval);
+
+            // Pick up runtime scope changes signalled from the UI: apply the
+            // shared scope and, if requested, force a full re-fetch.
+            let scope = app::collectors::logs::LogScope::from_u8(
+                log_scope.load(std::sync::atomic::Ordering::Relaxed),
+            );
+            log_collector.set_scope(scope);
+            if log_reset
+                .swap(false, std::sync::atomic::Ordering::Relaxed)
+            {
+                log_collector.reset();
+            }
+
             log_collector.refresh();
 
             drop(tx_logs.blocking_send(StateUpdate::Logs {

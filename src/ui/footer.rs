@@ -159,6 +159,8 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
                     s.push(sep());
                     s.extend(key_desc("r", "Refresh"));
                     s.push(sep());
+                    s.extend(key_desc("s", "Scope"));
+                    s.push(sep());
                     s.extend(key_desc("e", "Err"));
                     s.push(sep());
                     s.extend(key_desc("w", "Wrn"));

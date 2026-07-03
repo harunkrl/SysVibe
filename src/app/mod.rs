@@ -81,6 +81,16 @@ pub struct App {
 
     // Processes
     top_processes: Vec<ProcessEntry>,
+    /// Most recent process list from the background collector, held in a
+    /// pending buffer and only swapped into `top_processes` on the first load
+    /// or an explicit refresh (`r`). This keeps the displayed table FROZEN so
+    /// sorting/browsing isn't disrupted by every auto-refresh.
+    pending_top_processes: Option<Vec<ProcessEntry>>,
+    pending_total: usize,
+    /// True once the initial process list has been applied to the display.
+    processes_initialized: bool,
+    /// When true, the process view shows only space-marked entries.
+    show_selected_only: bool,
     total_process_count_fresh: usize,
     pub proc_table_state: TableState,
     pub tab: AppTab,
@@ -248,6 +258,10 @@ impl App {
             battery_power_history: VecDeque::with_capacity(HISTORY_LEN),
             battery_charge_history: VecDeque::with_capacity(HISTORY_LEN),
             top_processes: Vec::new(),
+            pending_top_processes: None,
+            pending_total: 0,
+            processes_initialized: false,
+            show_selected_only: false,
             total_process_count_fresh: 0,
             proc_table_state: TableState::default(),
             sort_by: SortBy::default(),
@@ -499,35 +513,49 @@ impl App {
         false
     }
 
+    /// Is a process currently space-marked?
+    fn is_marked(&self, pid: u32) -> bool {
+        self.selected_pids.iter().any(|(spid, _)| *spid == pid)
+    }
+
     pub fn filtered_processes(&self) -> Vec<&ProcessEntry> {
         // Note: we can't mutate self here, so the cache is rebuilt lazily
         // via rebuild_filtered_cache() called from apply_state_update().
         // This accessor is cheap: it just indexes into top_processes.
-        if !self.filter_active || self.filter_input.is_empty() {
-            self.top_processes.iter().collect()
-        } else {
-            let query = self.filter_input.to_lowercase();
-            self.top_processes
-                .iter()
-                .filter(|p| Self::process_matches_filter(p, &query))
-                .collect()
-        }
+        let text_match = |p: &ProcessEntry| {
+            if !self.filter_active || self.filter_input.is_empty() {
+                true
+            } else {
+                Self::process_matches_filter(p, &self.filter_input.to_lowercase())
+            }
+        };
+        self.top_processes
+            .iter()
+            .filter(|p| text_match(p))
+            .filter(|p| !self.show_selected_only || self.is_marked(p.pid))
+            .collect()
     }
 
     /// Rebuild the filtered process cache. Called when processes or filter changes.
     fn rebuild_filtered_cache(&mut self) {
-        if !self.filter_active || self.filter_input.is_empty() {
-            self.cached_filtered_processes = (0..self.top_processes.len()).collect();
-        } else {
-            let query = self.filter_input.to_lowercase();
-            self.cached_filtered_processes = self
-                .top_processes
-                .iter()
-                .enumerate()
-                .filter(|(_, p)| Self::process_matches_filter(p, &query))
-                .map(|(i, _)| i)
-                .collect();
-        }
+        let query = self.filter_input.to_lowercase();
+        let text_active = self.filter_active && !self.filter_input.is_empty();
+        let marked_only = self.show_selected_only;
+        self.cached_filtered_processes = self
+            .top_processes
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| {
+                let text_ok = if text_active {
+                    Self::process_matches_filter(p, &query)
+                } else {
+                    true
+                };
+                let marked_ok = !marked_only || self.is_marked(p.pid);
+                text_ok && marked_ok
+            })
+            .map(|(i, _)| i)
+            .collect();
         self.filtered_processes_dirty = false;
     }
 
@@ -1083,17 +1111,70 @@ impl App {
     }
 
     pub fn set_top_processes(&mut self, processes: Vec<ProcessEntry>, total: usize) {
-        self.top_processes = processes;
-        // Re-sort with the user's chosen column + direction so the background
-        // collector's default (Cpu, desc) never overrides the UI selection.
+        // Buffer the latest snapshot from the collector. The displayed table is
+        // FROZEN: we only swap this in on the first load or an explicit refresh
+        // (`r`), so sorting/browsing isn't disrupted by every auto-refresh.
+        self.pending_top_processes = Some(processes);
+        self.pending_total = total;
+        if !self.processes_initialized {
+            self.apply_pending_processes();
+        }
+    }
+
+    /// Swap the buffered snapshot into the displayed table (re-sorted by the
+    /// current column/direction). Called on first load and on `r`.
+    pub fn apply_pending_processes(&mut self) {
+        if let Some(mut processes) = self.pending_top_processes.take() {
+            processes::sort_process_entries_dir(
+                &mut processes,
+                &self.sort_by,
+                self.sort_dir,
+            );
+            self.top_processes = processes;
+            self.total_process_count_fresh = self.pending_total;
+            self.filtered_processes_dirty = true;
+            self.tree_dirty = true;
+            self.processes_initialized = true;
+        }
+    }
+
+    /// Re-sort the currently-displayed process list in place (used when the
+    /// sort column/direction changes while the table is frozen).
+    pub fn resort_displayed_processes(&mut self) {
         processes::sort_process_entries_dir(
             &mut self.top_processes,
             &self.sort_by,
             self.sort_dir,
         );
-        self.total_process_count_fresh = total;
         self.filtered_processes_dirty = true;
         self.tree_dirty = true;
+    }
+
+    /// Toggle showing only space-marked processes.
+    pub fn toggle_show_selected_only(&mut self) {
+        self.show_selected_only = !self.show_selected_only;
+        self.filtered_processes_dirty = true;
+        self.tree_dirty = true;
+        let state = if self.show_selected_only {
+            "Marked only"
+        } else {
+            "All"
+        };
+        self.set_status(format!("Processes: {}", state));
+    }
+
+    pub fn show_selected_only(&self) -> bool {
+        self.show_selected_only
+    }
+
+    /// Force the filtered-process + tree caches to rebuild on the next render.
+    pub fn mark_filtered_dirty(&mut self) {
+        self.filtered_processes_dirty = true;
+        self.tree_dirty = true;
+    }
+
+    pub fn has_pending_processes(&self) -> bool {
+        self.pending_top_processes.is_some()
     }
 
     pub fn set_per_core_history(&mut self, history: Vec<VecDeque<u64>>) {
@@ -1852,6 +1933,10 @@ impl App {
             }),
             battery_power_history: sample_wave(HISTORY_LEN, 5, 8),
             battery_charge_history: sample_wave(HISTORY_LEN, 80, 10),
+            pending_top_processes: None,
+            pending_total: 0,
+            processes_initialized: true, // sample data is already displayed
+            show_selected_only: false,
             top_processes: vec![
                 ProcessEntry { pid: 1422, parent_pid: 1, name: "firefox".into(), cpu_pct: 38.4, mem_pct: 12.1, cmdline: "/usr/lib/firefox/firefox".into(), user: Some("lenovo".into()) },
                 ProcessEntry { pid: 9821, parent_pid: 1422, name: "Web Content".into(), cpu_pct: 22.7, mem_pct: 6.4, cmdline: "/usr/lib/firefox/plugin-container".into(), user: Some("lenovo".into()) },

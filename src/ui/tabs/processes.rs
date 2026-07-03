@@ -5,14 +5,14 @@
 use super::super::helpers::*;
 use super::super::icons;
 use super::super::palette::*;
-use crate::app::App;
 use crate::app::state::{AppMode, ProcessEntry, SortBy};
+use crate::app::App;
 use ratatui::{
-    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Cell, Paragraph, Row, Table},
+    Frame,
 };
 
 pub fn render_processes_tab(f: &mut Frame, app: &mut App, area: Rect) {
@@ -86,6 +86,10 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
     let total_procs = procs.len();
 
     let view_label = if app.tree_view() { "Tree" } else { "Flat" };
+    let mode_label = if app.show_selected_only() { " Marked" } else { "" };
+    // A dot in the title signals that a newer snapshot is buffered and `r`
+    // will apply it (the table is otherwise frozen).
+    let pending_dot = if app.has_pending_processes() { " ●" } else { "" };
 
     // Aggregate CPU/MEM across the full filtered list, and the live
     // multi-selection count (if any).
@@ -100,24 +104,28 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
 
     let title = if nf {
         format!(
-            "{} Processes [{}] ({}/{})  Σ {:.0}%/{:.0}%{}",
+            "{} Processes{} [{}] ({}/{})  Σ {:.0}%/{:.0}%{}{}",
             icons::TAB_PROCESSES,
+            mode_label,
             view_label,
             total_procs,
             app.total_process_count(),
             vis_cpu,
             vis_mem,
             sel_suffix,
+            pending_dot,
         )
     } else {
         format!(
-            "Processes [{}] ({}/{})  Σ {:.0}%/{:.0}%{}",
+            "Processes{} [{}] ({}/{})  Σ {:.0}%/{:.0}%{}{}",
+            mode_label,
             view_label,
             total_procs,
             app.total_process_count(),
             vis_cpu,
             vis_mem,
             sel_suffix,
+            pending_dot,
         )
     };
     let block = panel_block_themed(&title, true, sky());
@@ -207,8 +215,8 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
         Constraint::Length(8),
         Constraint::Min(10),   // NAME (flexible, takes leftover)
         Constraint::Length(9), // USER
-        Constraint::Length(10),
-        Constraint::Length(10),
+        Constraint::Length(12), // CPU% + 5-cell bar
+        Constraint::Length(12), // MEM% + 5-cell bar
     ];
 
     // Only build rows for the visible slice (virtual scrolling)
@@ -222,6 +230,7 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
         let name_color = if is_selected { peach() } else { text() };
 
         let proc_icon = if nf { icons::PROCESS_RUNNING } else { "" };
+        let icon_sep = if proc_icon.is_empty() { "" } else { " " };
 
         // Zebra striping based on absolute row index
         let row_bg = if row_idx % 2 == 1 {
@@ -230,21 +239,19 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
             mantle()
         };
 
-        // Visual mini-bars (compact: 4 chars wide to fit in Length(10) column)
-        let bar_len = 4;
+        // Progress bar: filled portion in the usage colour over a dim track,
+        // so the bar reads as a gauge rather than a coloured block on the row
+        // background. Five cells wide for a smoother read.
+        let bar_len = 5usize;
         let c_fill = ((p.cpu_pct / 100.0) * bar_len as f32).round() as usize;
-        let c_bar = format!(
-            "{}{}",
-            "█".repeat(c_fill.min(bar_len)),
-            "░".repeat(bar_len.saturating_sub(c_fill))
-        );
+        let c_fill = c_fill.min(bar_len);
+        let c_bar_filled = "█".repeat(c_fill);
+        let c_bar_track = "░".repeat(bar_len - c_fill);
 
         let m_fill = ((p.mem_pct / 100.0) * bar_len as f32).round() as usize;
-        let m_bar = format!(
-            "{}{}",
-            "█".repeat(m_fill.min(bar_len)),
-            "░".repeat(bar_len.saturating_sub(m_fill))
-        );
+        let m_fill = m_fill.min(bar_len);
+        let m_bar_filled = "█".repeat(m_fill);
+        let m_bar_track = "░".repeat(bar_len - m_fill);
 
         // Owner: root → red (system), others → subtext; missing → overlay.
         let user_text = p.user.as_deref().unwrap_or("?");
@@ -267,7 +274,7 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
                 Style::default().fg(overlay()).bg(row_bg),
             )),
             Cell::from(Span::styled(
-                format!("{}{}{}", prefix, proc_icon, p.name),
+                format!("{}{}{}{}", prefix, proc_icon, icon_sep, p.name),
                 Style::default().fg(name_color).bg(row_bg),
             )),
             Cell::from(Span::styled(
@@ -276,17 +283,19 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
             )),
             Cell::from(Line::from(vec![
                 Span::styled(
-                    format!(" {:>4.0}%", p.cpu_pct),
+                    format!(" {:>4.0}% ", p.cpu_pct),
                     Style::default().fg(cpu_color).bg(row_bg),
                 ),
-                Span::styled(c_bar, Style::default().fg(cpu_color).bg(row_bg)),
+                Span::styled(c_bar_filled, Style::default().fg(cpu_color).bg(row_bg)),
+                Span::styled(c_bar_track, Style::default().fg(surface2()).bg(row_bg)),
             ])),
             Cell::from(Line::from(vec![
                 Span::styled(
-                    format!(" {:>4.0}%", p.mem_pct),
+                    format!(" {:>4.0}% ", p.mem_pct),
                     Style::default().fg(mem_color).bg(row_bg),
                 ),
-                Span::styled(m_bar, Style::default().fg(mem_color).bg(row_bg)),
+                Span::styled(m_bar_filled, Style::default().fg(mem_color).bg(row_bg)),
+                Span::styled(m_bar_track, Style::default().fg(surface2()).bg(row_bg)),
             ])),
         ])
     });

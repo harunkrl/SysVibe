@@ -41,11 +41,11 @@ pub fn build_process_list_dir(
         // Compute the ascending comparison for the active column, then flip
         // the primary key when the requested direction is descending.
         let asc = match sort_by {
-            SortBy::Cpu => a
-                .1
-                .cpu_usage()
-                .partial_cmp(&b.1.cpu_usage())
-                .unwrap_or(std::cmp::Ordering::Equal),
+            SortBy::Cpu => {
+                a.1.cpu_usage()
+                    .partial_cmp(&b.1.cpu_usage())
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            }
             SortBy::Mem => a.1.memory().cmp(&b.1.memory()),
             SortBy::Pid => a.0.cmp(b.0),
             SortBy::Name => a.1.name().cmp(b.1.name()),
@@ -136,11 +136,7 @@ pub fn sort_process_entries(entries: &mut [ProcessEntry], sort_by: &SortBy) {
     sort_process_entries_dir(entries, sort_by, SortDir::default());
 }
 
-pub fn sort_process_entries_dir(
-    entries: &mut [ProcessEntry],
-    sort_by: &SortBy,
-    sort_dir: SortDir,
-) {
+pub fn sort_process_entries_dir(entries: &mut [ProcessEntry], sort_by: &SortBy, sort_dir: SortDir) {
     let desc = matches!(sort_dir, SortDir::Descending);
     entries.sort_by(|a, b| {
         let asc = match sort_by {
@@ -148,7 +144,10 @@ pub fn sort_process_entries_dir(
                 .cpu_pct
                 .partial_cmp(&b.cpu_pct)
                 .unwrap_or(std::cmp::Ordering::Equal),
-            SortBy::Mem => a.mem_pct.partial_cmp(&b.mem_pct).unwrap_or(std::cmp::Ordering::Equal),
+            SortBy::Mem => a
+                .mem_pct
+                .partial_cmp(&b.mem_pct)
+                .unwrap_or(std::cmp::Ordering::Equal),
             SortBy::Pid => return a.pid.cmp(&b.pid),
             SortBy::Name => return a.name.cmp(&b.name),
         };

@@ -59,20 +59,23 @@ fn handle_normal_key(app: &mut App, code: KeyCode, _mods: KeyModifiers) {
                 // Switching column resets to that column's natural direction.
                 app.sort_dir = next.default_dir();
                 app.sort_by = next;
-                app.refresh_top_processes();
+                app.resort_displayed_processes();
             }
         }
         KeyCode::Char('S') => {
             // Shift+S — flip the process table sort direction (asc/desc).
             app.sort_dir = app.sort_dir.toggle();
-            app.refresh_top_processes();
+            app.resort_displayed_processes();
         }
         KeyCode::Char('r') => {
             if app.tab == AppTab::Logs {
                 app.refresh_logs();
                 app.set_status("Refreshed kernel logs".into());
-            } else {
-                app.refresh_top_processes();
+            } else if app.tab == AppTab::Processes {
+                // Manual refresh: swap the buffered snapshot into the frozen
+                // table. The background collector keeps its deltas fresh, so
+                // the applied data is current.
+                app.apply_pending_processes();
                 let count = app.filtered_processes().len();
                 app.set_status(format!("Refreshed — {} processes", count));
             }
@@ -160,13 +163,30 @@ fn handle_normal_key(app: &mut App, code: KeyCode, _mods: KeyModifiers) {
                     }
                 }
             }
+            // Keep the "marked only" view in sync as the selection changes.
+            if app.show_selected_only() {
+                app.mark_filtered_dirty();
+            }
             app.navigate_down();
         }
         KeyCode::Char('c') if !app.selected_pids.is_empty() => {
             let count = app.selected_pids.len();
             app.selected_pids.clear();
+            // Leaving "marked only" view on with no marks would blank the list.
+            if app.show_selected_only() {
+                app.toggle_show_selected_only();
+            }
             app.set_status(format!("Cleared {} selection(s)", count));
         }
+        KeyCode::Char('m')
+            // Toggle showing only space-marked processes.
+            if app.tab == AppTab::Processes => {
+                if app.selected_pids.is_empty() && !app.show_selected_only() {
+                    app.set_status("Mark processes with Space first".into());
+                } else {
+                    app.toggle_show_selected_only();
+                }
+            }
         _ => {}
     }
 }

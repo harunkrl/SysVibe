@@ -291,7 +291,7 @@ impl App {
             panel_focus: PanelFocus::default(),
             tab_hit_regions: Vec::new(),
             tree_view: false,
-            cpu_normalized: true,
+            cpu_normalized: false,
             last_tick: now,
             last_refresh: now,
 
@@ -897,6 +897,19 @@ impl App {
 
     pub fn cpu_normalized(&self) -> bool {
         self.cpu_normalized
+    }
+
+    /// Convert a raw per-core CPU% to the value shown in the process table:
+    /// divided by the core count when normalized mode is on, unchanged when
+    /// per-core mode is on. Process entries always store the raw value so the
+    /// `g` toggle takes effect instantly even on the frozen table.
+    pub fn cpu_display(&self, raw: f32) -> f32 {
+        if self.cpu_normalized {
+            let cores = self.num_cores().max(1) as f32;
+            raw / cores
+        } else {
+            raw
+        }
     }
 
     pub fn toggle_cpu_normalized(&mut self) {
@@ -1984,7 +1997,7 @@ impl App {
             panel_focus: PanelFocus::default(),
             tab_hit_regions: Vec::new(),
             tree_view: false,
-            cpu_normalized: true,
+            cpu_normalized: false,
             last_tick: now,
             last_refresh: now,
             last_sensor_refresh: now,

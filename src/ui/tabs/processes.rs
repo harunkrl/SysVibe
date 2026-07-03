@@ -86,14 +86,22 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
     let total_procs = procs.len();
 
     let view_label = if app.tree_view() { "Tree" } else { "Flat" };
-    let mode_label = if app.show_selected_only() { " Marked" } else { "" };
+    let mode_label = if app.show_selected_only() {
+        " Marked"
+    } else {
+        ""
+    };
     // A dot in the title signals that a newer snapshot is buffered and `r`
     // will apply it (the table is otherwise frozen).
-    let pending_dot = if app.has_pending_processes() { " ●" } else { "" };
+    let pending_dot = if app.has_pending_processes() {
+        " ●"
+    } else {
+        ""
+    };
 
     // Aggregate CPU/MEM across the full filtered list, and the live
-    // multi-selection count (if any).
-    let vis_cpu: f32 = procs.iter().map(|p| p.cpu_pct).sum();
+    // multi-selection count (if any). CPU is normalized for the display mode.
+    let vis_cpu: f32 = procs.iter().map(|p| app.cpu_display(p.cpu_pct)).sum();
     let vis_mem: f32 = procs.iter().map(|p| p.mem_pct).sum();
     let sel_n = app.selected_pids.len();
     let sel_suffix = if sel_n > 0 {
@@ -213,16 +221,19 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
 
     let widths = [
         Constraint::Length(8),
-        Constraint::Min(10),   // NAME (flexible, takes leftover)
-        Constraint::Length(9), // USER
+        Constraint::Min(10),    // NAME (flexible, takes leftover)
+        Constraint::Length(9),  // USER
         Constraint::Length(12), // CPU% + 5-cell bar
         Constraint::Length(12), // MEM% + 5-cell bar
     ];
 
     // Only build rows for the visible slice (virtual scrolling)
-    let rows = visible_procs.iter().enumerate().map(|(local_idx, p)| {
+        let bar_len: u16 = 5;
+        let rows = visible_procs.iter().enumerate().map(|(local_idx, p)| {
         let row_idx = scroll_offset + local_idx;
-        let cpu_color = usage_color(p.cpu_pct);
+        // CPU is stored raw (per-core); normalize for display via the `g` toggle.
+        let cpu_disp = app.cpu_display(p.cpu_pct);
+        let cpu_color = usage_color(cpu_disp);
         let mem_color = usage_color(p.mem_pct);
 
         let is_selected = app.selected_pids.iter().any(|(pid, _)| *pid == p.pid);
@@ -239,19 +250,17 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
             mantle()
         };
 
-        // Progress bar: filled portion in the usage colour over a dim track,
-        // so the bar reads as a gauge rather than a coloured block on the row
-        // background. Five cells wide for a smoother read.
-        let bar_len = 5usize;
-        let c_fill = ((p.cpu_pct / 100.0) * bar_len as f32).round() as usize;
-        let c_fill = c_fill.min(bar_len);
-        let c_bar_filled = "█".repeat(c_fill);
-        let c_bar_track = "░".repeat(bar_len - c_fill);
-
-        let m_fill = ((p.mem_pct / 100.0) * bar_len as f32).round() as usize;
-        let m_fill = m_fill.min(bar_len);
-        let m_bar_filled = "█".repeat(m_fill);
-        let m_bar_track = "░".repeat(bar_len - m_fill);
+        // Gradient bar (same style as the other tabs): CPU uses the displayed
+        // value (normalized when the `g` toggle is on), MEM is a fraction of
+        // total memory.
+        let cpu_bar = crate::ui::helpers::gradient_bar_spans(
+            bar_len,
+            ((cpu_disp as f64) / 100.0).clamp(0.0, 1.0),
+        );
+        let mem_bar = crate::ui::helpers::gradient_bar_spans(
+            bar_len,
+            ((p.mem_pct as f64) / 100.0).clamp(0.0, 1.0),
+        );
 
         // Owner: root → red (system), others → subtext; missing → overlay.
         let user_text = p.user.as_deref().unwrap_or("?");
@@ -268,6 +277,23 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
             user_text.to_string()
         };
 
+        let mut cpu_cell: Vec<Span> = vec![Span::styled(
+            format!(" {:>4.0}% ", cpu_disp),
+            Style::default().fg(cpu_color).bg(row_bg),
+        )];
+        cpu_cell.extend(cpu_bar.into_iter().map(|mut sp| {
+            sp.style = sp.style.bg(row_bg);
+            sp
+        }));
+        let mut mem_cell: Vec<Span> = vec![Span::styled(
+            format!(" {:>4.0}% ", p.mem_pct),
+            Style::default().fg(mem_color).bg(row_bg),
+        )];
+        mem_cell.extend(mem_bar.into_iter().map(|mut sp| {
+            sp.style = sp.style.bg(row_bg);
+            sp
+        }));
+
         Row::new(vec![
             Cell::from(Span::styled(
                 format!("{}", p.pid),
@@ -281,22 +307,8 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
                 user_cell,
                 Style::default().fg(user_color).bg(row_bg),
             )),
-            Cell::from(Line::from(vec![
-                Span::styled(
-                    format!(" {:>4.0}% ", p.cpu_pct),
-                    Style::default().fg(cpu_color).bg(row_bg),
-                ),
-                Span::styled(c_bar_filled, Style::default().fg(cpu_color).bg(row_bg)),
-                Span::styled(c_bar_track, Style::default().fg(surface2()).bg(row_bg)),
-            ])),
-            Cell::from(Line::from(vec![
-                Span::styled(
-                    format!(" {:>4.0}% ", p.mem_pct),
-                    Style::default().fg(mem_color).bg(row_bg),
-                ),
-                Span::styled(m_bar_filled, Style::default().fg(mem_color).bg(row_bg)),
-                Span::styled(m_bar_track, Style::default().fg(surface2()).bg(row_bg)),
-            ])),
+            Cell::from(Line::from(cpu_cell)),
+            Cell::from(Line::from(mem_cell)),
         ])
     });
 

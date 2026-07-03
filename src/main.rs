@@ -300,11 +300,15 @@ fn spawn_collector_tasks(
             std::thread::sleep(interval);
 
             sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+            // Always collect RAW per-core CPU% (a process saturating one core
+            // shows ~100%); normalization is applied at display time via the
+            // `g` toggle. Sending normalized values made a loaded process look
+            // tiny on many-core machines.
             let processes = app::processes::build_process_list(
                 &sys,
                 &app::state::SortBy::Cpu,
                 max_procs,
-                true, // normalized by default
+                false, // raw per-core
             );
 
             let total = sys.processes().len();

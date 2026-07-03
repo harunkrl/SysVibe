@@ -119,15 +119,22 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
                     s.extend(key_desc(
                         "g",
                         if app.cpu_normalized() {
-                            "Per-Core"
-                        } else {
                             "Norm"
+                        } else {
+                            "Per-Core"
                         },
                     ));
                     s.push(sep());
                     s.extend(key_desc("r", "Refresh"));
                     s.push(sep());
-                    s.extend(key_desc("m", if app.show_selected_only() { "All" } else { "Marked" }));
+                    s.extend(key_desc(
+                        "m",
+                        if app.show_selected_only() {
+                            "All"
+                        } else {
+                            "Marked"
+                        },
+                    ));
                     s.push(sep());
                     s.extend(key_desc("x", "Kill"));
                     s.push(sep());

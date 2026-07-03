@@ -40,7 +40,7 @@ pub fn render_system_tab(f: &mut Frame, app: &App, area: Rect) {
         // Single column: identity lines then hardware lines, in one panel.
         let focus = app.panel_focus();
         let title = icons::titled(app, icons::OS_LINUX, icons::fallback::OS_LINUX, "System Info");
-        let block = panel_block_focused(&title, focus == PanelFocus::Panel1);
+        let block = panel_block_themed(&title, focus == PanelFocus::Panel1, mauve());
         let inner = block.inner(area);
         f.render_widget(block, area);
         let max_w = inner.width as usize;
@@ -53,7 +53,7 @@ pub fn render_system_tab(f: &mut Frame, app: &App, area: Rect) {
 fn render_identity_panel(f: &mut Frame, area: Rect, app: &App, _two_col: bool) {
     let focus = app.panel_focus();
     let title = icons::titled(app, icons::OS_LINUX, icons::fallback::OS_LINUX, "System");
-    let block = panel_block_focused(&title, focus == PanelFocus::Panel1);
+    let block = panel_block_themed(&title, focus == PanelFocus::Panel1, mauve());
     let inner = block.inner(area);
     f.render_widget(block, area);
     let lines = identity_lines(app, inner.width as usize);
@@ -63,7 +63,7 @@ fn render_identity_panel(f: &mut Frame, area: Rect, app: &App, _two_col: bool) {
 fn render_hardware_panel(f: &mut Frame, area: Rect, app: &App, _two_col: bool) {
     let focus = app.panel_focus();
     let title = icons::titled(app, icons::CHIP, icons::fallback::CPU, "Hardware");
-    let block = panel_block_focused(&title, focus == PanelFocus::Panel2);
+    let block = panel_block_themed(&title, focus == PanelFocus::Panel2, sapphire());
     let inner = block.inner(area);
     f.render_widget(block, area);
     let lines = hardware_lines(app, inner.width as usize);

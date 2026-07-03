@@ -593,9 +593,10 @@ fn render_network(f: &mut Frame, app: &App, area: Rect, focused: bool) {
         stats.len()
     );
     f.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(head, Style::default().fg(text())),
-        ])),
+        Paragraph::new(Line::from(vec![Span::styled(
+            head,
+            Style::default().fg(text()),
+        )])),
         chunks[0],
     );
 
@@ -628,9 +629,18 @@ fn render_network(f: &mut Frame, app: &App, area: Rect, focused: bool) {
         let show_totals = w > 46;
         let mut lines: Vec<Line> = Vec::with_capacity(stats.len() + 1);
         let mut head_spans = vec![
-            Span::styled(format!("{:<width$}", "iface", width = iface_w - 1), Style::default().fg(subtext())),
-            Span::styled(format!("{:>width$}", "rx", width = speed_w), Style::default().fg(green())),
-            Span::styled(format!("{:>width$}", "tx", width = speed_w), Style::default().fg(peach())),
+            Span::styled(
+                format!("{:<width$}", "iface", width = iface_w - 1),
+                Style::default().fg(subtext()),
+            ),
+            Span::styled(
+                format!("{:>width$}", "rx", width = speed_w),
+                Style::default().fg(green()),
+            ),
+            Span::styled(
+                format!("{:>width$}", "tx", width = speed_w),
+                Style::default().fg(peach()),
+            ),
         ];
         if show_totals {
             head_spans.push(Span::styled(" total rx/tx", Style::default().fg(subtext())));
@@ -642,13 +652,26 @@ fn render_network(f: &mut Frame, app: &App, area: Rect, focused: bool) {
             let rx = format_speed(s.rx_speed_bps);
             let tx = format_speed(s.tx_speed_bps);
             let mut spans = vec![
-                Span::styled(format!("{:<width$}", s.interface, width = iface_w - 1), Style::default().fg(text())),
-                Span::styled(format!("{:>width$}", rx, width = speed_w), Style::default().fg(green())),
-                Span::styled(format!("{:>width$}", tx, width = speed_w), Style::default().fg(peach())),
+                Span::styled(
+                    format!("{:<width$}", s.interface, width = iface_w - 1),
+                    Style::default().fg(text()),
+                ),
+                Span::styled(
+                    format!("{:>width$}", rx, width = speed_w),
+                    Style::default().fg(green()),
+                ),
+                Span::styled(
+                    format!("{:>width$}", tx, width = speed_w),
+                    Style::default().fg(peach()),
+                ),
             ];
             if show_totals {
                 spans.push(Span::styled(
-                    format!(" {:>5}/{:<5}", format_bytes(s.total_rx_bytes), format_bytes(s.total_tx_bytes)),
+                    format!(
+                        " {:>5}/{:<5}",
+                        format_bytes(s.total_rx_bytes),
+                        format_bytes(s.total_tx_bytes)
+                    ),
                     Style::default().fg(subtext()),
                 ));
             } else {
@@ -772,10 +795,7 @@ fn render_temperatures(f: &mut Frame, app: &App, area: Rect, focused: bool) {
             }
             lines.push(Line::from(vec![
                 Span::styled("fan   ", Style::default().fg(subtext())),
-                Span::styled(
-                    format!("profile: {}", profile),
-                    Style::default().fg(sky()),
-                ),
+                Span::styled(format!("profile: {}", profile), Style::default().fg(sky())),
             ]));
         }
     }

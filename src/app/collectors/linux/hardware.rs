@@ -8,7 +8,9 @@
 use std::fs;
 use std::process::Command;
 
-use crate::app::state::{GpuInfo, HardwareData, MotherboardInfo, RamInfo};
+use crate::app::state::{
+    CpuDetails, GpuInfo, HardwareData, MotherboardInfo, NetInterfaceHw, RamInfo, StorageDevice,
+};
 
 // Struct definitions moved to state.rs (shared across Linux/Android)
 
@@ -26,6 +28,9 @@ pub fn fetch_hardware_data() -> HardwareData {
         motherboard: fetch_motherboard(),
         gpus: fetch_gpus(),
         ram: fetch_ram_details(),
+        cpu: fetch_cpu_details(),
+        storage: fetch_storage_devices(),
+        net_hw: fetch_net_interfaces(),
     }
 }
 
@@ -461,4 +466,259 @@ fn extract_ryzen_gen(model: &str) -> Option<u32> {
         }
     }
     None
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// CPU deep details — caches, microcode, frequency envelope, feature flags
+// ═══════════════════════════════════════════════════════════════════════
+
+fn fetch_cpu_details() -> CpuDetails {
+    let cpu0 = "/sys/devices/system/cpu/cpu0";
+
+    // Cache sizes: walk the cache indices, pick the largest index per level.
+    let mut l1: Option<String> = None;
+    let mut l2: Option<String> = None;
+    let mut l3: Option<String> = None;
+    let level_of = |idx: usize| fs::read_to_string(format!("{cpu0}/cache/index{idx}/level")).ok();
+    let size_of = |idx: usize| {
+        fs::read_to_string(format!("{cpu0}/cache/index{idx}/size"))
+            .ok()
+            .map(|s| s.trim().to_string())
+    };
+    for idx in 0..=3 {
+        if let Some(level) = level_of(idx).map(|s| s.trim().to_string())
+            && let Some(size) = size_of(idx) {
+                match level.as_str() {
+                    "1" => l1.get_or_insert(size),
+                    "2" => l2.get_or_insert(size),
+                    "3" => l3.get_or_insert(size),
+                    _ => continue,
+                };
+            }
+    }
+
+    let read_mhz = |p: &str| {
+        fs::read_to_string(p)
+            .ok()
+            .and_then(|s| s.trim().parse::<u32>().ok())
+    };
+    let base_mhz = read_mhz(&format!("{cpu0}/cpufreq/base_frequency"));
+    let max_mhz = read_mhz("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq")
+        .map(|khz| khz / 1000)
+        .or_else(|| read_mhz("/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq").map(|khz| khz / 1000));
+
+    let microcode = fs::read_to_string("/proc/cpuinfo")
+        .ok()
+        .and_then(|c| {
+            c.lines()
+                .find(|l| l.starts_with("microcode"))
+                .and_then(|l| l.split(':').nth(1))
+                .map(|s| s.trim().to_string())
+        });
+
+    let tdp_w = fs::read_to_string(
+        "/sys/class/powercap/intel-rapl/intel-rapl:0/constraint_0_max_power_uw",
+    )
+    .ok()
+    .and_then(|s| s.trim().parse::<u64>().ok())
+    .map(|uw| (uw / 1_000_000) as u32);
+
+    let fms = fs::read_to_string("/proc/cpuinfo").ok().and_then(|c| {
+        let fam = c
+            .lines()
+            .find(|l| l.starts_with("cpu family"))
+            .and_then(|l| l.split(':').nth(1))?
+            .trim()
+            .to_string();
+        let model = c
+            .lines()
+            .find(|l| l.starts_with("model\t"))
+            .and_then(|l| l.split(':').nth(1))?
+            .trim()
+            .to_string();
+        let stepping = c
+            .lines()
+            .find(|l| l.starts_with("stepping"))
+            .and_then(|l| l.split(':').nth(1))?
+            .trim()
+            .to_string();
+        Some(format!("{fam}/{model}/{stepping}"))
+    });
+
+    // Feature flags — surface the interesting/meaningful ones only.
+    let flags: Vec<String> = fs::read_to_string("/proc/cpuinfo")
+        .ok()
+        .and_then(|c| {
+            c.lines()
+                .find(|l| l.starts_with("flags"))
+                .and_then(|l| l.split(':').nth(1).map(|s| s.trim().to_string()))
+        })
+        .map(|raw| {
+            let interesting = [
+                "avx512", "avx2", "avx", "aes", "sha", "svm", "vmx", "amx", "smt", "lm",
+            ];
+            raw.split_whitespace()
+                .filter(|f| interesting.contains(f))
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    CpuDetails {
+        l1,
+        l2,
+        l3,
+        microcode,
+        base_mhz,
+        max_mhz,
+        tdp_w,
+        fms,
+        flags,
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Storage — block devices from /sys/block
+// ═══════════════════════════════════════════════════════════════════════
+
+fn fetch_storage_devices() -> Vec<StorageDevice> {
+    let mut devs = Vec::new();
+    let Ok(entries) = fs::read_dir("/sys/block") else {
+        return devs;
+    };
+    for entry in entries.flatten() {
+        let name = match entry.file_name().into_string() {
+            Ok(n) => n,
+            Err(_) => continue,
+        };
+        // Skip virtual/loop/ram devices.
+        if name.starts_with("loop")
+            || name.starts_with("ram")
+            || name.starts_with("sr")
+            || name.starts_with("fd")
+            || name.starts_with("zram")
+        {
+            continue;
+        }
+        let path = entry.path();
+
+        let read_field = |field: &str| {
+            fs::read_to_string(path.join(field))
+                .ok()
+                .map(|s| s.trim().to_string())
+        };
+
+        let size_bytes = read_field("size")
+            .and_then(|s| s.parse::<u64>().ok())
+            .map(|sectors| sectors * 512)
+            .unwrap_or(0);
+        if size_bytes == 0 {
+            continue;
+        }
+
+        let removable = read_field("removable")
+            .map(|s| s == "1")
+            .unwrap_or(false);
+
+        let is_nvme = name.starts_with("nvme");
+        let is_usb = name.starts_with("sd") && removable;
+        let dev_type = if is_nvme {
+            "NVMe".to_string()
+        } else if removable {
+            "Removable".to_string()
+        } else if name.starts_with("sd") {
+            // Heuristic: query rotational via sysfs.
+            match read_field("queue/rotational") {
+                Some(r) if r == "0" => "SSD".to_string(),
+                Some(_) => "HDD".to_string(),
+                None => "SSD".to_string(),
+            }
+        } else {
+            "Disk".to_string()
+        };
+
+        let interface = if is_nvme {
+            Some("NVMe".to_string())
+        } else if is_usb {
+            Some("USB".to_string())
+        } else if name.starts_with("sd") {
+            Some("SATA".to_string())
+        } else {
+            None
+        };
+
+        // `device/model` and `device/serial` are at the same sysfs path for
+        // both NVMe and SATA/USB block devices.
+        let model = read_field("device/model");
+        let serial = read_field("device/serial");
+
+        devs.push(StorageDevice {
+            name,
+            model,
+            serial,
+            dev_type,
+            size_bytes,
+            interface,
+            removable,
+        });
+    }
+    // De-dup by model+serial (some NVMe controllers expose controller + namespace).
+    let mut seen = std::collections::HashSet::new();
+    devs.retain(|d| seen.insert((d.model.clone(), d.serial.clone(), d.name.clone())));
+    devs
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Network — interfaces from /sys/class/net
+// ═══════════════════════════════════════════════════════════════════════
+
+fn fetch_net_interfaces() -> Vec<NetInterfaceHw> {
+    let mut ifaces = Vec::new();
+    let Ok(entries) = fs::read_dir("/sys/class/net") else {
+        return ifaces;
+    };
+    for entry in entries.flatten() {
+        let name = match entry.file_name().into_string() {
+            Ok(n) => n,
+            Err(_) => continue,
+        };
+        let path = entry.path();
+        let read_field = |field: &str| {
+            fs::read_to_string(path.join(field))
+                .ok()
+                .map(|s| s.trim().to_string())
+        };
+        let mac = read_field("address").filter(|s| !s.is_empty());
+        let speed_mbps = read_field("speed").and_then(|s| s.parse::<u32>().ok());
+        let operstate = read_field("operstate").unwrap_or_default();
+        let link_up = operstate == "up";
+        let driver = fs::read_link(path.join("device/driver"))
+            .ok()
+            .and_then(|p| p.file_name().map(|f| f.to_string_lossy().to_string()));
+
+        let kind = if name == "lo" {
+            "loopback".to_string()
+        } else if name.starts_with("wl") || name.starts_with("wlan") {
+            "wifi".to_string()
+        } else if name.starts_with("eth") || name.starts_with("en") {
+            "ethernet".to_string()
+        } else {
+            "virtual".to_string()
+        };
+
+        ifaces.push(NetInterfaceHw {
+            name,
+            mac,
+            driver,
+            speed_mbps,
+            link_up,
+            kind,
+        });
+    }
+    ifaces.sort_by_key(|i| match i.kind.as_str() {
+        "ethernet" => 0,
+        "wifi" => 1,
+        _ => 2,
+    });
+    ifaces
 }

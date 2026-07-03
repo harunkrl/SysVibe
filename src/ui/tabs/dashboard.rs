@@ -430,17 +430,77 @@ fn render_cpu_graph(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: Pane
     }
 
     // Per-core vertical bars (btop-style) on the LEFT + a compact CPU
-    // frequency readout on the RIGHT: current mean + session max/min envelope.
+    // load-average readout and frequency readout on the RIGHT, at the bottom
+    // of the panel. The load avg (1m/5m/15m) sits just left of the frequency
+    // (current mean + session max/min envelope, GHz, right-aligned).
     if let Some(sa) = strip_area {
-        let cols = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Min(0), Constraint::Length(13)])
-            .split(sa);
-        let bars_area = cols[0];
-        let freq_area = cols[1];
-        sparkline::render_core_bars(f, bars_area, &cores);
-        render_cpu_freq(f, freq_area, app);
+        // Reserve the load+freq columns only when the panel is wide enough;
+        // narrow panels keep bars + freq so cores aren't squeezed out.
+        let show_load = inner.width >= 28;
+        if show_load {
+            let cols = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Min(0),
+                    Constraint::Length(9),  // load avg
+                    Constraint::Length(13), // frequency
+                ])
+                .split(sa);
+            sparkline::render_core_bars(f, cols[0], &cores);
+            render_cpu_load(f, cols[1], app);
+            render_cpu_freq(f, cols[2], app);
+        } else {
+            let cols = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Min(0), Constraint::Length(13)])
+                .split(sa);
+            sparkline::render_core_bars(f, cols[0], &cores);
+            render_cpu_freq(f, cols[1], app);
+        }
     }
+}
+
+/// Compact load-average readout that sits just LEFT of the frequency readout
+/// at the bottom of the CPU Info panel: 1-minute (headline) + 5m + 15m,
+/// right-aligned and colour-coded like the frequency readout.
+fn render_cpu_load(f: &mut Frame, area: Rect, app: &App) {
+    let load = app.system_info().load_average;
+    let h = area.height as usize;
+
+    let one = Line::from(vec![
+        Span::styled("ld ", Style::default().fg(overlay())),
+        Span::styled(
+            format!("{:.2}", load.0),
+            Style::default().fg(peach()).add_modifier(Modifier::BOLD),
+        ),
+    ]);
+
+    let lines: Vec<Line> = if h >= 3 {
+        vec![
+            one,
+            Line::from(Span::styled(
+                format!("{:.2}", load.1),
+                Style::default().fg(yellow()),
+            )),
+            Line::from(Span::styled(
+                format!("{:.2}", load.2),
+                Style::default().fg(subtext()),
+            )),
+        ]
+    } else if h == 2 {
+        vec![
+            one,
+            Line::from(vec![
+                Span::styled(format!("{:.2}", load.1), Style::default().fg(yellow())),
+                Span::raw(" "),
+                Span::styled(format!("{:.2}", load.2), Style::default().fg(subtext())),
+            ]),
+        ]
+    } else {
+        vec![one]
+    };
+
+    f.render_widget(Paragraph::new(lines).alignment(Alignment::Right), area);
 }
 
 /// Compact CPU frequency readout for the right side of the per-core strip:

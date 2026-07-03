@@ -116,6 +116,77 @@ pub struct SystemInfo {
     pub sys_vendor: Option<String>,
     pub product_name: Option<String>,
     pub bios_version: Option<String>,
+    /// Boot / kernel info.
+    pub boot: BootInfo,
+    /// Security posture.
+    pub security: SecurityInfo,
+    /// Locale & timezone.
+    pub locale: LocaleInfo,
+    /// Active cooling/performance profile (e.g. "balanced").
+    pub power_profile: String,
+    /// This app's own info (version/repo/config path).
+    pub app: AppInfo,
+}
+
+/// Boot and kernel details.
+#[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
+pub struct BootInfo {
+    /// Kernel boot parameters (truncated).
+    pub cmdline: Option<String>,
+    /// Init system (e.g. "systemd 252").
+    pub init_system: Option<String>,
+    /// Firmware boot mode: "UEFI" or "BIOS/Legacy".
+    pub boot_mode: Option<String>,
+    /// Secure Boot enabled?
+    pub secure_boot: Option<bool>,
+    /// Number of loaded kernel modules.
+    pub module_count: Option<u32>,
+    /// Kernel build date (from /proc/version, best-effort).
+    pub kernel_built: Option<String>,
+}
+
+/// Security posture summary.
+#[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
+pub struct SecurityInfo {
+    /// LSM in use (e.g. "AppArmor", "SELinux", "none").
+    pub lsm: Option<String>,
+    /// Firewall front-end detected (e.g. "ufw", "firewalld", "iptables", none).
+    pub firewall: Option<String>,
+    /// TPM present.
+    pub tpm: Option<String>,
+}
+
+/// Locale and timezone.
+#[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
+pub struct LocaleInfo {
+    /// IANA timezone (e.g. "Europe/Istanbul").
+    pub timezone: Option<String>,
+    /// Locale (e.g. "en_US.UTF-8").
+    pub locale: Option<String>,
+}
+
+/// This application's own version/build info.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct AppInfo {
+    pub version: String,
+    pub repo_url: String,
+    pub config_path: Option<String>,
+    pub log_path: Option<String>,
+}
+
+impl Default for AppInfo {
+    fn default() -> Self {
+        Self {
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            repo_url: env!("CARGO_PKG_REPOSITORY").to_string(),
+            config_path: None,
+            log_path: None,
+        }
+    }
 }
 
 /// Per-interface network speed and history.
@@ -304,6 +375,12 @@ pub struct HardwareData {
     pub gpus: Vec<GpuInfo>,
     /// Detailed RAM / memory information.
     pub ram: RamInfo,
+    /// Deep CPU details (caches, microcode, frequency envelope, flags).
+    pub cpu: CpuDetails,
+    /// Block storage devices (model/serial/type/size).
+    pub storage: Vec<StorageDevice>,
+    /// Network interfaces (MAC/driver/speed/link state).
+    pub net_hw: Vec<NetInterfaceHw>,
 }
 
 /// Motherboard (or laptop system board) details from DMI/SysFS.
@@ -355,6 +432,68 @@ pub struct RamInfo {
     pub dimm_count: Option<u32>,
     /// Form factor for each DIMM (e.g. "SODIMM", "DIMM").
     pub form_factor: Option<String>,
+}
+
+/// Deep CPU details (static, from `/proc/cpuinfo`, `/sys/devices/system/cpu`).
+#[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
+pub struct CpuDetails {
+    /// L1 instruction + data cache size each (e.g. "32K").
+    pub l1: Option<String>,
+    /// L2 cache size (e.g. "512K").
+    pub l2: Option<String>,
+    /// L3 cache size (e.g. "16M").
+    pub l3: Option<String>,
+    /// Microcode revision (hex-ish string).
+    pub microcode: Option<String>,
+    /// Base / advertised clock in MHz.
+    pub base_mhz: Option<u32>,
+    /// Maximum boost clock in MHz.
+    pub max_mhz: Option<u32>,
+    /// Thermal design power in watts.
+    pub tdp_w: Option<u32>,
+    /// CPU family / model / stepping (e.g. "25/80/0").
+    pub fms: Option<String>,
+    /// Notable feature flags (e.g. "avx avx2 svm").
+    pub flags: Vec<String>,
+}
+
+/// A block storage device (from `/sys/block`).
+#[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
+pub struct StorageDevice {
+    /// Device node name (e.g. "nvme0n1", "sda").
+    pub name: String,
+    /// Model string.
+    pub model: Option<String>,
+    /// Serial number.
+    pub serial: Option<String>,
+    /// Type: "NVMe", "SSD", "HDD", "Removable", etc.
+    pub dev_type: String,
+    /// Total size in bytes.
+    pub size_bytes: u64,
+    /// Interface / bus (e.g. "NVMe", "SATA", "USB").
+    pub interface: Option<String>,
+    /// Whether the device is removable.
+    pub removable: bool,
+}
+
+/// A network interface's hardware-level details (from `/sys/class/net`).
+#[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
+pub struct NetInterfaceHw {
+    /// Interface name (e.g. "wlan0", "eth0", "lo").
+    pub name: String,
+    /// MAC address.
+    pub mac: Option<String>,
+    /// Driver in use.
+    pub driver: Option<String>,
+    /// Link speed in Mbps.
+    pub speed_mbps: Option<u32>,
+    /// Link is up.
+    pub link_up: bool,
+    /// Interface type (e.g. "wifi", "ethernet", "loopback").
+    pub kind: String,
 }
 
 /// Memory usage breakdown (used / buffers / cached / free).

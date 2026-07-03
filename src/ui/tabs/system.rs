@@ -6,7 +6,7 @@
 
 use ratatui::{
     Frame,
-    layout::Rect,
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
@@ -23,12 +23,51 @@ use crate::ui::palette::*;
 // ═══════════════════════════════════════════════════════════════════════
 
 pub fn render_system_tab(f: &mut Frame, app: &App, area: Rect) {
-    // The System tab is now a focused **static inventory** spec sheet (OS,
-    // kernel, board/BIOS, RAM type, GPU drivers, session). Live data that used
-    // to live here moved to its proper home: battery → Hardware, disk usage →
-    // Dashboard, load average → the Hardware CPU panel. Compact/wide use the
-    // same single full-width panel.
-    render_os_info(f, area, app);
+    // Two columns on wide terminals: an "Identity" spec sheet on the left
+    // (OS/kernel/platform/session/locale/boot/security/app-about) and a
+    // "Hardware" inventory on the right (compute/CPU/GPU/storage/network).
+    // Narrow terminals stack everything into one full-width panel.
+    let two_col = area.width >= 90;
+    if two_col {
+        let cols = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .spacing(1)
+            .split(area);
+        render_identity_panel(f, cols[0], app, true);
+        render_hardware_panel(f, cols[1], app, true);
+    } else {
+        // Single column: identity lines then hardware lines, in one panel.
+        let focus = app.panel_focus();
+        let title = icons::titled(app, icons::OS_LINUX, icons::fallback::OS_LINUX, "System Info");
+        let block = panel_block_focused(&title, focus == PanelFocus::Panel1);
+        let inner = block.inner(area);
+        f.render_widget(block, area);
+        let max_w = inner.width as usize;
+        let mut lines = identity_lines(app, max_w);
+        lines.extend(hardware_lines(app, max_w));
+        f.render_widget(Paragraph::new(lines), inner);
+    }
+}
+
+fn render_identity_panel(f: &mut Frame, area: Rect, app: &App, _two_col: bool) {
+    let focus = app.panel_focus();
+    let title = icons::titled(app, icons::OS_LINUX, icons::fallback::OS_LINUX, "System");
+    let block = panel_block_focused(&title, focus == PanelFocus::Panel1);
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    let lines = identity_lines(app, inner.width as usize);
+    f.render_widget(Paragraph::new(lines), inner);
+}
+
+fn render_hardware_panel(f: &mut Frame, area: Rect, app: &App, _two_col: bool) {
+    let focus = app.panel_focus();
+    let title = icons::titled(app, icons::CHIP, icons::fallback::CPU, "Hardware");
+    let block = panel_block_focused(&title, focus == PanelFocus::Panel2);
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    let lines = hardware_lines(app, inner.width as usize);
+    f.render_widget(Paragraph::new(lines), inner);
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -48,15 +87,11 @@ fn section_divider(label: &str, width: usize) -> Line<'static> {
     ])
 }
 
-fn render_os_info(f: &mut Frame, area: Rect, app: &App) {
-    let focus = app.panel_focus();
-    let title = icons::titled(app, icons::OS_LINUX, icons::fallback::OS_LINUX, "System Info");
-    let block = panel_block_focused(&title, focus == PanelFocus::Panel1);
-    let inner = block.inner(area);
-    f.render_widget(block, area);
-
+/// Identity spec-sheet lines for the left/primary panel: OS, kernel, host,
+/// architecture, uptime, optional public IP, motherboard/BIOS, session, boot,
+/// security, locale, power profile, and this app's own "about" info.
+fn identity_lines(app: &App, max_w: usize) -> Vec<Line<'static>> {
     let info = app.system_info();
-    let max_w = inner.width as usize;
     let mut lines: Vec<Line<'static>> = vec![
         // OS & Kernel
         kv_line("OS", &info.os_name, blue()),
@@ -112,11 +147,107 @@ fn render_os_info(f: &mut Frame, area: Rect, app: &App) {
         lines.push(kv_line("Date", bd, overlay()));
     }
 
-    // ── Compute ───────────────────────────────────────────────────────────
-    // Groups CPU brand, RAM details, and core/swap totals under one header so
-    // they read as a single section rather than bleeding into the platform block.
-    lines.push(section_divider("Compute", max_w));
+    // ── Session ───────────────────────────────────────────────────────────
+    lines.push(section_divider("Session", max_w));
+    lines.push(kv_line("Desktop", &info.desktop_env, mauve()));
+    lines.push(kv_line("Display", &info.display_server, mauve()));
+    if info.display_server == "Wayland" {
+        if let Ok(wl) = std::env::var("XDG_SESSION_DESKTOP") {
+            lines.push(kv_line("Compositor", &wl, mauve()));
+        }
+    } else if info.display_server == "X11"
+        && let Ok(xs) = std::env::var("XDG_SESSION_TYPE")
+    {
+        lines.push(kv_line("Session", &xs, mauve()));
+    }
 
+    // ── Boot / Kernel ──────────────────────────────────────────────────────
+    {
+        let b = &info.boot;
+        let any_boot = b.cmdline.is_some() || b.init_system.is_some() || b.boot_mode.is_some();
+        if any_boot {
+            lines.push(section_divider("Boot", max_w));
+            if let Some(mode) = &b.boot_mode {
+                lines.push(kv_line("Mode", mode, mauve()));
+            }
+            if let Some(sb) = b.secure_boot {
+                lines.push(kv_line("Secure Boot", if sb { "enabled" } else { "disabled" }, blue()));
+            }
+            if let Some(init) = &b.init_system {
+                lines.push(kv_line("Init", init, subtext()));
+            }
+            if let Some(mc) = b.module_count {
+                lines.push(kv_line("Modules", &format!("{} loaded", mc), overlay()));
+            }
+            if let Some(cmd) = &b.cmdline {
+                let cmd = fit_str(cmd, max_w.saturating_sub(10));
+                lines.push(kv_line("Cmdline", &cmd, overlay()));
+            }
+        }
+    }
+
+    // ── Security ──────────────────────────────────────────────────────────
+    {
+        let s = &info.security;
+        if s.lsm.is_some() || s.firewall.is_some() || s.tpm.is_some() {
+            lines.push(section_divider("Security", max_w));
+            if let Some(lsm) = &s.lsm {
+                lines.push(kv_line("LSM", lsm, blue()));
+            }
+            if let Some(fw) = &s.firewall {
+                lines.push(kv_line("Firewall", fw, green()));
+            }
+            if let Some(tpm) = &s.tpm {
+                lines.push(kv_line("TPM", tpm, mauve()));
+            }
+        }
+    }
+
+    // ── Locale ────────────────────────────────────────────────────────────
+    {
+        let l = &info.locale;
+        if l.timezone.is_some() || l.locale.is_some() {
+            lines.push(section_divider("Locale", max_w));
+            if let Some(tz) = &l.timezone {
+                lines.push(kv_line("Timezone", tz, peach()));
+            }
+            if let Some(loc) = &l.locale {
+                lines.push(kv_line("Locale", loc, subtext()));
+            }
+        }
+    }
+
+    // ── Power profile ─────────────────────────────────────────────────────
+    if !info.power_profile.is_empty() {
+        lines.push(section_divider("Power", max_w));
+        lines.push(kv_line("Profile", &info.power_profile, green()));
+    }
+
+    // ── About (this app) ──────────────────────────────────────────────────
+    lines.push(section_divider("About", max_w));
+    lines.push(kv_line(
+        "App",
+        &format!("SysVibe v{}", info.app.version),
+        peach(),
+    ));
+    lines.push(kv_line("Repo", &info.app.repo_url, sky()));
+    if let Some(cp) = &info.app.config_path {
+        lines.push(kv_line("Config", cp, overlay()));
+    }
+
+    lines
+}
+
+/// Hardware inventory lines for the right panel: CPU brand/RAM totals, deep
+/// CPU details (caches/microcode/clock/flags), GPUs, storage, network.
+fn hardware_lines(app: &App, max_w: usize) -> Vec<Line<'static>> {
+    let info = app.system_info();
+    let hw = app.hardware_data();
+
+    let mut lines: Vec<Line<'static>> = Vec::new();
+
+    // ── Compute ───────────────────────────────────────────────────────────
+    lines.push(section_divider("Compute", max_w));
     // CPU brand
     let cpu_max_val_w = max_w.saturating_sub(6);
     let cpu_brand = fit_str(&info.cpu_brand, cpu_max_val_w);
@@ -151,10 +282,7 @@ fn render_os_info(f: &mut Frame, area: Rect, app: &App) {
         if let Some(ref ff) = ram.form_factor {
             ram_parts.push(Span::styled(ff.clone(), Style::default().fg(overlay())));
         } else {
-            ram_parts.push(Span::styled(
-                "DIMM".to_string(),
-                Style::default().fg(overlay()),
-            ));
+            ram_parts.push(Span::styled("DIMM".to_string(), Style::default().fg(overlay())));
         }
         ram_parts.push(Span::styled(")", Style::default().fg(overlay())));
     }
@@ -177,9 +305,66 @@ fn render_os_info(f: &mut Frame, area: Rect, app: &App) {
         ),
     ]));
 
-    lines.push(section_divider("Graphics", max_w));
+    // ── CPU details ───────────────────────────────────────────────────────
+    lines.push(section_divider("CPU", max_w));
+    {
+        let c = &hw.cpu;
+        let mut cache_parts =
+            vec![Span::styled(
+                " Cache:",
+                Style::default().fg(subtext()).add_modifier(Modifier::BOLD),
+            )];
+        let mut any = false;
+        for (lvl, val) in [("L1", &c.l1), ("L2", &c.l2), ("L3", &c.l3)] {
+            if let Some(v) = val {
+                any = true;
+                cache_parts.push(Span::styled(
+                    format!(" {} {}", lvl, v),
+                    Style::default().fg(text()),
+                ));
+            }
+        }
+        if !any {
+            cache_parts.push(Span::styled(" —", Style::default().fg(overlay())));
+        }
+        lines.push(Line::from(cache_parts));
 
-    // GPU(s)
+        if let Some(m) = &c.microcode {
+            lines.push(kv_line("Microcode", m, overlay()));
+        }
+        if c.base_mhz.is_some() || c.max_mhz.is_some() {
+            let mut parts = vec![Span::styled(
+                " Clock:",
+                Style::default().fg(subtext()).add_modifier(Modifier::BOLD),
+            )];
+            if let Some(b) = c.base_mhz {
+                parts.push(Span::styled(
+                    format!(" {:.2}GHz base", b as f64 / 1000.0),
+                    Style::default().fg(text()),
+                ));
+            }
+            if let Some(mx) = c.max_mhz {
+                parts.push(Span::styled(
+                    format!(" / {:.2}GHz turbo", mx as f64 / 1000.0),
+                    Style::default().fg(green()),
+                ));
+            }
+            lines.push(Line::from(parts));
+        }
+        if let Some(tdp) = c.tdp_w {
+            lines.push(kv_line("TDP", &format!("{}W", tdp), peach()));
+        }
+        if let Some(fms) = &c.fms {
+            lines.push(kv_line("F/M/S", fms, overlay()));
+        }
+        if !c.flags.is_empty() {
+            let flags_text = fit_str(&c.flags.join(" "), max_w.saturating_sub(8));
+            lines.push(kv_line("Flags", &flags_text, sky()));
+        }
+    }
+
+    // ── Graphics ──────────────────────────────────────────────────────────
+    lines.push(section_divider("Graphics", max_w));
     if hw.gpus.is_empty() {
         lines.push(Line::from(vec![
             Span::styled(
@@ -214,21 +399,49 @@ fn render_os_info(f: &mut Frame, area: Rect, app: &App) {
         }
     }
 
-    lines.push(section_divider("Session", max_w));
-
-    // Desktop / Display
-    lines.push(kv_line("Desktop", &info.desktop_env, mauve()));
-    lines.push(kv_line("Display", &info.display_server, mauve()));
-    if info.display_server == "Wayland" {
-        if let Ok(wl) = std::env::var("XDG_SESSION_DESKTOP") {
-            lines.push(kv_line("Compositor", &wl, mauve()));
+    // ── Storage (block devices) ───────────────────────────────────────────
+    if !hw.storage.is_empty() {
+        lines.push(section_divider("Storage", max_w));
+        for d in &hw.storage {
+            let label = d.name.clone();
+            let val = format!(
+                "{} {} {}{}",
+                d.dev_type,
+                crate::ui::helpers::format_bytes(d.size_bytes),
+                d.model.as_deref().unwrap_or(""),
+                d.interface
+                    .as_ref()
+                    .map(|i| format!(" [{}]", i))
+                    .unwrap_or_default(),
+            );
+            let val = fit_str(&val, max_w.saturating_sub(label.len() + 4));
+            lines.push(kv_line(&label, &val, yellow()));
         }
-    } else if info.display_server == "X11"
-        && let Ok(xs) = std::env::var("XDG_SESSION_TYPE")
-    {
-        lines.push(kv_line("Session", &xs, mauve()));
     }
 
-    let para = Paragraph::new(lines);
-    f.render_widget(para, inner);
+    // ── Network (interfaces) ──────────────────────────────────────────────
+    if !hw.net_hw.is_empty() {
+        lines.push(section_divider("Network", max_w));
+        for n in &hw.net_hw {
+            if n.kind == "loopback" {
+                continue;
+            }
+            let val = format!(
+                "{} {}{}{}",
+                n.kind,
+                n.driver.as_deref().unwrap_or(""),
+                n.speed_mbps
+                    .map(|s| format!(" {}M", s))
+                    .unwrap_or_default(),
+                if n.link_up { "  up" } else { "  down" },
+            );
+            let val = fit_str(&val, max_w.saturating_sub(n.name.len() + 4));
+            lines.push(kv_line(&n.name, &val, green()));
+            if let Some(mac) = &n.mac {
+                lines.push(kv_line(&format!("  {}", n.name), mac, overlay()));
+            }
+        }
+    }
+
+    lines
 }

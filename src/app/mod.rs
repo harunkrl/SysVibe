@@ -646,6 +646,19 @@ impl App {
             sys_vendor: hw.sys_vendor.clone(),
             product_name: hw.product_name.clone(),
             bios_version: hw.bios_version.clone(),
+            boot: collect_boot_info(),
+            security: collect_security_info(),
+            locale: collect_locale_info(),
+            power_profile: crate::app::collectors::sensors::read_power_profile(),
+            app: state::AppInfo {
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                repo_url: env!("CARGO_PKG_REPOSITORY").to_string(),
+                config_path: dirs::config_dir()
+                    .map(|d| d.join("sysvibe/config.toml"))
+                    .filter(|p| p.exists())
+                    .map(|p| p.to_string_lossy().to_string()),
+                log_path: None,
+            },
         }
     }
 
@@ -1809,6 +1822,46 @@ impl App {
                     dimm_count: Some(2),
                     form_factor: Some("SODIMM".into()),
                 },
+                cpu: CpuDetails {
+                    l1: Some("32K".into()),
+                    l2: Some("1.25M".into()),
+                    l3: Some("12M".into()),
+                    microcode: Some("0xa4".into()),
+                    base_mhz: Some(2800),
+                    max_mhz: Some(4700),
+                    tdp_w: Some(28),
+                    fms: Some("6/140/1".into()),
+                    flags: vec!["avx2".into(), "avx".into(), "aes".into(), "vmx".into(), "lm".into()],
+                },
+                storage: vec![
+                    StorageDevice {
+                        name: "nvme0n1".into(),
+                        model: Some("Samsung SSD 970 EVO Plus 500GB".into()),
+                        serial: Some("S466NX0M123456".into()),
+                        dev_type: "NVMe".into(),
+                        size_bytes: 500_107_862_016,
+                        interface: Some("NVMe".into()),
+                        removable: false,
+                    },
+                ],
+                net_hw: vec![
+                    NetInterfaceHw {
+                        name: "eth0".into(),
+                        mac: Some("a0:36:9f:14:8c:2d".into()),
+                        driver: Some("e1000e".into()),
+                        speed_mbps: Some(1000),
+                        link_up: true,
+                        kind: "ethernet".into(),
+                    },
+                    NetInterfaceHw {
+                        name: "wlan0".into(),
+                        mac: Some("ac:9e:17:42:5b:f1".into()),
+                        driver: Some("iwlwifi".into()),
+                        speed_mbps: Some(866),
+                        link_up: true,
+                        kind: "wifi".into(),
+                    },
+                ],
             },
             cached_system_info: SystemInfo {
                 os_name: "Fedora Linux 40 (Workstation Edition)".into(),
@@ -1826,6 +1879,30 @@ impl App {
                 sys_vendor: Some("LENOVO".into()),
                 product_name: Some("ThinkPad X1 Carbon Gen 9".into()),
                 bios_version: Some("N30ET42W (1.24)".into()),
+                boot: state::BootInfo {
+                    cmdline: Some("BOOT_IMAGE=(hd0,gpt2)/vmlinuz-6.9.7 ro root=/dev/mapper/fedora-root rhgb quiet".into()),
+                    init_system: Some("systemd 255".into()),
+                    boot_mode: Some("UEFI".into()),
+                    secure_boot: Some(true),
+                    module_count: Some(178),
+                    kernel_built: Some("SMP PREEMPT_DYNAMIC Mon Jun 10 12:00:00 UTC 2024".into()),
+                },
+                security: state::SecurityInfo {
+                    lsm: Some("AppArmor".into()),
+                    firewall: Some("ufw (active)".into()),
+                    tpm: Some("TPM 2.0".into()),
+                },
+                locale: state::LocaleInfo {
+                    timezone: Some("Europe/Istanbul".into()),
+                    locale: Some("en_US.UTF-8".into()),
+                },
+                power_profile: "balanced".into(),
+                app: state::AppInfo {
+                    version: env!("CARGO_PKG_VERSION").into(),
+                    repo_url: env!("CARGO_PKG_REPOSITORY").into(),
+                    config_path: dirs::config_dir().map(|d| d.join("sysvibe/config.toml")).map(|p| p.to_string_lossy().to_string()),
+                    log_path: None,
+                },
             },
             last_system_info_refresh: now,
             active_alerts: Vec::new(),
@@ -1836,6 +1913,157 @@ impl App {
 
         app
     }
+}
+
+// ── System/About tab enrichment helpers (static, best-effort) ───────────
+
+/// Collect boot/kernel info from `/proc` and sysfs.
+fn collect_boot_info() -> state::BootInfo {
+    use std::fs;
+    let cmdline = fs::read_to_string("/proc/cmdline")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .map(|s| {
+            // Keep it to a readable length.
+            if s.len() > 120 {
+                format!("{}…", &s[..s.char_indices().take(120).last().map(|(i, _)| i).unwrap_or(120)])
+            } else {
+                s
+            }
+        });
+
+    let init_system = fs::read_to_string("/run/systemd/system")
+        .ok()
+        .map(|_| "systemd".to_string())
+        .or_else(|| {
+            std::process::Command::new("systemctl")
+                .arg("--version")
+                .output()
+                .ok()
+                .and_then(|o| String::from_utf8(o.stdout).ok())
+                .and_then(|s| s.lines().next().map(|l| l.to_string()))
+        })
+        .or_else(|| {
+            (std::fs::metadata("/run/openrc").is_ok()).then_some("OpenRC".to_string())
+        });
+
+    let boot_mode = if std::path::Path::new("/sys/firmware/efi").exists() {
+        Some("UEFI".to_string())
+    } else {
+        Some("BIOS/Legacy".to_string())
+    };
+
+    let secure_boot = fs::read_to_string("/sys/firmware/efi/efivars/SecureBoot-8be4df61-92ca-11d2-aa0d-00e098032b8c")
+        .ok()
+        .and_then(|b| b.as_bytes().last().copied())
+        .map(|v| v == 1);
+
+    let module_count = fs::read_to_string("/proc/modules")
+        .ok()
+        .map(|s| s.lines().count() as u32);
+
+    let kernel_built = fs::read_to_string("/proc/version")
+        .ok()
+        .and_then(|s| {
+            // /proc/version: "Linux version 6.x (...) (gcc...) #1 SMP ..."
+            // Pull the trailing build date portion after '#'.
+            s.split('#').nth(1).map(|p| p.trim().to_string())
+        });
+
+    state::BootInfo {
+        cmdline,
+        init_system,
+        boot_mode,
+        secure_boot,
+        module_count,
+        kernel_built,
+    }
+}
+
+/// Collect security posture (LSM, firewall, TPM).
+fn collect_security_info() -> state::SecurityInfo {
+    use std::fs;
+    // LSM: /sys/kernel/security/lsm lists active modules in priority order.
+    let lsm = fs::read_to_string("/sys/kernel/security/lsm")
+        .ok()
+        .and_then(|s| {
+            s.trim()
+                .split(',')
+                .find(|l| matches!(*l, "apparmor" | "selinux" | "bpf" | "tomoyo" | "smack"))
+                .map(|l| match l {
+                    "apparmor" => "AppArmor".to_string(),
+                    "selinux" => "SELinux".to_string(),
+                    other => other.to_string(),
+                })
+        });
+
+    let firewall = {
+        // ufw → check service is installed/active via /etc, else iptables.
+        let ufw = std::process::Command::new("ufw")
+            .arg("status")
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .map(|s| {
+                if s.contains("Status: active") {
+                    "ufw (active)".to_string()
+                } else {
+                    "ufw (inactive)".to_string()
+                }
+            });
+        ufw.or_else(|| {
+            let nft = std::process::Command::new("nft")
+                .arg("list")
+                .arg("ruleset")
+                .output()
+                .ok()
+                .map(|_| "nftables".to_string());
+            nft.or_else(|| {
+                fs::read_to_string("/proc/net/ip_tables_names")
+                    .ok()
+                    .map(|s| {
+                        if s.trim().is_empty() {
+                            "none".to_string()
+                        } else {
+                            "iptables".to_string()
+                        }
+                    })
+            })
+        })
+    };
+
+    let tpm = if std::path::Path::new("/sys/class/tpm/tpm0").exists() {
+        fs::read_to_string("/sys/class/tpm/tpm0/tpm_version_major")
+            .ok()
+            .map(|s| format!("TPM {}", s.trim()))
+            .or_else(|| Some("TPM present".to_string()))
+    } else {
+        None
+    };
+
+    state::SecurityInfo { lsm, firewall, tpm }
+}
+
+/// Collect locale and timezone.
+fn collect_locale_info() -> state::LocaleInfo {
+    use std::fs;
+    let timezone = fs::read_to_string("/etc/timezone")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .or_else(|| {
+            // Fallback: readlink /etc/localtime → .../zoneinfo/<Region>/<City>
+            fs::read_link("/etc/localtime")
+                .ok()
+                .and_then(|p| {
+                    let s = p.to_string_lossy().to_string();
+                    s.split("/zoneinfo/").nth(1).map(|t| t.to_string())
+                })
+        });
+    let locale = std::env::var("LANG")
+        .ok()
+        .or_else(|| std::env::var("LC_ALL").ok())
+        .map(|s| s.trim().to_string());
+    state::LocaleInfo { timezone, locale }
 }
 
 #[cfg(all(test, feature = "preview"))]

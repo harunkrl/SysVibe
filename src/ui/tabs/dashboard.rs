@@ -419,7 +419,7 @@ fn render_cpu_graph(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: Pane
     // with linear-resampled data, so the curve (peaks and body) stays smooth.
     let n = cpu_lines.len();
     if n >= 2 {
-        sparkline::render_braille_smooth(f, chart_area, cpu_lines, "%", true);
+        sparkline::render_braille_smooth(f, chart_area, cpu_lines, "%", true, 50.0);
     } else if n == 1 {
         // Not enough samples to draw a line yet — show the single value.
         f.render_widget(

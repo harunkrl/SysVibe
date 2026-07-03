@@ -64,6 +64,10 @@ pub fn braille_smooth_graph(
     scale_unit: &str,
     area: bool,
     show_y_labels: bool,
+    // Y-axis floor: the scale never drops below this (so low values stay
+    // visible), but grows above it when the peak exceeds it. CPU uses 50
+    // (idle tops out at half-height); battery power-draw uses ~10W.
+    y_floor: f64,
 ) -> Vec<Line<'static>> {
     if data.is_empty() || area_width < 10 || area_height < 2 {
         return Vec::new();
@@ -71,10 +75,10 @@ pub fn braille_smooth_graph(
 
     let data_vec: Vec<u64> = data.iter().copied().collect();
     let peak = data_vec.iter().copied().max().unwrap_or(1) as f64;
-    // CPU Y-scale floors at 50%: idle/first-launch tops out at 50 (no empty
-    // graph at low load); only grows above 50 when usage actually exceeds it
+    // Y-scale floors at `y_floor`: low values stay visible (no flat/empty
+    // graph), but the ceiling grows with the real peak above the floor
     // (dynamic ceiling). btop-like behaviour.
-    let y_max = dynamic_ceiling(peak.max(50.0)).max(1.0);
+    let y_max = dynamic_ceiling(peak.max(y_floor)).max(1.0);
 
     let label_w = if show_y_labels {
         format!("{:.0}{}", y_max, scale_unit).len() + 1
@@ -176,9 +180,18 @@ pub fn render_braille_smooth(
     data: &VecDeque<u64>,
     scale_unit: &str,
     is_area: bool,
+    y_floor: f64,
 ) {
     // CPU/info graphs keep their left-gutter Y-axis labels.
-    let lines = braille_smooth_graph(data, area.width, area.height, scale_unit, is_area, true);
+    let lines = braille_smooth_graph(
+        data,
+        area.width,
+        area.height,
+        scale_unit,
+        is_area,
+        true,
+        y_floor,
+    );
     if !lines.is_empty() {
         frame.render_widget(ratatui::widgets::Paragraph::new(lines), area);
     }
@@ -193,8 +206,17 @@ pub fn render_braille_smooth_nolabel(
     data: &VecDeque<u64>,
     scale_unit: &str,
     is_area: bool,
+    y_floor: f64,
 ) {
-    let lines = braille_smooth_graph(data, area.width, area.height, scale_unit, is_area, false);
+    let lines = braille_smooth_graph(
+        data,
+        area.width,
+        area.height,
+        scale_unit,
+        is_area,
+        false,
+        y_floor,
+    );
     if !lines.is_empty() {
         frame.render_widget(ratatui::widgets::Paragraph::new(lines), area);
     }

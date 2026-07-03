@@ -257,53 +257,89 @@ fn render_memory_section(f: &mut Frame, app: &App, area: Rect) {
     let ram = &app.hardware_data().ram;
     let total_bytes = mem.total_bytes.max(1);
     let used_pct = (mem.used_bytes as f64 / total_bytes as f64) * 100.0;
+    let buf_pct = (mem.buffers_bytes as f64 / total_bytes as f64) * 100.0;
     let cache_pct = (mem.cached_bytes as f64 / total_bytes as f64) * 100.0;
     let free_pct = (mem.free_bytes as f64 / total_bytes as f64) * 100.0;
+    // Available = free + buffers + reclaimable cache (roughly).
+    let avail_bytes = mem.free_bytes + mem.buffers_bytes + mem.cached_bytes;
+    // Swap
+    let swap_total = mem.swap_total_bytes.max(1);
+    let swap_used_pct = (mem.swap_used_bytes as f64 / swap_total as f64) * 100.0;
+    let has_swap = mem.swap_total_bytes > 0;
+    // Memory pressure heuristic from used ratio.
+    let pressure = if used_pct > 85.0 {
+        "high"
+    } else if used_pct > 60.0 {
+        "medium"
+    } else {
+        "low"
+    };
+    let pressure_color = if used_pct > 85.0 {
+        red()
+    } else if used_pct > 60.0 {
+        yellow()
+    } else {
+        green()
+    };
 
+    // Layout: title · 4 mem bars (with gaps) · mem info · Swap heading · swap bar · swap info
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1), // "Memory" + spec (type · speed · DIMMs)
+            Constraint::Length(1), // title + spec
             Constraint::Length(1), // Used
+            Constraint::Length(1), // gap
+            Constraint::Length(1), // Buffer
             Constraint::Length(1), // gap
             Constraint::Length(1), // Cache
             Constraint::Length(1), // gap
             Constraint::Length(1), // Free
-            Constraint::Min(0),    // spacer + info footer
+            Constraint::Length(1), // mem info footer
+            Constraint::Length(1), // Swap heading
+            Constraint::Length(1), // Swap bar
+            Constraint::Min(0),    // swap info footer
         ])
         .split(area);
 
-    // Title row: "Memory" + hardware spec (e.g. "DDR4 · 3200 · 2 DIMMs").
-    let spec = match (&ram.mem_type, ram.speed_mt, ram.dimm_count) {
-        (Some(t), Some(s), Some(d)) => format!("{} · {}MT/s · {} DIMMs", t, s, d),
-        (Some(t), Some(s), None) => format!("{} · {}MT/s", t, s),
-        (Some(t), None, Some(d)) => format!("{} · {} DIMMs", t, d),
-        (Some(t), None, None) => t.clone(),
-        _ => "Memory".to_string(),
+    // Title: "Memory" + spec (type · speed · DIMMs · form).
+    let mut spec_parts: Vec<String> = Vec::new();
+    if let Some(t) = &ram.mem_type {
+        spec_parts.push(t.clone());
+    }
+    if let Some(s) = ram.speed_mt {
+        spec_parts.push(format!("{}MT/s", s));
+    }
+    if let Some(d) = ram.dimm_count {
+        spec_parts.push(format!("{} DIMMs", d));
+    }
+    if let Some(ff) = &ram.form_factor {
+        spec_parts.push(ff.clone());
+    }
+    let spec = if spec_parts.is_empty() {
+        String::new()
+    } else {
+        spec_parts.join(" · ")
     };
-    f.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(
-                "Memory",
-                Style::default().fg(pink()).add_modifier(Modifier::BOLD),
-            ),
-            Span::raw("  "),
-            Span::styled(spec, Style::default().fg(subtext())),
-        ])),
-        rows[0],
-    );
+    let mut title_spans = vec![Span::styled(
+        "Memory",
+        Style::default().fg(pink()).add_modifier(Modifier::BOLD),
+    )];
+    if !spec.is_empty() {
+        title_spans.push(Span::raw("  "));
+        title_spans.push(Span::styled(spec, Style::default().fg(subtext())));
+    }
+    f.render_widget(Paragraph::new(Line::from(title_spans)), rows[0]);
 
-    // Used / cache / free gradient bars — dashboard-style, with BOTH the
-    // percentage and the absolute value, so the panel carries real info, not
-    // just ratios.
+    // Bars: used (peach) / buffer (sky) / cache (mauve) / free (green).
+    // Each bar carries its name label so you can tell them apart.
     let bar_width = area.width;
-    let mk_bar = |pct: f64, abs_bytes: u64, base: Color| -> Line<'static> {
+    let mk_bar = |label: &str, pct: f64, abs_bytes: u64, base: Color| -> Line<'static> {
         let mut spans = vec![
-            Span::raw(" "),
+            Span::styled(format!("{:<6}", label), Style::default().fg(base)),
             Span::styled(format!("{:>5.1}% ", pct), Style::default().fg(base)),
         ];
         spans.extend(gradient_bar_spans(
-            bar_width.saturating_sub(18).max(3),
+            bar_width.saturating_sub(25).max(3),
             pct / 100.0,
         ));
         spans.push(Span::styled(
@@ -313,41 +349,70 @@ fn render_memory_section(f: &mut Frame, app: &App, area: Rect) {
         Line::from(spans)
     };
     f.render_widget(
-        Paragraph::new(mk_bar(used_pct, mem.used_bytes, peach())),
+        Paragraph::new(mk_bar("used", used_pct, mem.used_bytes, peach())),
         rows[1],
     );
     f.render_widget(
-        Paragraph::new(mk_bar(cache_pct, mem.cached_bytes, mauve())),
+        Paragraph::new(mk_bar("buf", buf_pct, mem.buffers_bytes, sky())),
         rows[3],
     );
     f.render_widget(
-        Paragraph::new(mk_bar(free_pct, mem.free_bytes, green())),
+        Paragraph::new(mk_bar("cache", cache_pct, mem.cached_bytes, mauve())),
         rows[5],
     );
-
-    // Footer: total + swap usage (absolute info, not just a ratio).
-    let bot = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Min(0), Constraint::Length(1)])
-        .split(rows[6]);
-    let swap_txt = if mem.swap_total_bytes > 0 {
-        format!(
-            "Swap {}/{}",
-            format_bytes(mem.swap_used_bytes),
-            format_bytes(mem.swap_total_bytes)
-        )
-    } else {
-        "Swap —".to_string()
-    };
-    let total_txt = format!("Total {} · {}", format_bytes(mem.total_bytes), swap_txt);
     f.render_widget(
-        Paragraph::new(Line::from(Span::styled(
-            total_txt,
-            Style::default().fg(subtext()),
-        )))
-        .alignment(Alignment::Right),
-        bot[1],
+        Paragraph::new(mk_bar("free", free_pct, mem.free_bytes, green())),
+        rows[7],
     );
+
+    // Memory info footer (under the 4 memory bars).
+    f.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled(
+                format!(
+                    "Total {} · Avail {} · Pressure ",
+                    format_bytes(mem.total_bytes),
+                    format_bytes(avail_bytes)
+                ),
+                Style::default().fg(subtext()),
+            ),
+            Span::styled(pressure, Style::default().fg(pressure_color)),
+        ]))
+        .alignment(Alignment::Right),
+        rows[8],
+    );
+
+    // Swap section: "Swap" heading (like "Memory" above), then bar + info.
+    if has_swap {
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                "Swap",
+                Style::default().fg(sapphire()).add_modifier(Modifier::BOLD),
+            ))),
+            rows[9],
+        );
+        f.render_widget(
+            Paragraph::new(mk_bar(
+                "swap",
+                swap_used_pct,
+                mem.swap_used_bytes,
+                sapphire(),
+            )),
+            rows[10],
+        );
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                format!(
+                    "{}/{}",
+                    format_bytes(mem.swap_used_bytes),
+                    format_bytes(mem.swap_total_bytes)
+                ),
+                Style::default().fg(sapphire()),
+            )))
+            .alignment(Alignment::Right),
+            rows[11],
+        );
+    }
 }
 
 fn render_battery_section(f: &mut Frame, app: &App, area: Rect) {
@@ -429,7 +494,7 @@ fn render_battery_section(f: &mut Frame, app: &App, area: Rect) {
             .alignment(Alignment::Right),
             parts[0],
         );
-        sparkline::render_braille_smooth_nolabel(f, parts[1], hist, "W", true);
+        sparkline::render_braille_smooth_nolabel(f, parts[1], hist, "W", true, 10.0);
     }
 }
 
@@ -477,16 +542,12 @@ fn render_network(f: &mut Frame, app: &App, area: Rect, focused: bool) {
     // Top text: "RX {speed}" (download, green) and "TX {speed}" (upload, peach) —
     // colour-coded to match the graph and the dashboard network panel.
     let rx_txt = format!("RX {}", format_speed(primary.rx_speed_bps));
-    let peak_txt = format!(
-        "TX {} · peak {}",
-        format_speed(primary.tx_speed_bps),
-        format_speed(app.network_visible_scale * 1024.0)
-    );
+    let tx_txt = format!("TX {}", format_speed(primary.tx_speed_bps));
     f.render_widget(
         Paragraph::new(two_span_line(
             rx_txt,
             green(),
-            peak_txt,
+            tx_txt,
             peach(),
             chunks[0].width,
         )),
@@ -611,6 +672,38 @@ fn render_temperatures(f: &mut Frame, app: &App, area: Rect, focused: bool) {
         lines.push(Line::raw("")); // breathing space between temp bars
     }
 
+    // ── Fan speeds ── fill the remaining panel space with GPU/CPU fan data.
+    // GPU fan comes from GpuStats.fan_speed_pct (nvidia-smi / sysfs).
+    if !lines.is_empty() {
+        lines.push(Line::raw("")); // separator
+    }
+    let gpus = app.gpu_stats();
+    let gpu_fan = gpus
+        .iter()
+        .find_map(|g| g.fan_speed_pct)
+        .map(|pct| ("gpu", pct));
+    if let Some((lbl, pct)) = gpu_fan {
+        let color = if pct > 80.0 { red() } else { green() };
+        let mut spans = vec![Span::styled(
+            format!("{:<6}", lbl),
+            Style::default().fg(color),
+        )];
+        spans.extend(gradient_bar_spans(
+            bar_width,
+            (pct as f64 / 100.0).clamp(0.0, 1.0),
+        ));
+        spans.push(Span::styled(
+            format!(" {:>3.0}%", pct),
+            Style::default().fg(color),
+        ));
+        lines.push(Line::from(spans));
+    } else {
+        lines.push(Line::from(Span::styled(
+            "fan   —",
+            Style::default().fg(subtext()),
+        )));
+    }
+
     f.render_widget(Paragraph::new(lines), inner);
 }
 
@@ -629,9 +722,7 @@ fn render_disk_io(f: &mut Frame, app: &App, area: Rect, focused: bool) {
     let io = app.disk_io();
     let parts = app.disk_partitions();
 
-    // Peak-derived ceiling (nice-numbered) for the mirrored graph scale. Computed
-    // up front so the header can show the peak too (the graph itself carries
-    // no left-gutter labels).
+    // Peak-derived ceiling (nice-numbered) for the mirrored graph scale.
     let raw_peak = io
         .read_history
         .iter()
@@ -641,13 +732,13 @@ fn render_disk_io(f: &mut Frame, app: &App, area: Rect, focused: bool) {
         .fold(0.0_f64, f64::max)
         .max(1.0);
     let scale = crate::app::helpers::nice_number_ceiling(raw_peak);
-    let peak_lbl = format_speed(scale * 1024.0);
 
     // Layout: [header(1)] [graph(fill)] [disk usage bars(N)]
+    // Each bar takes 2 rows (data + a gap), so bars need 1 header + 2*N.
     let bars_c: u16 = if parts.is_empty() {
         0
     } else {
-        parts.len() as u16 + 1 // +1 header row
+        parts.len() as u16 * 2 + 1 // +1 header row, each bar has a gap row
     };
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -664,7 +755,7 @@ fn render_disk_io(f: &mut Frame, app: &App, area: Rect, focused: bool) {
         Paragraph::new(two_span_line(
             format!("↑ {}", format_speed(io.read_speed_bps)),
             lavender(),
-            format!("↓ {} · peak {}", format_speed(io.write_speed_bps), peak_lbl),
+            format!("↓ {}", format_speed(io.write_speed_bps)),
             sky(),
             chunks[0].width,
         )),
@@ -819,15 +910,6 @@ mod tests {
         assert_eq!(spans[13].style.fg, Some(yellow()));
         assert_eq!(spans[14].style.fg, Some(red()));
         assert_eq!(spans[19].content, "]");
-    }
-
-    fn battery_bar_places_label_flush_right() {
-        let line = battery_dot_bar(20, 0.5, peach(), "90%");
-        let s = flatten(&line);
-        assert_eq!(s.chars().count(), 20);
-        assert!(s.starts_with("[█████████"));
-        assert!(s.ends_with("90%]"));
-        assert!(s.contains('.'));
     }
 
     #[test]

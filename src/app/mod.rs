@@ -1692,6 +1692,19 @@ impl App {
             tick_count: 0,
             cached_partitions: vec![
                 DiskPartitionInfo {
+                    mount_point: "/boot/efi".into(),
+                    device: "/dev/nvme0n1p1".into(),
+                    fs_type: "vfat".into(),
+                    total_bytes: 300_000_000,
+                    used_bytes: 38_000_000,
+                    available_bytes: 262_000_000,
+                    model: Some("Samsung SSD 970 EVO Plus 500GB".into()),
+                    disk_type: "SSD".into(),
+                    vendor: Some("Samsung".into()),
+                    serial: None,
+                    rpm: None,
+                },
+                DiskPartitionInfo {
                     mount_point: "/".into(),
                     device: "/dev/nvme0n1p2".into(),
                     fs_type: "ext4".into(),

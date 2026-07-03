@@ -25,7 +25,7 @@ use crate::app::App;
 /// (index + 1) is the number-key shortcut.
 pub const TAB_ORDER: [(&str, AppTab); 6] = [
     ("Dashboard", AppTab::Dashboard),
-    ("System", AppTab::System),
+    ("About", AppTab::System),
     ("Hardware", AppTab::Hardware),
     ("Processes", AppTab::Processes),
     ("Logs", AppTab::Logs),
@@ -141,7 +141,10 @@ pub fn render_header(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(
         Paragraph::new(Line::from(Span::styled(
             format!(" {} ", tab_name),
-            Style::default().bg(lavender()).fg(mantle()).add_modifier(Modifier::BOLD),
+            Style::default()
+                .bg(lavender())
+                .fg(mantle())
+                .add_modifier(Modifier::BOLD),
         )))
         .alignment(Alignment::Center),
         top_cols[1],

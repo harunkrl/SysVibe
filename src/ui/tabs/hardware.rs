@@ -7,17 +7,17 @@
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
-    symbols,
     text::{Line, Span},
-    widgets::{Axis, Chart, Dataset, GraphType, Paragraph},
+    widgets::Paragraph,
     Frame,
 };
 
-use crate::app::state::{PanelFocus, HISTORY_LEN};
+use crate::app::state::PanelFocus;
 use crate::app::App;
 use crate::ui::helpers::*;
 use crate::ui::icons;
 use crate::ui::palette::*;
+use crate::ui::widgets::sparkline;
 
 pub fn render_hardware_tab(f: &mut Frame, app: &App, area: Rect) {
     let focus = app.panel_focus();
@@ -27,151 +27,234 @@ pub fn render_hardware_tab(f: &mut Frame, app: &App, area: Rect) {
         let rows = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Percentage(22),
-                Constraint::Percentage(22),
-                Constraint::Percentage(20),
-                Constraint::Percentage(18),
-                Constraint::Percentage(18),
+                Constraint::Percentage(18), // CPU
+                Constraint::Percentage(16), // Memory
+                Constraint::Percentage(14), // Battery
+                Constraint::Percentage(20), // Network
+                Constraint::Percentage(16), // Temperatures
+                Constraint::Percentage(16), // Disk I/O
             ])
             .split(area);
         render_cpu_clusters(f, app, rows[0], focus == PanelFocus::Panel1);
-        render_memory_battery(f, app, rows[1], focus == PanelFocus::Panel2);
-        render_network(f, app, rows[2], focus == PanelFocus::Panel3);
-        render_temperatures(f, app, rows[3], focus == PanelFocus::Panel4);
-        render_disk_io(f, app, rows[4], focus == PanelFocus::Panel5);
+        render_memory_panel(f, app, rows[1], focus == PanelFocus::Panel2);
+        render_battery_panel(f, app, rows[2], focus == PanelFocus::Panel6);
+        render_network(f, app, rows[3], focus == PanelFocus::Panel3);
+        render_temperatures(f, app, rows[4], focus == PanelFocus::Panel4);
+        render_disk_io(f, app, rows[5], focus == PanelFocus::Panel5);
     } else {
-        // ── Two rows: monitoring (top) + sensors/disk I/O (bottom) ──
-        let rows = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        // Content-driven mixed grid:
+        //   left column  → CPU (compact) + Memory below
+        //   right column → 2 rows: [Battery | Network] / [Temperatures | Disk I/O]
+        let cols = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(38), Constraint::Percentage(62)])
             .split(area);
 
-        let top_cols = Layout::default()
+        // Left: CPU (top, compact) + Memory (bottom).
+        let left = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(46), Constraint::Percentage(54)])
+            .split(cols[0]);
+        render_cpu_clusters(f, app, left[0], focus == PanelFocus::Panel1);
+        render_memory_panel(f, app, left[1], focus == PanelFocus::Panel2);
+
+        let right = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(cols[1]);
+
+        let top = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Percentage(33),
-                Constraint::Percentage(34),
-                Constraint::Percentage(33),
-            ])
-            .split(rows[0]);
+            .constraints([Constraint::Percentage(38), Constraint::Percentage(62)])
+            .split(right[0]);
+        render_battery_panel(f, app, top[0], focus == PanelFocus::Panel6);
+        render_network(f, app, top[1], focus == PanelFocus::Panel3);
 
-        render_cpu_clusters(f, app, top_cols[0], focus == PanelFocus::Panel1);
-        render_memory_battery(f, app, top_cols[1], focus == PanelFocus::Panel2);
-        render_network(f, app, top_cols[2], focus == PanelFocus::Panel3);
-
-        let bot_cols = Layout::default()
+        let bot = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
-            .split(rows[1]);
-
-        render_temperatures(f, app, bot_cols[0], focus == PanelFocus::Panel4);
-        render_disk_io(f, app, bot_cols[1], focus == PanelFocus::Panel5);
+            .constraints([Constraint::Percentage(38), Constraint::Percentage(62)])
+            .split(right[1]);
+        render_temperatures(f, app, bot[0], focus == PanelFocus::Panel4);
+        render_disk_io(f, app, bot[1], focus == PanelFocus::Panel5);
     }
 }
 
-// ─── CPU Clusters ──────────────────────────────────────────────────
-
-const CPU_MOCK_LABELS: [&str; 13] = [
-    "Core 0-15",
-    "Core 0-15",
-    "Core 1-11",
-    "Core 2-8",
-    "Core 3-6",
-    "Core 4-7",
-    "Core 5-8",
-    "Core 6-9",
-    "Core 7-11",
-    "Core 0-12",
-    "Core 0-13",
-    "Core 0-14",
-    "Core 0-15",
-];
+// ─── CPU ─────────────────────────────────────────────────────────
 
 fn render_cpu_clusters(f: &mut Frame, app: &App, area: Rect, focused: bool) {
-    let block = panel_block_focused(" CPU Clusters ", focused);
-    let inner = block.inner(area);
+    // CPU package panel — replaces the old "CPU Clusters" panel which used
+    // fake (mock) labels. Shows REAL package info: base freq (brand string),
+    // live frequency + session min/max envelope, core/thread counts, load
+    // averages, then a compact VERTICAL per-core bar strip (same renderer as
+    // the dashboard) — no per-core percentages, dense, little spacing.
+    let title = icons::titled(app, icons::CPU, icons::fallback::CPU, "CPU");
+    let block = panel_block_themed(&title, focused, green());
+    let inner = panel_inner(area, &block);
     f.render_widget(block, area);
 
-    if inner.width < 15 || inner.height < 2 {
+    if inner.width < 12 || inner.height < 2 {
         return;
     }
 
+    let info = app.system_info();
     let cores = app.per_core_usage();
-    if cores.is_empty() {
-        f.render_widget(
-            Paragraph::new(Line::from(Span::styled(
-                "  No CPU cores",
-                Style::default().fg(overlay()),
-            ))),
-            inner,
-        );
-        return;
-    }
+    let load = info.load_average;
 
-    let max_bars = (inner.height as usize).min(CPU_MOCK_LABELS.len());
-    // "Core X-YY:" (10) + " NNN%" (5) reserve.
-    let bar_width = inner.width.saturating_sub(15).max(3);
+    let avg_util: f64 = if cores.is_empty() {
+        0.0
+    } else {
+        cores.iter().map(|&c| c as f64).sum::<f64>() / cores.len() as f64
+    };
 
-    let mut lines = Vec::with_capacity(max_bars);
-    for i in 0..max_bars {
-        let usage_pct = cores[i % cores.len()] as f64;
-        let label = CPU_MOCK_LABELS[i % CPU_MOCK_LABELS.len()];
+    let ghz = |mhz: u64| format!("{:.2}GHz", mhz as f64 / 1000.0);
+    let base = info
+        .cpu_brand
+        .split('@')
+        .nth(1)
+        .and_then(|s| s.trim().strip_suffix("GHz").map(str::trim));
 
-        let label_padded = format!("{}:", label);
-        let mut spans = vec![Span::styled(
-            format!("{:<10}", label_padded),
-            Style::default().fg(mauve()),
-        )];
-        spans.extend(segmented_dot_progress_bar(bar_width, usage_pct));
-        spans.push(Span::styled(
-            format!(" {:>3.0}%", usage_pct),
-            Style::default().fg(text()),
+    let bold = |s: &str| {
+        Span::styled(
+            s.to_string(),
+            Style::default().fg(subtext()).add_modifier(Modifier::BOLD),
+        )
+    };
+
+    // Split inner: header rows (package info) on top, vertical core bars below.
+    let header_rows = 6u16; // Vendor/Cores/Base/Freq/Util/Load
+    let (head, bars) = if inner.height > header_rows + 2 {
+        let parts = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(header_rows), Constraint::Min(2)])
+            .split(inner);
+        (parts[0], Some(parts[1]))
+    } else {
+        (inner, None)
+    };
+
+    let mut lines: Vec<Line> = Vec::new();
+
+    // Headline: short brand name + vendor + architecture. Real identity detail
+    // beyond the live metrics below.
+    let brand_short = info
+        .cpu_brand
+        .split('@')
+        .next()
+        .unwrap_or(&info.cpu_brand)
+        .trim()
+        .trim_start_matches("Intel(R) ")
+        .trim_start_matches("AMD ");
+    let vendor_short = if info.cpu_brand.to_ascii_uppercase().contains("INTEL") {
+        "Intel"
+    } else if info.cpu_brand.to_ascii_uppercase().contains("AMD") {
+        "AMD"
+    } else {
+        ""
+    };
+    let mut head_spans = vec![Span::styled(
+        format!(" {}", brand_short),
+        Style::default().fg(green()).add_modifier(Modifier::BOLD),
+    )];
+    if !vendor_short.is_empty() {
+        head_spans.push(Span::styled(
+            format!("  {}", vendor_short),
+            Style::default().fg(subtext()),
         ));
-        lines.push(Line::from(spans));
     }
+    head_spans.push(Span::styled(
+        format!("  ({})", info.architecture),
+        Style::default().fg(overlay()),
+    ));
+    lines.push(Line::from(head_spans));
+    lines.push(Line::from(vec![
+        bold(" Cores"),
+        Span::styled(
+            format!("  {}", app.num_cores()),
+            Style::default().fg(text()),
+        ),
+        Span::styled(
+            format!("  ({} threads)", info.cpu_cores),
+            Style::default().fg(overlay()),
+        ),
+    ]));
+    if let Some(b) = base {
+        lines.push(Line::from(vec![
+            bold(" Base"),
+            Span::styled(format!("   {}GHz", b), Style::default().fg(sky())),
+        ]));
+    }
+    lines.push(Line::from(vec![
+        bold(" Freq"),
+        Span::styled(
+            format!("   {}", ghz(app.cpu_freq_mhz)),
+            Style::default().fg(green()).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!(
+                "  ▲{} ▼{}",
+                ghz(app.cpu_freq_max_mhz),
+                ghz(app.cpu_freq_min_mhz)
+            ),
+            Style::default().fg(overlay()),
+        ),
+    ]));
 
-    f.render_widget(Paragraph::new(lines), inner);
+    let bar_w = head.width.saturating_sub(10).max(3);
+    let mut util_spans = vec![bold(" Util")];
+    util_spans.extend(segmented_dot_progress_bar(bar_w, avg_util));
+    util_spans.push(Span::styled(
+        format!(" {:>3.0}%", avg_util),
+        Style::default().fg(usage_color(avg_util as f32)),
+    ));
+    lines.push(Line::from(util_spans));
+
+    lines.push(Line::from(vec![
+        bold(" Load"),
+        Span::styled(format!("   {:.2}", load.0), Style::default().fg(green())),
+        Span::styled(format!(" {:.2}", load.1), Style::default().fg(yellow())),
+        Span::styled(format!(" {:.2}", load.2), Style::default().fg(peach())),
+        Span::styled(" (1/5/15m)", Style::default().fg(overlay())),
+    ]));
+
+    f.render_widget(Paragraph::new(lines), head);
+
+    // ── Per-core vertical bars (compact strip, no per-core %, minimal gaps) ──
+    if let Some(bars_area) = bars {
+        crate::ui::widgets::sparkline::render_core_bars(f, bars_area, &cores);
+    }
 }
 
 // ─── Memory & Battery ──────────────────────────────────────────────
 
-fn render_memory_battery(f: &mut Frame, app: &App, area: Rect, focused: bool) {
-    let block = panel_block_focused(" Memory & Battery ", focused);
-    let inner = block.inner(area);
+fn render_memory_panel(f: &mut Frame, app: &App, area: Rect, focused: bool) {
+    let title = icons::titled(app, icons::RAM, icons::fallback::RAM, "Memory");
+    let block = panel_block_themed(&title, focused, mauve());
+    let inner = panel_inner(area, &block);
     f.render_widget(block, area);
-
-    if inner.width < 15 || inner.height < 6 {
+    if inner.width < 12 || inner.height < 7 {
         return;
     }
+    render_memory_section(f, app, inner);
+}
 
-    // Split: Memory (top) + Divider line (middle) + Battery (bottom).
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(5), // Memory section
-            Constraint::Length(1), // Divider line
-            Constraint::Min(4),    // Battery section
-        ])
-        .split(inner);
-
-    render_memory_section(f, app, chunks[0]);
-
-    // Render divider line
-    let divider = "─".repeat(inner.width as usize);
-    f.render_widget(
-        Paragraph::new(Line::styled(divider, Style::default().fg(surface1()))),
-        chunks[1],
-    );
-
-    render_battery_section(f, app, chunks[2]);
+fn render_battery_panel(f: &mut Frame, app: &App, area: Rect, focused: bool) {
+    let title = icons::titled(app, icons::BATTERY, icons::fallback::BATTERY, "Battery");
+    let block = panel_block_themed(&title, focused, peach());
+    let inner = panel_inner(area, &block);
+    f.render_widget(block, area);
+    if inner.width < 12 || inner.height < 5 {
+        return;
+    }
+    render_battery_section(f, app, inner);
 }
 
 fn render_memory_section(f: &mut Frame, app: &App, area: Rect) {
-    if area.width < 10 || area.height < 5 {
+    if area.width < 10 || area.height < 7 {
         return;
     }
 
     let mem = app.memory_breakdown();
+    let ram = &app.hardware_data().ram;
     let total_bytes = mem.total_bytes.max(1);
     let used_pct = (mem.used_bytes as f64 / total_bytes as f64) * 100.0;
     let cache_pct = (mem.cached_bytes as f64 / total_bytes as f64) * 100.0;
@@ -180,42 +263,83 @@ fn render_memory_section(f: &mut Frame, app: &App, area: Rect) {
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1), // "Memory:" title
+            Constraint::Length(1), // "Memory" + spec (type · speed · DIMMs)
             Constraint::Length(1), // Used
+            Constraint::Length(1), // gap
             Constraint::Length(1), // Cache
+            Constraint::Length(1), // gap
             Constraint::Length(1), // Free
-            Constraint::Min(0),    // spacer + Total (bottom-right)
+            Constraint::Min(0),    // spacer + info footer
         ])
         .split(area);
 
+    // Title row: "Memory" + hardware spec (e.g. "DDR4 · 3200 · 2 DIMMs").
+    let spec = match (&ram.mem_type, ram.speed_mt, ram.dimm_count) {
+        (Some(t), Some(s), Some(d)) => format!("{} · {}MT/s · {} DIMMs", t, s, d),
+        (Some(t), Some(s), None) => format!("{} · {}MT/s", t, s),
+        (Some(t), None, Some(d)) => format!("{} · {} DIMMs", t, d),
+        (Some(t), None, None) => t.clone(),
+        _ => "Memory".to_string(),
+    };
     f.render_widget(
-        Paragraph::new(Line::from(Span::styled(
-            "Memory:",
-            Style::default().fg(pink()).add_modifier(Modifier::BOLD),
-        ))),
+        Paragraph::new(Line::from(vec![
+            Span::styled(
+                "Memory",
+                Style::default().fg(pink()).add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("  "),
+            Span::styled(spec, Style::default().fg(subtext())),
+        ])),
         rows[0],
     );
 
+    // Used / cache / free gradient bars — dashboard-style, with BOTH the
+    // percentage and the absolute value, so the panel carries real info, not
+    // just ratios.
     let bar_width = area.width;
+    let mk_bar = |pct: f64, abs_bytes: u64, base: Color| -> Line<'static> {
+        let mut spans = vec![
+            Span::raw(" "),
+            Span::styled(format!("{:>5.1}% ", pct), Style::default().fg(base)),
+        ];
+        spans.extend(gradient_bar_spans(
+            bar_width.saturating_sub(18).max(3),
+            pct / 100.0,
+        ));
+        spans.push(Span::styled(
+            format!(" {:>7}", format_bytes(abs_bytes)),
+            Style::default().fg(base),
+        ));
+        Line::from(spans)
+    };
     f.render_widget(
-        Paragraph::new(Line::from(dot_progress_bar(bar_width, used_pct, peach()))),
+        Paragraph::new(mk_bar(used_pct, mem.used_bytes, peach())),
         rows[1],
     );
     f.render_widget(
-        Paragraph::new(Line::from(dot_progress_bar(bar_width, cache_pct, mauve()))),
-        rows[2],
-    );
-    f.render_widget(
-        Paragraph::new(Line::from(dot_progress_bar(bar_width, free_pct, green()))),
+        Paragraph::new(mk_bar(cache_pct, mem.cached_bytes, mauve())),
         rows[3],
     );
+    f.render_widget(
+        Paragraph::new(mk_bar(free_pct, mem.free_bytes, green())),
+        rows[5],
+    );
 
-    // "Total: {val}" pinned to the bottom-right of the memory section.
+    // Footer: total + swap usage (absolute info, not just a ratio).
     let bot = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(0), Constraint::Length(1)])
-        .split(rows[4]);
-    let total_txt = format!("Total: {}", fmt_gib(mem.total_bytes));
+        .split(rows[6]);
+    let swap_txt = if mem.swap_total_bytes > 0 {
+        format!(
+            "Swap {}/{}",
+            format_bytes(mem.swap_used_bytes),
+            format_bytes(mem.swap_total_bytes)
+        )
+    } else {
+        "Swap —".to_string()
+    };
+    let total_txt = format!("Total {} · {}", format_bytes(mem.total_bytes), swap_txt);
     f.render_widget(
         Paragraph::new(Line::from(Span::styled(
             total_txt,
@@ -237,10 +361,9 @@ fn render_battery_section(f: &mut Frame, app: &App, area: Rect) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(1), // "Battery" title
-            Constraint::Length(1), // state
-            Constraint::Length(1), // health
-            Constraint::Length(1), // large bar with % overlay
-            Constraint::Min(0),
+            Constraint::Length(1), // state · health · %
+            Constraint::Length(1), // big bar
+            Constraint::Min(3),    // braille charge trend (CPU-info style)
         ])
         .split(area);
 
@@ -260,35 +383,62 @@ fn render_battery_section(f: &mut Frame, app: &App, area: Rect) {
         rows[0],
     );
 
-    // Row 1: state (peach)
+    // Row 1: state · health · % combined (peach).
     f.render_widget(
-        Paragraph::new(Line::from(Span::styled(
-            state,
-            Style::default().fg(peach()),
-        ))),
+        Paragraph::new(Line::from(vec![
+            Span::styled(state, Style::default().fg(peach())),
+            Span::styled(
+                format!("  Health {:.0}%", health_pct),
+                Style::default().fg(subtext()),
+            ),
+            Span::styled(
+                format!("  {:.0}%", percentage),
+                Style::default().fg(peach()).add_modifier(Modifier::BOLD),
+            ),
+        ])),
         rows[1],
     );
 
-    // Row 2: health (peach)
-    f.render_widget(
-        Paragraph::new(Line::from(Span::styled(
-            format!("Health: {:.0}%", health_pct),
-            Style::default().fg(peach()),
-        ))),
-        rows[2],
-    );
+    // Row 2: large gradient bar (peach, dashboard-style) with the % label.
+    let bw = area.width.saturating_sub(8).max(3);
+    let mut bar_spans = vec![Span::raw(" ")];
+    bar_spans.extend(gradient_bar_spans(bw, percentage / 100.0));
+    bar_spans.push(Span::styled(
+        format!(" {:.0}%", percentage),
+        Style::default().fg(peach()).add_modifier(Modifier::BOLD),
+    ));
+    f.render_widget(Paragraph::new(Line::from(bar_spans)), rows[2]);
 
-    // Row 3: large progress bar (peach) with the percentage overlaid on the right.
-    let pct_label = format!("{:.0}%", percentage);
-    let bar_line = battery_dot_bar(area.width, percentage / 100.0, peach(), &pct_label);
-    f.render_widget(Paragraph::new(bar_line), rows[3]);
+    // Row 3+: braille POWER-DRAW trend (watts). Full width (no left-gutter
+    // labels — the current draw W is shown in a header above the graph) so the
+    // curve uses all available space, like the network/disk graphs.
+    let g = rows[3];
+    let hist = &app.battery_power_history;
+    let cur_w = bat.as_ref().and_then(|b| b.power_w).unwrap_or(0.0);
+    if g.height >= 4 && g.width >= 8 && hist.len() >= 2 {
+        let parts = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(1), Constraint::Min(2)])
+            .split(g);
+        // Power-draw header: "Draw {W}" (peach), right-aligned.
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                format!("Draw {:.1}W", cur_w),
+                Style::default().fg(peach()),
+            )))
+            .alignment(Alignment::Right),
+            parts[0],
+        );
+        sparkline::render_braille_smooth_nolabel(f, parts[1], hist, "W", true);
+    }
 }
 
 // ─── Network ───────────────────────────────────────────────────────
 
 fn render_network(f: &mut Frame, app: &App, area: Rect, focused: bool) {
-    let block = panel_block_focused(" Network ", focused);
-    let inner = block.inner(area);
+    let title = icons::titled(app, icons::NETWORK, icons::fallback::NETWORK, "Network");
+    let block = panel_block_themed(&title, focused, sapphire());
+    let inner = panel_inner(area, &block);
     f.render_widget(block, area);
 
     if inner.width < 12 || inner.height < 5 {
@@ -308,92 +458,96 @@ fn render_network(f: &mut Frame, app: &App, area: Rect, focused: bool) {
         return;
     }
 
-    // text (top) + mirrored line chart (below). The Chart widget renders its
-    // own X/Y axes, so we no longer need a separate x-axis-labels row.
+    // text (top) + mirrored braille graph (middle) + per-interface breakdown
+    // (bottom). The graph is the SAME hand-rolled braille_mirrored renderer
+    // as the dashboard (one visual language); its Y-axis labels sit in a left
+    // gutter, so no separate axis row is needed.
+    let iface_rows = stats.len() as u16; // one line per interface
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Min(4)])
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Min(4),
+            Constraint::Length(iface_rows + 1), // +1 header row
+        ])
         .split(inner);
 
     let primary = &stats[0];
 
     // Top text: "RX {speed}" (download, green) and "TX {speed}" (upload, peach) —
-    // colour-coded to match the chart lines and the dashboard network panel.
+    // colour-coded to match the graph and the dashboard network panel.
     let rx_txt = format!("RX {}", format_speed(primary.rx_speed_bps));
-    let tx_txt = format!("TX {}", format_speed(primary.tx_speed_bps));
+    let peak_txt = format!(
+        "TX {} · peak {}",
+        format_speed(primary.tx_speed_bps),
+        format_speed(app.network_visible_scale * 1024.0)
+    );
     f.render_widget(
         Paragraph::new(two_span_line(
             rx_txt,
             green(),
-            tx_txt,
+            peak_txt,
             peach(),
             chunks[0].width,
         )),
         chunks[0],
     );
 
-    // Mirrored wattea-style Chart: RX plotted positive (up), TX negative (down),
-    // symmetric Y bounds so the zero axis sits in the middle — same visual as
-    // the old braille_mirrored_graph but via ratatui's Chart engine.
+    // Mirrored braille area graph (RX up / TX down) — full width, with
+    // +peak/−peak Y labels in the left gutter (matching the dashboard).
     let g = chunks[1];
-    if g.height >= 4 && g.width >= 8 && !primary.rx_history.is_empty() {
-        let rx_pts: Vec<(f64, f64)> = primary
-            .rx_history
-            .iter()
-            .enumerate()
-            .map(|(i, &v)| (i as f64, v as f64))
-            .collect();
-        let tx_pts: Vec<(f64, f64)> = primary
-            .tx_history
-            .iter()
-            .enumerate()
-            .map(|(i, &v)| (i as f64, -(v as f64)))
-            .collect();
-        let peak = primary
-            .rx_history
-            .iter()
-            .chain(primary.tx_history.iter())
-            .copied()
-            .max()
-            .unwrap_or(0) as f64;
-        let peak = peak.max(1.0); // floor of 1 KiB/s avoids a flat line
-        let n = primary.rx_history.len();
-        // History is in KiB/s; format_speed takes bytes/s (÷1024 → KiB), so scale up.
-        let peak_lbl = format_speed(peak * 1024.0);
-
-        let chart = Chart::new(vec![
-            Dataset::default()
-                .marker(symbols::Marker::Braille)
-                .graph_type(GraphType::Line)
-                .style(Style::default().fg(green()))
-                .data(&rx_pts),
-            Dataset::default()
-                .marker(symbols::Marker::Braille)
-                .graph_type(GraphType::Line)
-                .style(Style::default().fg(peach()))
-                .data(&tx_pts),
-        ])
-        .x_axis(
-            Axis::default()
-                // Axis line hidden (matches panel bg): only the data lines + labels show.
-                .style(Style::default().fg(mantle()))
-                .bounds([0.0, (n.saturating_sub(1) as f64).max(1.0)])
-                .labels(vec![
-                    Span::styled(io_window_label(app), Style::default().fg(subtext())),
-                    Span::styled("now", Style::default().fg(subtext())),
-                ]),
-        )
-        .y_axis(
-            Axis::default()
-                .style(Style::default().fg(mantle()))
-                .bounds([-peak, peak])
-                .labels(vec![
-                    Span::styled(format!("-{}", peak_lbl), Style::default().fg(subtext())),
-                    Span::styled("0", Style::default().fg(subtext())),
-                    Span::styled(peak_lbl, Style::default().fg(subtext())),
-                ]),
+    if g.height >= 5 && g.width >= 8 && !primary.rx_history.is_empty() {
+        sparkline::render_braille_mirrored(
+            f,
+            g,
+            &primary.rx_history,
+            &primary.tx_history,
+            green(),
+            peach(),
+            "k",
+            app.network_visible_scale,
+            false, // no left gutter — peak shown in the header row
         );
-        f.render_widget(chart, g);
+    }
+
+    // Per-interface breakdown (bottom): name · RX/TX speed · cumulative totals · IP.
+    // The detailed view — the dashboard network panel shows the aggregate; here
+    // each interface gets its own line so you can see per-NIC traffic.
+    let bd = chunks[2];
+    if bd.height >= 2 {
+        let mut lines: Vec<Line> = Vec::with_capacity(stats.len() + 1);
+        lines.push(Line::from(vec![
+            Span::styled("iface", Style::default().fg(subtext())),
+            Span::raw("      "),
+            Span::styled("rx", Style::default().fg(green())),
+            Span::raw(" "),
+            Span::styled("tx", Style::default().fg(peach())),
+            Span::raw("  "),
+            Span::styled("total rx/tx", Style::default().fg(subtext())),
+            Span::raw("  "),
+            Span::styled("ip", Style::default().fg(subtext())),
+        ]));
+        for s in stats {
+            let rx = format_speed(s.rx_speed_bps);
+            let tx = format_speed(s.tx_speed_bps);
+            let tot_rx = format_bytes(s.total_rx_bytes);
+            let tot_tx = format_bytes(s.total_tx_bytes);
+            let ip = s.local_ip.clone().unwrap_or_else(|| "—".to_string());
+            lines.push(Line::from(vec![
+                Span::styled(format!("{:<6}", s.interface), Style::default().fg(text())),
+                Span::styled(format!("{:>8}", rx), Style::default().fg(green())),
+                Span::raw(" "),
+                Span::styled(format!("{:>8}", tx), Style::default().fg(peach())),
+                Span::raw(" "),
+                Span::styled(
+                    format!("{:>5}/{:<5}", tot_rx, tot_tx),
+                    Style::default().fg(subtext()),
+                ),
+                Span::raw(" "),
+                Span::styled(ip, Style::default().fg(subtext())),
+            ]));
+        }
+        f.render_widget(Paragraph::new(lines), bd);
     }
 }
 
@@ -401,8 +555,8 @@ fn render_network(f: &mut Frame, app: &App, area: Rect, focused: bool) {
 
 fn render_temperatures(f: &mut Frame, app: &App, area: Rect, focused: bool) {
     let title = icons::titled(app, icons::TEMP, icons::fallback::TEMP, "Temperatures");
-    let block = panel_block_focused(&title, focused);
-    let inner = block.inner(area);
+    let block = panel_block_themed(&title, focused, peach());
+    let inner = panel_inner(area, &block);
     f.render_widget(block, area);
 
     if inner.width < 14 || inner.height < 2 {
@@ -410,70 +564,51 @@ fn render_temperatures(f: &mut Frame, app: &App, area: Rect, focused: bool) {
     }
 
     let temps = app.temperatures();
-    let max_rows = inner.height as usize;
-
-    // Define mockup sensors list to pad/use when real data is missing or incomplete.
-    let mock_sensors = [
-        ("CPU Pkg", Some(52.0)),
-        ("CPU Pkg", Some(52.0)),
-        ("GPU Die", Some(52.0)),
-        ("GPU Die", Some(54.0)),
-        ("GPU Pkg", Some(54.0)),
-        ("GPU Die", Some(54.0)),
-        ("NVMe", None),
-        ("NVMe", Some(36.0)),
-        ("NVMe Ktg", None),
-        ("Chipset", None),
-        ("Chipset", Some(49.0)),
-        ("ACPI", None),
-        ("ACPI", Some(51.0)),
-    ];
-
-    let mut display_items = Vec::new();
-    for s in temps.iter() {
-        display_items.push((s.label.clone(), Some(s.temp_c)));
+    // Show only the essentials: one CPU, one GPU, one disk (NVMe/SSD/HDD).
+    // We take the FIRST matching sensor per category (systems often report
+    // several CPU/GPU packages). Labels are normalised to cpu/gpu/disk.
+    fn first_match(
+        ts: &[crate::app::state::SensorReading],
+        pred: impl Fn(&str) -> bool,
+    ) -> Option<&crate::app::state::SensorReading> {
+        ts.iter().find(|s| pred(&s.label.to_ascii_uppercase()))
     }
-
-    let mut mock_idx = 0;
-    while display_items.len() < max_rows.max(13) && display_items.len() < 30 {
-        let mock = &mock_sensors[mock_idx % mock_sensors.len()];
-        display_items.push((mock.0.to_string(), mock.1));
-        mock_idx += 1;
-    }
-
+    let cpu = first_match(temps, |l| {
+        l.contains("CPU") || l.contains("PACKAGE") || l.contains("CORE")
+    });
+    let gpu = first_match(temps, |l| l.contains("GPU"));
+    let disk = first_match(temps, |l| {
+        l.contains("NVME") || l.contains("DISK") || l.contains("SSD") || l.contains("HDD")
+    });
+    let items: Vec<(&str, &crate::app::state::SensorReading)> =
+        [("cpu", cpu), ("gpu", gpu), ("disk", disk)]
+            .into_iter()
+            .filter_map(|(lbl, opt)| opt.map(|s| (lbl, s)))
+            .collect();
+    // Each bar takes 2 rows (data + a gap), so show half as many sensors.
+    let max_rows = (inner.height as usize) / 2;
     let bar_width = inner.width.saturating_sub(15).max(3);
     let unit = if app.temp_celsius { "°C" } else { "°F" };
-    let mut lines = Vec::with_capacity(max_rows);
+    let mut lines: Vec<Line> = Vec::new();
 
-    for (label, temp_opt) in display_items.iter().take(max_rows) {
-        let label_str = truncate_str(label, 9);
-        let label_padded = format!("{:<9}", label_str);
-
-        if let Some(temp_val) = temp_opt {
-            let temp_val = *temp_val;
-            let display = if app.temp_celsius {
-                temp_val
-            } else {
-                temp_val * 9.0 / 5.0 + 32.0
-            };
-            let color = temp_threshold_color(temp_val);
-            let pct = (temp_val / 100.0).clamp(0.0, 1.0);
-
-            let mut spans = vec![Span::styled(label_padded, Style::default().fg(color))];
-            spans.extend(dot_progress_bar(bar_width, pct as f64 * 100.0, color));
-            spans.push(Span::styled(
-                format!(" {:>3.0}{}", display, unit),
-                Style::default().fg(color),
-            ));
-            lines.push(Line::from(spans));
+    for (label_str, s) in items.iter().take(max_rows) {
+        let label_padded = format!("{:<6}", label_str);
+        let temp_val = s.temp_c as f64;
+        let display = if app.temp_celsius {
+            temp_val
         } else {
-            let color = sensor_group_color(&label_str);
-            let spans = vec![
-                Span::styled(label_padded, Style::default().fg(color)),
-                Span::styled("[", Style::default().fg(color)),
-            ];
-            lines.push(Line::from(spans));
-        }
+            temp_val * 9.0 / 5.0 + 32.0
+        };
+        let color = temp_threshold_color(temp_val as f32);
+        let ratio = (temp_val / 100.0).clamp(0.0, 1.0);
+        let mut spans = vec![Span::styled(label_padded, Style::default().fg(color))];
+        spans.extend(gradient_bar_spans(bar_width, ratio));
+        spans.push(Span::styled(
+            format!(" {:>3.0}{}", display, unit),
+            Style::default().fg(color),
+        ));
+        lines.push(Line::from(spans));
+        lines.push(Line::raw("")); // breathing space between temp bars
     }
 
     f.render_widget(Paragraph::new(lines), inner);
@@ -482,137 +617,125 @@ fn render_temperatures(f: &mut Frame, app: &App, area: Rect, focused: bool) {
 // ─── Disk I/O ──────────────────────────────────────────────────────
 
 fn render_disk_io(f: &mut Frame, app: &App, area: Rect, focused: bool) {
-    let block = panel_block_focused(" Disk I/O ", focused);
-    let inner = block.inner(area);
+    let title = icons::titled(app, icons::DISK, icons::fallback::DISK, "Disk I/O");
+    let block = panel_block_themed(&title, focused, yellow());
+    let inner = panel_inner(area, &block);
     f.render_widget(block, area);
 
-    if inner.width < 12 || inner.height < 5 {
+    if inner.width < 12 || inner.height < 4 {
         return;
     }
 
     let io = app.disk_io();
+    let parts = app.disk_partitions();
 
-    // speeds header (1) + mirrored chart (fill). The Chart widget renders its
-    // own X/Y axes, so there's no separate x-axis-labels row.
+    // Peak-derived ceiling (nice-numbered) for the mirrored graph scale. Computed
+    // up front so the header can show the peak too (the graph itself carries
+    // no left-gutter labels).
+    let raw_peak = io
+        .read_history
+        .iter()
+        .chain(io.write_history.iter())
+        .copied()
+        .map(|v| v as f64)
+        .fold(0.0_f64, f64::max)
+        .max(1.0);
+    let scale = crate::app::helpers::nice_number_ceiling(raw_peak);
+    let peak_lbl = format_speed(scale * 1024.0);
+
+    // Layout: [header(1)] [graph(fill)] [disk usage bars(N)]
+    let bars_c: u16 = if parts.is_empty() {
+        0
+    } else {
+        parts.len() as u16 + 1 // +1 header row
+    };
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Min(4)])
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Min(4),
+            Constraint::Length(bars_c),
+        ])
         .split(inner);
 
-    // Header: "Read {speed}" (up, lavender) and "Write {speed}" (down, sky) —
-    // colour-coded to match the chart lines.
+    // Header: Read (up, lavender) / Write (down, sky) + the peak — colour-coded
+    // to the graph. The peak lives here now that the graph has no left gutter.
     f.render_widget(
         Paragraph::new(two_span_line(
-            format!("Read {}", format_speed(io.read_speed_bps)),
+            format!("↑ {}", format_speed(io.read_speed_bps)),
             lavender(),
-            format!("Write {}", format_speed(io.write_speed_bps)),
+            format!("↓ {} · peak {}", format_speed(io.write_speed_bps), peak_lbl),
             sky(),
             chunks[0].width,
         )),
         chunks[0],
     );
 
-    // btop-style mirrored Chart: Read plotted positive (up), Write negative
-    // (down), symmetric Y bounds so the zero axis sits in the middle — same
-    // engine as the network chart.
+    // Mirrored braille graph (read up / write down), FULL width — no left
+    // gutter (speeds/peak in header). Same renderer as the network graphs.
     let g = chunks[1];
-    if g.height >= 4 && g.width >= 8 && !io.read_history.is_empty() {
-        let read_pts: Vec<(f64, f64)> = io
-            .read_history
-            .iter()
-            .enumerate()
-            .map(|(i, &v)| (i as f64, v as f64))
-            .collect();
-        let write_pts: Vec<(f64, f64)> = io
-            .write_history
-            .iter()
-            .enumerate()
-            .map(|(i, &v)| (i as f64, -(v as f64)))
-            .collect();
-        let peak = io
-            .read_history
-            .iter()
-            .chain(io.write_history.iter())
-            .copied()
-            .max()
-            .unwrap_or(0) as f64;
-        let peak = peak.max(1.0); // floor of 1 KiB/s avoids a flat line
-        let n = io.read_history.len();
-        // History is in KiB/s; format_speed takes bytes/s (÷1024 → KiB), so scale up.
-        let peak_lbl = format_speed(peak * 1024.0);
-
-        let chart = Chart::new(vec![
-            Dataset::default()
-                .marker(symbols::Marker::Braille)
-                .graph_type(GraphType::Line)
-                .style(Style::default().fg(lavender()))
-                .data(&read_pts),
-            Dataset::default()
-                .marker(symbols::Marker::Braille)
-                .graph_type(GraphType::Line)
-                .style(Style::default().fg(sky()))
-                .data(&write_pts),
-        ])
-        .x_axis(
-            Axis::default()
-                // Axis line hidden (matches panel bg): only the data lines + labels show.
-                .style(Style::default().fg(mantle()))
-                .bounds([0.0, (n.saturating_sub(1) as f64).max(1.0)])
-                .labels(vec![
-                    Span::styled(io_window_label(app), Style::default().fg(subtext())),
-                    Span::styled("now", Style::default().fg(subtext())),
-                ]),
-        )
-        .y_axis(
-            Axis::default()
-                .style(Style::default().fg(mantle()))
-                .bounds([-peak, peak])
-                .labels(vec![
-                    Span::styled(format!("-{}", peak_lbl), Style::default().fg(subtext())),
-                    Span::styled("0", Style::default().fg(subtext())),
-                    Span::styled(peak_lbl, Style::default().fg(subtext())),
-                ]),
+    if g.height >= 5 && g.width >= 8 && !io.read_history.is_empty() {
+        sparkline::render_braille_mirrored(
+            f,
+            g,
+            &io.read_history,
+            &io.write_history,
+            lavender(),
+            sky(),
+            "k",
+            scale,
+            false, // no left-gutter labels (speeds in header)
         );
-        f.render_widget(chart, g);
+    }
+
+    // Per-disk usage bars (extra detail not in the dashboard): each partition
+    // shows mount · used/total · a fill bar coloured by how full it is.
+    let bd = chunks[2];
+    if bd.height >= 2 && !parts.is_empty() {
+        let mut lines: Vec<Line> = Vec::with_capacity(parts.len() + 1);
+        lines.push(Line::from(vec![
+            Span::styled("mount", Style::default().fg(subtext())),
+            Span::raw("    "),
+            Span::styled("used / total", Style::default().fg(subtext())),
+            Span::raw("   "),
+            Span::styled("fill", Style::default().fg(subtext())),
+        ]));
+        for p in parts {
+            let total = p.total_bytes.max(1);
+            let ratio = (p.used_bytes as f64 / total as f64).clamp(0.0, 1.0);
+            // Fixed columns: mount (truncated to 10) · used/total (right-aligned,
+            // fixed 8-wide each) so every row aligns regardless of value width.
+            let mount = if p.mount_point.chars().count() > 10 {
+                format!("{}…", p.mount_point.chars().take(9).collect::<String>())
+            } else {
+                p.mount_point.clone()
+            };
+            let bw = bd.width.saturating_sub(34).max(4);
+            let mut spans = vec![
+                Span::styled(format!("{:<10}", mount), Style::default().fg(text())),
+                Span::styled(
+                    format!(
+                        "{:>8}/{:<8}",
+                        format_bytes(p.used_bytes),
+                        format_bytes(total)
+                    ),
+                    Style::default().fg(subtext()),
+                ),
+                Span::raw(" "),
+            ];
+            spans.extend(gradient_bar_spans(bw, ratio));
+            spans.push(Span::styled(
+                format!(" {:>3.0}%", ratio * 100.0),
+                Style::default().fg(usage_color((ratio * 100.0) as f32)),
+            ));
+            lines.push(Line::from(spans));
+            lines.push(Line::raw("")); // breathing space between disk bars
+        }
+        f.render_widget(Paragraph::new(lines), bd);
     }
 }
 
 // ─── Shared helpers (local to this tab) ────────────────────────────
-
-/// X-axis start label for the network/disk history window (e.g. "-60s", "-2m").
-/// Both histories ride the main data-refresh loop, so the window is
-/// `HISTORY_LEN` samples at `data_refresh_rate`.
-fn io_window_label(app: &App) -> String {
-    let interval_ms = app.config().data_refresh_rate;
-    let secs = (HISTORY_LEN as u64 * interval_ms) / 1000;
-    if secs >= 60 && secs.is_multiple_of(60) {
-        format!("-{}m", secs / 60)
-    } else {
-        format!("-{secs}s")
-    }
-}
-
-/// A standard bracket-enclosed, dot-padded progress bar helper.
-fn dot_progress_bar(width: u16, pct: f64, color: Color) -> Vec<Span<'static>> {
-    let w = (width as usize).max(3);
-    let inner_w = w - 2;
-    let filled = (((pct / 100.0).clamp(0.0, 1.0)) * inner_w as f64).round() as usize;
-    let filled = filled.min(inner_w);
-
-    let mut spans = Vec::with_capacity(3);
-    spans.push(Span::raw("["));
-    if filled > 0 {
-        spans.push(Span::styled("█".repeat(filled), Style::default().fg(color)));
-    }
-    if inner_w > filled {
-        spans.push(Span::styled(
-            ".".repeat(inner_w - filled),
-            Style::default().fg(surface0()),
-        ));
-    }
-    spans.push(Span::raw("]"));
-    spans
-}
 
 /// Multi-colored segmented dot-padded progress bar for CPU clusters.
 fn segmented_dot_progress_bar(width: u16, pct: f64) -> Vec<Span<'static>> {
@@ -644,40 +767,6 @@ fn segmented_dot_progress_bar(width: u16, pct: f64) -> Vec<Span<'static>> {
     spans
 }
 
-/// Full-width dot-padded progress bar with a right-aligned text label overlaid on top.
-fn battery_dot_bar(width: u16, ratio: f64, fill_color: Color, label: &str) -> Line<'static> {
-    let w = (width as usize).max(3);
-    let inner_w = w - 2;
-    let filled = ((ratio.clamp(0.0, 1.0)) * inner_w as f64).round() as usize;
-    let filled = filled.min(inner_w);
-
-    let label_chars: Vec<char> = label.chars().collect();
-    let label_len = label_chars.len().min(inner_w);
-    let label_start = inner_w.saturating_sub(label_len);
-
-    let mut spans = vec![Span::raw("[")];
-    let mut label_idx = 0usize;
-    for i in 0..inner_w {
-        let is_filled = i < filled;
-        if i >= label_start && label_idx < label_chars.len() {
-            let ch = label_chars[label_idx];
-            label_idx += 1;
-            let style = if is_filled {
-                Style::default().fg(mantle()).bg(fill_color)
-            } else {
-                Style::default().fg(fill_color)
-            };
-            spans.push(Span::styled(ch.to_string(), style));
-        } else if is_filled {
-            spans.push(Span::styled("█", Style::default().fg(fill_color)));
-        } else {
-            spans.push(Span::styled(".", Style::default().fg(surface0())));
-        }
-    }
-    spans.push(Span::raw("]"));
-    Line::from(spans)
-}
-
 /// A single line with a left-aligned and a right-aligned span.
 fn two_span_line(
     left: String,
@@ -697,43 +786,6 @@ fn two_span_line(
     ])
 }
 
-/// Build a single axis-labels line (left / center / right).
-//
-// `#[allow(dead_code)]`: the network/disk panels now render their own axes via
-// ratatui's `Chart` widget, so this manual label builder is no longer used in
-// the render path. Kept (and exercised by its unit tests) as a general-purpose
-// helper in case a future panel needs hand-rolled axis labels.
-#[allow(dead_code)]
-fn axis_labels(width: u16, left: &str, center: &str, right: &str) -> Line<'static> {
-    let w = width as usize;
-    let lw = left.chars().count();
-    let cw = center.chars().count();
-    let rw = right.chars().count();
-
-    if w < lw + cw + rw {
-        let gap = w.saturating_sub(lw + rw);
-        return Line::from(vec![
-            Span::styled(left.to_string(), Style::default().fg(subtext())),
-            Span::raw(" ".repeat(gap)),
-            Span::styled(right.to_string(), Style::default().fg(subtext())),
-        ]);
-    }
-
-    let center_start = w.saturating_sub(cw) / 2;
-    let gap1 = center_start.saturating_sub(lw);
-    let after_center = center_start + cw;
-    let right_start = w - rw;
-    let gap2 = right_start.saturating_sub(after_center);
-
-    Line::from(vec![
-        Span::styled(left.to_string(), Style::default().fg(subtext())),
-        Span::raw(" ".repeat(gap1)),
-        Span::styled(center.to_string(), Style::default().fg(subtext())),
-        Span::raw(" ".repeat(gap2)),
-        Span::styled(right.to_string(), Style::default().fg(subtext())),
-    ])
-}
-
 fn temp_threshold_color(temp: f32) -> Color {
     if temp < 40.0 {
         green()
@@ -741,19 +793,6 @@ fn temp_threshold_color(temp: f32) -> Color {
         yellow()
     } else {
         red()
-    }
-}
-
-fn sensor_group_color(label: &str) -> Color {
-    let lower = label.to_lowercase();
-    if lower.contains("nvme") {
-        green()
-    } else if lower.contains("chipset") {
-        yellow()
-    } else if lower.contains("acpi") {
-        lavender()
-    } else {
-        yellow()
     }
 }
 
@@ -782,7 +821,6 @@ mod tests {
         assert_eq!(spans[19].content, "]");
     }
 
-    #[test]
     fn battery_bar_places_label_flush_right() {
         let line = battery_dot_bar(20, 0.5, peach(), "90%");
         let s = flatten(&line);
@@ -790,25 +828,6 @@ mod tests {
         assert!(s.starts_with("[█████████"));
         assert!(s.ends_with("90%]"));
         assert!(s.contains('.'));
-    }
-
-    #[test]
-    fn axis_labels_positions() {
-        let line = axis_labels(20, "60s", "50s", "60s");
-        let s = flatten(&line);
-        assert_eq!(s.chars().count(), 20);
-        assert!(s.starts_with("60s"));
-        assert!(s.ends_with("60s"));
-        assert!(s.contains("50s"));
-    }
-
-    #[test]
-    fn axis_labels_too_narrow_falls_back() {
-        let line = axis_labels(6, "60s", "50s", "60s");
-        let s = flatten(&line);
-        assert!(s.starts_with("60s"));
-        assert!(s.ends_with("60s"));
-        assert!(!s.contains("50s"));
     }
 
     #[test]

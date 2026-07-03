@@ -110,10 +110,14 @@ fn render_hero_row(f: &mut Frame, app: &App, area: Rect, nf: bool) {
             .nth(1)
             .and_then(|s| s.trim().strip_suffix("GHz").map(str::trim))
             .map(|s| format!("{}GHz", s));
-        match ghz {
+        let base = match ghz {
             Some(g) => format!("{} cores · {}", app.num_cores(), g),
             None => format!("{} cores", app.num_cores()),
-        }
+        };
+        // Load average (1m) — the full 1/5/15 breakdown lives in the System
+        // tab; the hero card carries only the headline 1-minute value.
+        let load_1m = app.system_info().load_average.0;
+        format!("{base} · load {:.2}", load_1m)
     };
     cards.push(HeroCard {
         label: "CPU",
@@ -365,7 +369,6 @@ fn render_cpu_graph(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: Pane
     let current_pct = cpu_lines.back().copied().unwrap_or(0) as f64;
     let avg_pct = current_pct.min(100.0);
     let cpu_color = usage_color(avg_pct as f32);
-    let _num_cores = app.num_cores();
 
     // Panel title only — the current % and core count are already shown on the
     // hero CPU card, so don't duplicate them in a title badge here.
@@ -377,13 +380,38 @@ fn render_cpu_graph(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: Pane
         return;
     }
 
-    // Split inner into chart (left) and per-core list (right, compact).
-    let cols = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Min(0), Constraint::Length(13)])
-        .split(inner);
-    let chart_area = cols[0];
-    let core_area = cols[1];
+    let cores = app.per_core_usage();
+    // Vertical split: trend graph on top (full width), per-core bar strip below.
+    // The strip replaces the old right-hand sidebar (a vertical list capped by
+    // panel height, which dropped cores on short/narrow terminals). The strip
+    // packs bars across the width, so every core is always visible.
+    //
+    // Bars are kept SHORT (3/2/1 bar rows) and sit below a 1-row breathing gap
+    // so they read as a compact widget distinct from the trend graph. Strip
+    // height is adaptive so it still fits on short panels (e.g. the stacked/
+    // narrow layout gives CPU only ~7 inner rows).
+    let strip_h: u16 = if inner.height >= 10 {
+        3 // 2 bar rows + 1 index-label row
+    } else if inner.height >= 6 {
+        2 // 1 bar row + 1 label row
+    } else {
+        0
+    };
+    let show_strip = strip_h > 0 && !cores.is_empty();
+    let (chart_area, strip_area) = if show_strip {
+        // [graph] [1-row gap] [strip] — the gap separates bars from the graph.
+        let rows = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Min(0),
+                Constraint::Length(1), // breathing space above the strip
+                Constraint::Length(strip_h),
+            ])
+            .split(inner);
+        (rows[0], Some(rows[2]))
+    } else {
+        (inner, None)
+    };
 
     // Smooth 2×4 sub-pixel braille area graph (btop-style): the area under the
     // CPU curve is filled and coloured by a vertical gradient from `cpu_color`
@@ -391,13 +419,7 @@ fn render_cpu_graph(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: Pane
     // with linear-resampled data, so the curve (peaks and body) stays smooth.
     let n = cpu_lines.len();
     if n >= 2 {
-        sparkline::render_braille_smooth(
-            f,
-            chart_area,
-            cpu_lines,
-            "%",
-            true,
-        );
+        sparkline::render_braille_smooth(f, chart_area, cpu_lines, "%", true);
     } else if n == 1 {
         // Not enough samples to draw a line yet — show the single value.
         f.render_widget(
@@ -409,29 +431,66 @@ fn render_cpu_graph(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: Pane
         );
     }
 
-    // Per-core list (compact), colour-coded by load, each with a mini gradient
-    // meter so the core column reads as a rich btop-style bar strip.
-    let cores = app.per_core_usage();
-    let show_count = cores.len().min(core_area.height as usize);
-    let core_bar_w = core_area.width.saturating_sub(7).max(1); // idx(2)+sp(1)+pct(4)
-    let mut core_lines = Vec::new();
-    for (i, usage) in cores.iter().enumerate().take(show_count) {
-        let ratio = (*usage as f64 / 100.0).clamp(0.0, 1.0);
-        let mut spans = vec![
-            // Leading pad: a small gap between the panel border and the core
-            // index column (indices were hugging the left edge).
-            Span::raw(" "),
-            Span::styled(format!("{:>2}", i), Style::default().fg(subtext())),
-            Span::raw(" "),
-        ];
-        spans.extend(gradient_bar_spans(core_bar_w, ratio));
-        spans.push(Span::styled(
-            format!("{:>3.0}%", usage),
-            Style::default().fg(usage_color(*usage)),
-        ));
-        core_lines.push(Line::from(spans));
+    // Per-core vertical bars (btop-style) on the LEFT + a compact CPU
+    // frequency readout on the RIGHT: current mean + session max/min envelope.
+    if let Some(sa) = strip_area {
+        let cols = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Min(0), Constraint::Length(13)])
+            .split(sa);
+        let bars_area = cols[0];
+        let freq_area = cols[1];
+        sparkline::render_core_bars(f, bars_area, &cores);
+        render_cpu_freq(f, freq_area, app);
     }
-    f.render_widget(Paragraph::new(core_lines), core_area);
+}
+
+/// Compact CPU frequency readout for the right side of the per-core strip:
+/// the current mean frequency (headline) plus the session-wide max/min
+/// envelope of the peak core frequency, all in GHz, right-aligned.
+fn render_cpu_freq(f: &mut Frame, area: Rect, app: &App) {
+    let ghz = |mhz: u64| format!("{:.2}GHz", mhz as f64 / 1000.0);
+    let cur = app.cpu_freq_mhz;
+    let mx = app.cpu_freq_max_mhz;
+    let mn = app.cpu_freq_min_mhz;
+    let h = area.height as usize;
+
+    let current = Line::from(vec![Span::styled(
+        ghz(cur),
+        Style::default().fg(green()).add_modifier(Modifier::BOLD),
+    )]);
+
+    let lines: Vec<Line> = if h >= 3 {
+        vec![
+            current,
+            Line::from(vec![
+                Span::styled("▲ ", green()),
+                Span::styled(ghz(mx), Style::default().fg(green())),
+            ]),
+            Line::from(vec![
+                Span::styled("▼ ", subtext()),
+                Span::styled(ghz(mn), Style::default().fg(subtext())),
+            ]),
+        ]
+    } else if h == 2 {
+        vec![
+            current,
+            Line::from(vec![
+                Span::styled("▲", green()),
+                Span::styled(ghz(mx), Style::default().fg(green())),
+                Span::raw(" "),
+                Span::styled("▼", subtext()),
+                Span::styled(ghz(mn), Style::default().fg(subtext())),
+            ]),
+        ]
+    } else {
+        vec![current]
+    };
+
+    f.render_widget(
+        Paragraph::new(lines).alignment(Alignment::Right),
+        area,
+    );
 }
 
 /// X-axis start label for the CPU history window (e.g. "-60s", "-2m").
@@ -747,6 +806,8 @@ fn render_network_panel(f: &mut Frame, app: &App, area: Rect, nf: bool, focus: P
             green(),
             peach(),
             "k",
+            app.network_visible_scale,
+            false, // no left gutter — peak shown in the header row
         );
     }
 }

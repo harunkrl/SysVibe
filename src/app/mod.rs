@@ -42,6 +42,12 @@ pub struct App {
     // CPU
     pub cpu_history: VecDeque<u64>,
     per_core_history: Vec<VecDeque<u64>>,
+    /// Current aggregate CPU frequency (mean across cores), in MHz.
+    pub cpu_freq_mhz: u64,
+    /// Lowest observed aggregate CPU frequency so far (MHz).
+    pub cpu_freq_min_mhz: u64,
+    /// Highest observed aggregate CPU frequency so far (MHz).
+    pub cpu_freq_max_mhz: u64,
 
     // Cached memory values (updated by async collectors)
     cached_ram_used: u64,
@@ -57,6 +63,11 @@ pub struct App {
     /// Cached public IP address (resolved lazily in the background).
     public_ip: Arc<Mutex<Option<String>>>,
     network_stats: Vec<NetworkStats>,
+    /// Visible (smoothed) network graph ceiling in KiB/s — sticky: only rises
+    /// toward a new nice-numbered peak, and decays slowly downward so the
+    /// graph doesn't "breathe" as traffic wavers. Owned here (data layer),
+    /// read by the network render.
+    pub network_visible_scale: f64,
 
     // Disk I/O
     disk_io: DiskIoStats,
@@ -183,6 +194,9 @@ impl App {
         let init_ram_free = sys.free_memory();
         let init_swap_used = sys.used_swap();
         let init_swap_total = sys.total_swap();
+        // Seed frequency trackers from the initial sample (before `sys` moves
+        // into Self). `min` starts at the current reading and only decreases.
+        let init_freq = collectors::cpu::mean_freq_mhz(&sys);
 
         let mut log_collector = collectors::logs::LogCollector::new();
         log_collector.refresh();
@@ -198,6 +212,12 @@ impl App {
             should_quit: false,
             cpu_history: VecDeque::with_capacity(HISTORY_LEN),
             per_core_history: vec![VecDeque::with_capacity(HISTORY_LEN); num_cores],
+            // Seed frequency trackers from the initial sample; the collector
+            // updates them on each refresh. `min` starts at the current reading
+            // and only decreases from here.
+            cpu_freq_mhz: init_freq,
+            cpu_freq_min_mhz: init_freq,
+            cpu_freq_max_mhz: init_freq,
             cached_ram_used: init_ram_used,
             cached_ram_total: init_ram_total,
             cached_ram_free: init_ram_free,
@@ -207,6 +227,7 @@ impl App {
             local_ip: collectors::network::resolve_local_ip(),
             public_ip: Arc::new(Mutex::new(None)),
             network_stats: Vec::new(),
+            network_visible_scale: 0.0,
             disk_io: DiskIoStats::default(),
             prev_disk_bytes: (init_read, init_write),
             temperatures: Vec::new(),
@@ -620,8 +641,14 @@ impl App {
     }
 
     /// Refresh the cached SystemInfo if enough time has elapsed.
+    ///
+    /// SystemInfo is almost entirely STATIC (OS, kernel, board/BIOS, RAM type,
+    /// GPU model/driver) — these never change at runtime. Only uptime, public
+    /// IP, and load average vary. So the cache refreshes far less often than
+    /// the live metric collectors (every 60 s vs ~every frame): the static
+    /// fields are effectively collected once.
     pub fn maybe_refresh_system_info(&mut self) {
-        if self.last_system_info_refresh.elapsed().as_secs() >= 10 {
+        if self.last_system_info_refresh.elapsed().as_secs() >= 60 {
             self.cached_system_info = self.build_system_info();
             self.last_system_info_refresh = Instant::now();
         }
@@ -858,14 +885,12 @@ impl App {
         if let Some(ref b) = bat
             && let Some(w) = b.power_w
         {
-            let power_val = w.round() as u64;
-            if b.state == "Charging" {
-                helpers::push_history(&mut self.battery_charge_history, power_val);
-                helpers::push_history(&mut self.battery_power_history, 0);
-            } else {
-                helpers::push_history(&mut self.battery_power_history, power_val);
-                helpers::push_history(&mut self.battery_charge_history, 0);
-            }
+            // NOTE: we do NOT push to the power/charge history here. This setter
+            // is called from a slow background path; pushing from it made the
+            // battery graph advance slower than the network/disk graphs.
+            // Histories are pushed once per main refresh instead (refresh_data),
+            // keeping all trend graphs in lock-step.
+            let _ = w; // value read in the main refresh path
         }
         self.battery = bat;
     }
@@ -1281,7 +1306,14 @@ impl App {
 
         // ══ Tier 1: Every tick - lightweight CPU & memory ══════════
         self.sys.refresh_cpu_all();
-        collectors::cpu::refresh_cpu(&self.sys, &mut self.cpu_history, &mut self.per_core_history);
+        collectors::cpu::refresh_cpu(
+            &self.sys,
+            &mut self.cpu_history,
+            &mut self.per_core_history,
+            &mut self.cpu_freq_mhz,
+            &mut self.cpu_freq_min_mhz,
+            &mut self.cpu_freq_max_mhz,
+        );
         self.sys.refresh_memory();
 
         // ══ Tier 2: Network + Disk I/O (every tick, cheap deltas) ═
@@ -1293,6 +1325,22 @@ impl App {
             elapsed,
             &self.local_ip,
         );
+        // Sticky network graph ceiling: target = nice-numbered raw peak (with a
+        // ~1 MB/s floor), then keep the max of target and a slow decay of the
+        // previous visible value. The scale rises instantly with real peaks but
+        // sinks gradually (~8% / tick), so the mirrored graph stops "breathing"
+        // as traffic wavers while still tracking it over the session.
+        const NET_FLOOR_KIB: f64 = 1000.0;
+        const DECAY: f64 = 0.92;
+        let raw_peak = self
+            .network_stats
+            .iter()
+            .flat_map(|s| s.rx_history.iter().chain(s.tx_history.iter()))
+            .copied()
+            .map(|v| v as f64)
+            .fold(0.0_f64, f64::max);
+        let target = helpers::nice_number_ceiling(raw_peak.max(NET_FLOOR_KIB));
+        self.network_visible_scale = target.max(self.network_visible_scale * DECAY).max(1.0);
         collectors::disk::refresh_disk(&mut self.disk_io, &mut self.prev_disk_bytes, elapsed);
 
         // ══ Tier 3: Sensors (default 5s) ═══════════════════════════
@@ -1302,10 +1350,12 @@ impl App {
             collectors::sensors::refresh_temperatures(&self.components, &mut self.temperatures);
             self.battery = collectors::battery::read_battery();
 
-            if let Some(ref bat) = self.battery
-                && let Some(w) = bat.power_w
-            {
-                let power_val = w.round() as u64;
+            if let Some(ref bat) = self.battery {
+                // Always advance the battery histories when there's a battery —
+                // many batteries don't report power draw (power_w == None), and
+                // gating the push on it left the graph empty. Fall back to 0 so
+                // the trend still draws (a flat line is honest: "no reading").
+                let power_val = bat.power_w.unwrap_or(0.0).round() as u64;
                 if bat.state == "Charging" {
                     helpers::push_history(&mut self.battery_charge_history, power_val);
                     helpers::push_history(&mut self.battery_power_history, 0);
@@ -1513,6 +1563,10 @@ impl App {
             per_core_history: (0..num_cores)
                 .map(|i| sample_wave(HISTORY_LEN, 20 + i as u64 * 8, 25))
                 .collect(),
+            // i7-1165G7: 2.80 GHz base, ~4.7 GHz turbo, ~0.8 GHz idle floor.
+            cpu_freq_mhz: 3600,
+            cpu_freq_min_mhz: 800,
+            cpu_freq_max_mhz: 4700,
             cached_ram_used: used_ram,
             cached_ram_total: total_ram,
             cached_ram_free: free_ram,
@@ -1521,16 +1575,30 @@ impl App {
             prev_network_bytes: HashMap::new(),
             local_ip: None,
             public_ip: Arc::new(Mutex::new(None)),
-            network_stats: vec![NetworkStats {
-                interface: "eth0".into(),
-                rx_speed_bps: 1_250_000.0,
-                tx_speed_bps: 430_000.0,
-                rx_history: sample_wave(HISTORY_LEN, 0, 3000),
-                tx_history: sample_wave(HISTORY_LEN, 0, 400),
-                total_rx_bytes: 4_823_112_000,
-                total_tx_bytes: 912_554_000,
-                local_ip: Some("192.168.1.42".into()),
-            }],
+            network_stats: vec![
+                NetworkStats {
+                    interface: "eth0".into(),
+                    rx_speed_bps: 1_250_000.0,
+                    tx_speed_bps: 430_000.0,
+                    rx_history: sample_wave(HISTORY_LEN, 0, 3000),
+                    tx_history: sample_wave(HISTORY_LEN, 0, 400),
+                    total_rx_bytes: 4_823_112_000,
+                    total_tx_bytes: 912_554_000,
+                    local_ip: Some("192.168.1.42".into()),
+                },
+                NetworkStats {
+                    interface: "wlan0".into(),
+                    rx_speed_bps: 380_000.0,
+                    tx_speed_bps: 95_000.0,
+                    rx_history: sample_wave(HISTORY_LEN, 0, 900),
+                    tx_history: sample_wave(HISTORY_LEN, 0, 120),
+                    total_rx_bytes: 1_204_980_000,
+                    total_tx_bytes: 263_001_000,
+                    local_ip: Some("192.168.1.43".into()),
+                },
+            ],
+            // Seed ~ the sample peak (rx tops ~3000 KiB/s → nice-number 5000).
+            network_visible_scale: 5000.0,
             disk_io: DiskIoStats {
                 read_speed_bps: 105_000_000.0,
                 write_speed_bps: 42_000_000.0,

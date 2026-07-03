@@ -7,11 +7,11 @@
 
 use ratatui::{
     style::{Color, Style},
-    symbols,
     text::{Line, Span},
-    widgets::{Axis, Chart, Dataset, GraphType},
 };
 use std::collections::VecDeque;
+
+use crate::ui::helpers::{format_speed, usage_color};
 
 const BRAILLE_OFFSET: u32 = 0x2800;
 
@@ -37,395 +37,6 @@ fn braille(idx: usize) -> &'static str {
     BRAILLE_CHARS.get(idx).copied().unwrap_or(" ")
 }
 
-/// Braille dot patterns for 0-8 fill levels (bottom-up).
-/// Each pair is (top_row_bits, bottom_row_bits).
-/// Legacy braille fill patterns (2-line rendering). Kept for future use.
-#[allow(dead_code)]
-const BRAILLE_FILL: [(u8, u8); 9] = [
-    (0x00, 0x00), // 0/8 empty
-    (0x00, 0xC0), // 1/8
-    (0x00, 0xE4), // 2/8
-    (0x00, 0xF6), // 3/8
-    (0x00, 0xFF), // 4/8
-    (0xC0, 0xFF), // 5/8
-    (0xE4, 0xFF), // 6/8
-    (0xF6, 0xFF), // 7/8
-    (0xFF, 0xFF), // 8/8 full
-];
-
-/// Render a two-line braille sparkline graph from history data.
-#[allow(dead_code)]
-pub fn braille_graph(
-    data: &VecDeque<u64>,
-    max_val: Option<u64>,
-    color: Color,
-) -> Vec<Line<'static>> {
-    let max = max_val
-        .unwrap_or_else(|| data.iter().copied().max().unwrap_or(1))
-        .max(1);
-
-    let mut top = String::with_capacity(data.len() * 3);
-    let mut bot = String::with_capacity(data.len() * 3);
-
-    for &v in data {
-        let lv = ((v as f64 / max as f64) * 8.0).round() as usize;
-        let (t, b) = BRAILLE_FILL[lv.min(8)];
-        top.push_str(braille(t as usize));
-        bot.push_str(braille(b as usize));
-    }
-
-    vec![
-        Line::styled(top, Style::default().fg(color)),
-        Line::styled(bot, Style::default().fg(color)),
-    ]
-}
-
-/// Render a multi-line braille **line** graph with Y-axis scale labels.
-///
-/// This creates a proper time-series line chart:
-/// - Y-axis (vertical): auto-scaled in 5W steps (0-20W, then 0-25W, etc.)
-/// - X-axis (horizontal): time, data points spread across available width
-/// - Uses braille characters for 4-pixel vertical resolution per row
-/// - Draws a continuous **line** by interpolating between data points
-///
-/// Returns lines ready for `Paragraph`, with Y-axis labels on the left.
-//
-// `#[allow(dead_code)]`: the Dashboard CPU graph now uses ratatui's built-in
-// `Chart` widget (wattea-style) instead of this manual renderer, so this fn is
-// currently uncalled. Kept as a reusable renderer with its regression tests
-// (e.g. for the half-block panels in system.rs/hardware.rs to adopt later).
-// This crate is a lib+bin hybrid (src/main.rs re-declares `mod ui;` privately),
-// so an uncalled `pub fn` is flagged dead_code in the bin target.
-#[allow(dead_code)]
-pub fn braille_line_graph(
-    data: &VecDeque<u64>,
-    area_width: u16,
-    area_height: u16,
-    color: Color,
-    scale_unit: &str,
-) -> Vec<Line<'static>> {
-    if data.is_empty() || area_width < 10 || area_height < 2 {
-        return Vec::new();
-    }
-
-    let data_vec: Vec<u64> = data.iter().copied().collect();
-    let peak = data_vec.iter().copied().max().unwrap_or(1) as f64;
-    let y_max = dynamic_ceiling(peak);
-
-    let label_w = format!("{:.0}{}", y_max, scale_unit).len() + 1;
-    let graph_w = (area_width as usize).saturating_sub(label_w);
-    let graph_h = area_height as usize;
-
-    if graph_w < 2 || graph_h < 2 {
-        return Vec::new();
-    }
-
-    let samples = resample(&data_vec, graph_w);
-
-    // Total vertical resolution: each row = 4 braille sub-pixels
-    let total_v = graph_h * 4;
-
-    // ── Compute per-column line position in sub-pixel units ──────
-    // line_v[col] = vertical sub-pixel index (0 = bottom, total_v-1 = top)
-    let line_v: Vec<usize> = samples
-        .iter()
-        .map(|&val| {
-            let v = ((val as f64 / y_max) * (total_v - 1) as f64).round() as usize;
-            v.min(total_v - 1)
-        })
-        .collect();
-
-    // ── Build a 2D dot grid (one braille byte per on-screen cell) ──
-    // Each braille character occupies 1 column × 1 row on screen
-    // but has a 2×4 sub-pixel grid.
-    // We only use the LEFT column (x_sub=0) of dots per character,
-    // which gives us 1 screen column → 4 vertical sub-pixels.
-    //
-    // Left-column braille dots, indexed by sp_in_cell (0 = top dot, 3 = bottom dot):
-    //   0 → dot1 = 0x01 (top-left)
-    //   1 → dot2 = 0x02
-    //   2 → dot3 = 0x04
-    //   3 → dot7 = 0x40 (bottom-left)
-    // We render using only the left column (1 horizontal sub-pixel per cell),
-    // giving 4 vertical sub-pixels per terminal row.
-    const DOT_MAP_LEFT: [u8; 4] = [0x01, 0x02, 0x04, 0x40];
-
-    // grid[row][col]: one braille byte per on-screen cell. Each cell covers a
-    // 4-sub-pixel vertical band of one column. `graph_h` rows × `graph_w` cols.
-    let mut grid = vec![vec![0u8; graph_w]; graph_h];
-
-    // Helper: light the dot at column `col`, vertical sub-pixel `vy`
-    // (0 = bottom, total_v-1 = top), in the correct on-screen cell.
-    let set_dot = |grid: &mut [Vec<u8>], col: usize, vy: usize| {
-        if col >= graph_w {
-            return;
-        }
-        // from_top = 0 at the topmost sub-pixel, increasing downward.
-        let from_top = total_v - 1 - vy;
-        let row = from_top / 4; // which on-screen row (0 = top)
-        let sp_in_cell = from_top % 4; // 0 = top dot of the cell, 3 = bottom
-        // DOT_MAP_LEFT is ordered top→bottom: [dot1, dot2, dot3, dot7].
-        grid[row][col] |= DOT_MAP_LEFT[sp_in_cell];
-    };
-
-    // ── Draw line segments between consecutive points ──────────
-    // For each pair of adjacent columns, draw all sub-pixels along
-    // the line segment using Bresenham-style interpolation.
-    for i in 0..graph_w.saturating_sub(1) {
-        let y0 = line_v[i];
-        let y1 = line_v[i + 1];
-
-        // Draw the point at column i
-        set_dot(&mut grid, i, y0);
-
-        // Interpolate vertically between (i, y0) and (i+1, y1).
-        // Fill every sub-pixel row from min(y0,y1) to max(y0,y1)
-        // at both column i and i+1 to ensure continuity.
-        let (lo, hi) = if y0 <= y1 { (y0, y1) } else { (y1, y0) };
-        for vy in lo..=hi {
-            set_dot(&mut grid, i, vy);
-            set_dot(&mut grid, i + 1, vy);
-        }
-    }
-
-    // Draw the last point if there's only one column or to ensure the
-    // rightmost data point is plotted.
-    if !line_v.is_empty()
-        && let Some(&last_val) = line_v.last()
-    {
-        set_dot(&mut grid, line_v.len() - 1, last_val);
-    }
-
-    // ── Render rows from the grid ──────────────────────────────
-    let mut rows: Vec<Line<'static>> = Vec::new();
-
-    for (row, row_cells) in grid.iter().enumerate() {
-        let row_top_v = total_v - row * 4; // top boundary (exclusive)
-        let _row_bot_v = total_v - (row + 1) * 4; // bottom boundary (inclusive)
-
-        let mut spans: Vec<Span<'static>> = Vec::with_capacity(label_w + graph_w);
-
-        // Y-axis label
-        let label_text = if row == 0 {
-            let v = (y_max * (row_top_v as f64 / total_v as f64)).round() as u64;
-            format!(
-                "{:>width$} ",
-                format!("{}{}", v, scale_unit),
-                width = label_w.saturating_sub(1)
-            )
-        } else if row == graph_h / 2 {
-            let v = (y_max * 0.5).round() as u64;
-            format!(
-                "{:>width$} ",
-                format!("{}{}", v, scale_unit),
-                width = label_w.saturating_sub(1)
-            )
-        } else if row == graph_h - 1 {
-            format!("{:>width$} ", format!("0{}", scale_unit), width = label_w.saturating_sub(1))
-        } else {
-            " ".repeat(label_w)
-        };
-        spans.push(Span::styled(
-            label_text,
-            Style::default().fg(Color::DarkGray),
-        ));
-
-        // For each column, render this row's accumulated braille pattern
-        for &bits in row_cells.iter().take(graph_w) {
-            if bits != 0 {
-                spans.push(Span::styled(
-                    braille(bits as usize),
-                    Style::default().fg(color),
-                ));
-            } else {
-                spans.push(Span::raw(" "));
-            }
-        }
-
-        rows.push(Line::from(spans));
-    }
-
-    rows
-}
-
-/// Spec for [`render_braille_line_chart`]: a single-series Braille line chart.
-/// Bundling the axis bounds/labels into a struct keeps the helper's argument
-/// list short (avoids `clippy::too_many_arguments`) and makes call sites readable.
-pub struct BrailleLineChartSpec<'a> {
-    /// History to plot, index-based (x = sample index, y = value).
-    pub data: &'a VecDeque<u64>,
-    /// Line colour.
-    pub color: Color,
-    /// Axis (tick + label) colour.
-    pub axis_color: Color,
-    /// X-axis bounds (usually `[0, n-1]`).
-    pub x_bounds: [f64; 2],
-    /// X-axis tick labels.
-    pub x_labels: Vec<Span<'static>>,
-    /// Y-axis bounds.
-    pub y_bounds: [f64; 2],
-    /// Y-axis tick labels.
-    pub y_labels: Vec<Span<'static>>,
-}
-
-/// Render a wattea-style single-series Braille **line** chart into `area` using
-/// ratatui's built-in `Chart` widget (the same engine wattea's trend/live charts
-/// use: `Marker::Braille` + `GraphType::Line`, no fill, single colour). `data` is
-/// plotted index-based (x = sample index 0..n-1, y = value). The caller supplies
-/// axis bounds + labels, so the same helper drives the System power-draw graph
-/// and the Hardware disk read/write graphs.
-///
-/// Rendering happens inside this fn (the chart is consumed immediately) so the
-/// borrowed `data` points never need to outlive the call — ratatui's `Chart`
-/// borrows its `Dataset::data` for the render scope only.
-pub fn render_braille_line_chart(
-    frame: &mut ratatui::Frame,
-    area: ratatui::layout::Rect,
-    spec: BrailleLineChartSpec<'_>,
-) {
-    let pts: Vec<(f64, f64)> = spec
-        .data
-        .iter()
-        .enumerate()
-        .map(|(i, &v)| (i as f64, v as f64))
-        .collect();
-    let mut datasets = Vec::with_capacity(1);
-    if !pts.is_empty() {
-        datasets.push(
-            Dataset::default()
-                .marker(symbols::Marker::Braille)
-                .graph_type(GraphType::Line)
-                .style(Style::default().fg(spec.color))
-                .data(&pts),
-        );
-    }
-    let chart = Chart::new(datasets)
-        .x_axis(
-            Axis::default()
-                .style(Style::default().fg(spec.axis_color))
-                .bounds(spec.x_bounds)
-                .labels(spec.x_labels),
-        )
-        .y_axis(
-            Axis::default()
-                .style(Style::default().fg(spec.axis_color))
-                .bounds(spec.y_bounds)
-                .labels(spec.y_labels),
-        );
-    frame.render_widget(chart, area);
-}
-
-/// A braille **filled-area** trend graph spec: the area under the curve is filled
-/// with braille (both columns, 4 vertical sub-pixels per row) and coloured by a
-/// vertical gradient from `color` (bright, near the line) to `fade_color` (dim,
-/// near the base) — the btop look. Returns lines with Y-axis scale labels on the
-/// left, ready for `Paragraph`.
-pub fn braille_area_graph(
-    data: &VecDeque<u64>,
-    area_width: u16,
-    area_height: u16,
-    color: Color,
-    fade_color: Color,
-    scale_unit: &str,
-) -> Vec<Line<'static>> {
-    if data.is_empty() || area_width < 10 || area_height < 2 {
-        return Vec::new();
-    }
-
-    let data_vec: Vec<u64> = data.iter().copied().collect();
-    let peak = data_vec.iter().copied().max().unwrap_or(1) as f64;
-    let y_max = dynamic_ceiling(peak).max(1.0);
-
-    let label_w = format!("{:.0}{}", y_max, scale_unit).len() + 1;
-    let graph_w = (area_width as usize).saturating_sub(label_w);
-    let graph_h = area_height as usize;
-    if graph_w < 2 || graph_h < 2 {
-        return Vec::new();
-    }
-
-    let samples = resample(&data_vec, graph_w);
-    let total_v = graph_h * 4; // 4 braille sub-pixels per row
-
-    // Filled height (sub-pixels from the bottom) per column.
-    let fill: Vec<usize> = samples
-        .iter()
-        .map(|&v| ((v as f64 / y_max) * total_v as f64).round() as usize)
-        .map(|v| v.min(total_v))
-        .collect();
-
-    // Bottom-up fill using both braille columns: 0..4 dot-rows.
-    const AREA_FILL: [u8; 5] = [0x00, 0xC0, 0xE4, 0xF6, 0xFF];
-
-    let mut rows: Vec<Line<'static>> = Vec::with_capacity(graph_h);
-    for row in 0..graph_h {
-        let row_bot_v = total_v.saturating_sub((row + 1) * 4);
-        let row_top_v = total_v.saturating_sub(row * 4);
-
-        // Vertical gradient: top rows bright (`color`), base rows dim (`fade_color`).
-        let frac = (graph_h - row) as f64 / graph_h.max(1) as f64;
-        let cell_color = interpolate_color(fade_color, color, frac);
-
-        let mut spans: Vec<Span<'static>> = Vec::with_capacity(label_w + graph_w);
-
-        // Y-axis labels (top, mid, bottom).
-        let label_text = if row == 0 {
-            let v = (y_max * row_top_v as f64 / total_v as f64).round() as u64;
-            format!(
-                "{:>w$} ",
-                format!("{}{}", v, scale_unit),
-                w = label_w.saturating_sub(1)
-            )
-        } else if row == graph_h / 2 {
-            format!(
-                "{:>w$} ",
-                format!("{}{}", (y_max * 0.5).round() as u64, scale_unit),
-                w = label_w.saturating_sub(1)
-            )
-        } else if row == graph_h - 1 {
-            format!("{:>w$} ", format!("0{}", scale_unit), w = label_w.saturating_sub(1))
-        } else {
-            " ".repeat(label_w)
-        };
-        spans.push(Span::styled(
-            label_text,
-            Style::default().fg(Color::DarkGray),
-        ));
-
-        for f_val in fill.iter().take(graph_w) {
-            let level = f_val.saturating_sub(row_bot_v).min(4);
-            if level == 0 {
-                spans.push(Span::raw(" "));
-            } else {
-                spans.push(Span::styled(
-                    braille(AREA_FILL[level] as usize),
-                    Style::default().fg(cell_color),
-                ));
-            }
-        }
-        rows.push(Line::from(spans));
-    }
-
-    rows
-}
-
-/// Render a gradient-filled braille **area** trend graph into `area` (via a
-/// `Paragraph`). Convenience wrapper around [`braille_area_graph`].
-#[allow(dead_code)]
-pub fn render_braille_area(
-    frame: &mut ratatui::Frame,
-    area: ratatui::layout::Rect,
-    data: &VecDeque<u64>,
-    color: Color,
-    fade_color: Color,
-    scale_unit: &str,
-) {
-    let lines = braille_area_graph(data, area.width, area.height, color, fade_color, scale_unit);
-    if !lines.is_empty() {
-        frame.render_widget(ratatui::widgets::Paragraph::new(lines), area);
-    }
-}
-
-/// Whether the sub-pixel at height-from-bottom `hb` is lit, given the line's
 /// filled height `h` (in sub-pixels). `area` fills everything below the line;
 /// a line draws only the top 2 sub-pixels of the fill (a crisp 2-px stroke).
 #[inline]
@@ -452,6 +63,7 @@ pub fn braille_smooth_graph(
     area_height: u16,
     scale_unit: &str,
     area: bool,
+    show_y_labels: bool,
 ) -> Vec<Line<'static>> {
     if data.is_empty() || area_width < 10 || area_height < 2 {
         return Vec::new();
@@ -464,7 +76,11 @@ pub fn braille_smooth_graph(
     // (dynamic ceiling). btop-like behaviour.
     let y_max = dynamic_ceiling(peak.max(50.0)).max(1.0);
 
-    let label_w = format!("{:.0}{}", y_max, scale_unit).len() + 1;
+    let label_w = if show_y_labels {
+        format!("{:.0}{}", y_max, scale_unit).len() + 1
+    } else {
+        0
+    };
     let graph_w = (area_width as usize).saturating_sub(label_w);
     let graph_h = area_height as usize;
     if graph_w < 2 || graph_h < 2 {
@@ -505,27 +121,25 @@ pub fn braille_smooth_graph(
         // looks zig-zag. So right-align the label in `label_w-1` then one
         // trailing space == `label_w`, matching the spacer below.
         let pad = label_w.saturating_sub(1);
-        let label = if cy == 0 {
+        let label = if show_y_labels && cy == 0 {
             format!(
                 "{:>pad$} ",
                 format!("{}{}", y_max.round() as u64, scale_unit),
                 pad = pad
             )
-        } else if cy == graph_h / 2 {
+        } else if show_y_labels && cy == graph_h / 2 {
             format!(
                 "{:>pad$} ",
                 format!("{}{}", (y_max * 0.5).round() as u64, scale_unit),
                 pad = pad
             )
-        } else if cy == graph_h - 1 {
+        } else if show_y_labels && cy == graph_h - 1 {
             format!("{:>pad$} ", format!("0{}", scale_unit), pad = pad)
         } else {
             " ".repeat(label_w)
         };
-        let mut spans: Vec<Span<'static>> = vec![Span::styled(
-            label,
-            Style::default().fg(Color::DarkGray),
-        )];
+        let mut spans: Vec<Span<'static>> =
+            vec![Span::styled(label, Style::default().fg(Color::DarkGray))];
 
         for cx in 0..graph_w {
             let mut bits = 0u8;
@@ -563,29 +177,46 @@ pub fn render_braille_smooth(
     scale_unit: &str,
     is_area: bool,
 ) {
-    let lines = braille_smooth_graph(
-        data,
-        area.width,
-        area.height,
-        scale_unit,
-        is_area,
-    );
+    // CPU/info graphs keep their left-gutter Y-axis labels.
+    let lines = braille_smooth_graph(data, area.width, area.height, scale_unit, is_area, true);
     if !lines.is_empty() {
         frame.render_widget(ratatui::widgets::Paragraph::new(lines), area);
     }
 }
 
-/// Render a **smooth, mirrored** btop-style area graph with data going **up**
+/// Variant with no left-gutter Y-axis labels — the graph fills the full width.
+/// Used where the peak is shown elsewhere (e.g. a header), like the battery
+/// power-draw panel.
+pub fn render_braille_smooth_nolabel(
+    frame: &mut ratatui::Frame,
+    area: ratatui::layout::Rect,
+    data: &VecDeque<u64>,
+    scale_unit: &str,
+    is_area: bool,
+) {
+    let lines = braille_smooth_graph(data, area.width, area.height, scale_unit, is_area, false);
+    if !lines.is_empty() {
+        frame.render_widget(ratatui::widgets::Paragraph::new(lines), area);
+    }
+}
+
+/// Render a **mirrored** btop-style area graph with data going **up**
 /// and **down** from a central zero-axis.
 ///
 /// • `up_data` fills upward from center (e.g., RX download) in `up_color`.
 /// • `down_data` fills downward from center (e.g., TX upload) in `down_color`.
 ///
 /// Rendered on a full **2×4 sub-pixel grid** (both braille columns × 4
-/// vertical sub-pixels) with moving-average smoothing + 2× horizontal
-/// resampling — the same fidelity as `braille_smooth_graph` (CPU), so the
-/// network and CPU graphs share one visual language. Y-axis scale labels
-/// (peak / 0 / -peak) sit in a gutter on the left, matching the CPU graph.
+/// vertical sub-pixels) with 2× horizontal resampling — the same fidelity as
+/// `braille_smooth_graph` (CPU), so the network and CPU graphs share one
+/// visual language. No moving-average smoothing: the sub-pixel grid is
+/// high-res already and smoothing was deliberately dropped to track real
+/// values exactly.
+///
+/// Y-axis scale labels (the shared ceiling) sit in a left gutter: `+peak` at
+/// the top, `−peak` at the bottom (matching the CPU graph). No X-axis labels
+/// (per design spec — see docs/STATUS.md).
+#[allow(clippy::too_many_arguments)]
 pub fn braille_mirrored_graph(
     up_data: &VecDeque<u64>,
     down_data: &VecDeque<u64>,
@@ -593,34 +224,42 @@ pub fn braille_mirrored_graph(
     area_height: u16,
     up_color: Color,
     down_color: Color,
-    _scale_unit: &str,
+    scale_unit: &str,
+    // Shared ceiling (KiB/s) for both directions, already nice-numbered +
+    // sticky-decayed by the caller. The graph no longer derives it from the
+    // raw peak each frame (that caused vertical jitter as the peak wavered).
+    scale_max: f64,
+    // When false, suppress the left-gutter peak labels so the graph fills the
+    // full width (used where the peak is shown elsewhere, e.g. a header).
+    show_y_labels: bool,
 ) -> Vec<Line<'static>> {
     if (up_data.is_empty() && down_data.is_empty()) || area_width < 2 || area_height < 5 {
         return Vec::new();
     }
 
-    let graph_w = area_width as usize;
+    // Y-axis peak labels in a left gutter (top = +peak, bottom = −peak),
+    // matching the CPU graph. The unit is implicit in the speed formatting
+    // (history is in KiB/s; format_speed takes bytes/s). X-axis: no labels
+    // (per design spec — see docs/STATUS.md).
+    let _ = scale_unit;
+    let scale_max = scale_max.max(1.0);
     let graph_h = area_height as usize;
 
     let up_vec: Vec<u64> = up_data.iter().copied().collect();
     let down_vec: Vec<u64> = down_data.iter().copied().collect();
 
-    // SHARED scale: both directions measured against the single peak of
-    // whichever is larger. Upload that's 1/8 of download now renders 1/8 as
-    // DYNAMIC scale with a floor — like the CPU graph's 50% floor. Both
-    // directions share ONE scale (net_sync): upload that's 1/8 of download
-    // renders 1/8 as tall. The floor (~10 Mbps in KiB/s) keeps low-traffic
-    // graphs from looking pinned-to-max when the peak is tiny; the ceiling
-    // grows with the real peak above the floor. No smoothing (sub-pixel grid
-    // is high-res already); 2x horizontal resample only.
-    const NET_FLOOR_KIB: f64 = 1000.0; // ~1 MB/s ≈ 8 Mbps
-    let shared_peak = up_vec
-        .iter()
-        .copied()
-        .chain(down_vec.iter().copied())
-        .max()
-        .unwrap_or(1) as f64;
-    let scale_max = dynamic_ceiling(shared_peak.max(NET_FLOOR_KIB)).max(1.0);
+    // No smoothing (sub-pixel grid is high-res already); 2x horizontal
+    // resample only.
+
+    // Left-gutter label width, derived from the formatted ceiling. Leave the
+    // graph at least 2 columns wide.
+    let peak_lbl = format_speed(scale_max * 1024.0);
+    let label_w = if show_y_labels {
+        (peak_lbl.len() + 1).clamp(3, (area_width as usize).saturating_sub(2))
+    } else {
+        0 // no gutter: graph fills the full width (peak shown in header)
+    };
+    let graph_w = area_width as usize - label_w;
 
     // Layout: [download area][download baseline][upload baseline][upload area].
     let avail = graph_h.saturating_sub(2);
@@ -629,8 +268,8 @@ pub fn braille_mirrored_graph(
     if up_area == 0 || down_area == 0 {
         return Vec::new();
     }
-    let up_base_row = up_area;          // download baseline row (0=top)
-    let down_base_row = up_area + 1;    // upload baseline row
+    let up_base_row = up_area; // download baseline row (0=top)
+    let down_base_row = up_area + 1; // upload baseline row
 
     // 2x horizontal sub-pixel (high resolution) — NO smoothing. The
     // sub-pixel grid already gives a crisp, high-resolution shape; smoothing
@@ -664,16 +303,33 @@ pub fn braille_mirrored_graph(
 
     let mut rows: Vec<Line<'static>> = Vec::with_capacity(graph_h);
 
+    let label_dim = Style::default().fg(Color::DarkGray);
+    let last_row = graph_h - 1;
+
     for ry in 0..graph_h {
-        let mut spans: Vec<Span<'static>> = Vec::with_capacity(graph_w);
+        let mut spans: Vec<Span<'static>> = Vec::with_capacity(label_w + graph_w);
+
+        // Left-gutter Y label: +peak (download ceiling) at the very top,
+        // −peak (upload floor) at the very bottom, blank elsewhere.
+        // Omitted entirely when show_y_labels is false (peak shown in header).
+        if show_y_labels {
+            let lbl = if ry == 0 {
+                format!("{:>width$}", format!("+{}", peak_lbl), width = label_w)
+            } else if ry == last_row {
+                format!("{:>width$}", format!("−{}", peak_lbl), width = label_w)
+            } else {
+                " ".repeat(label_w)
+            };
+            spans.push(Span::styled(lbl, label_dim));
+        }
 
         if ry < up_base_row {
             // Download area: fills UPWARD from the baseline row beneath it.
             // cy within this area, 0 = topmost. Distance above baseline:
             // up_base_row - ry (1 = row just above baseline).
             let dist_above = up_base_row - ry; // 1..up_area
-            // sub-pixel distance from baseline top: this cell's BOTTOM sub-row
-            // sits at (dist_above-1)*4 from baseline going up.
+                                               // sub-pixel distance from baseline top: this cell's BOTTOM sub-row
+                                               // sits at (dist_above-1)*4 from baseline going up.
             for cx in 0..graph_w {
                 let mut bits = 0u8;
                 for r in 0..4usize {
@@ -690,7 +346,10 @@ pub fn braille_mirrored_graph(
                 if bits == 0 {
                     spans.push(Span::raw(" "));
                 } else {
-                    spans.push(Span::styled(braille(bits as usize), Style::default().fg(up_color)));
+                    spans.push(Span::styled(
+                        braille(bits as usize),
+                        Style::default().fg(up_color),
+                    ));
                 }
             }
         } else if ry == up_base_row {
@@ -732,7 +391,10 @@ pub fn braille_mirrored_graph(
                 if bits == 0 {
                     spans.push(Span::raw(" "));
                 } else {
-                    spans.push(Span::styled(braille(bits as usize), Style::default().fg(down_color)));
+                    spans.push(Span::styled(
+                        braille(bits as usize),
+                        Style::default().fg(down_color),
+                    ));
                 }
             }
         }
@@ -745,6 +407,7 @@ pub fn braille_mirrored_graph(
 
 /// Render a mirrored braille area graph (RX up / TX down) into `area`, matching
 /// `render_braille_smooth`'s signature shape so both graphs render the same way.
+#[allow(clippy::too_many_arguments)]
 pub fn render_braille_mirrored(
     frame: &mut ratatui::Frame,
     area: ratatui::layout::Rect,
@@ -752,7 +415,9 @@ pub fn render_braille_mirrored(
     down_data: &VecDeque<u64>,
     up_color: Color,
     down_color: Color,
-    _scale_unit: &str,
+    scale_unit: &str,
+    scale_max: f64,
+    show_y_labels: bool,
 ) {
     let lines = braille_mirrored_graph(
         up_data,
@@ -761,7 +426,9 @@ pub fn render_braille_mirrored(
         area.height,
         up_color,
         down_color,
-        _scale_unit,
+        scale_unit,
+        scale_max,
+        show_y_labels,
     );
     if !lines.is_empty() {
         frame.render_widget(ratatui::widgets::Paragraph::new(lines), area);
@@ -773,124 +440,8 @@ pub fn render_braille_mirrored(
 /// Uses `'▀'` (upper half) and `'▄'` (lower half) for 2-pixel vertical
 /// resolution per terminal row. This gives a denser, more "pixelated"
 /// look compared to Braille and works well for larger panels.
-///
-/// - `area_height` terminal rows → `(area_height * 2)` logical pixel rows
-/// - Data is resampled to fill `area_width`
-/// - Returns lines with Y-axis scale labels on the left
-#[allow(dead_code)]
-pub fn halfblock_graph(
-    data: &VecDeque<u64>,
-    area_width: u16,
-    area_height: u16,
-    color: Color,
-    fade_color: Option<Color>,
-    scale_unit: &str,
-) -> Vec<Line<'static>> {
-    if data.is_empty() || area_width < 10 || area_height < 2 {
-        return Vec::new();
-    }
-
-    let data_vec: Vec<u64> = data.iter().copied().collect();
-    let peak = data_vec.iter().copied().max().unwrap_or(1) as f64;
-    let y_max = dynamic_ceiling(peak);
-
-    let label_w = format!("{:.0}{}", y_max, scale_unit).len() + 1;
-    let graph_w = (area_width as usize).saturating_sub(label_w);
-    let graph_h = area_height as usize;
-
-    if graph_w < 2 || graph_h < 2 {
-        return Vec::new();
-    }
-
-    let samples = resample(&data_vec, graph_w);
-
-    // Total vertical resolution: 2 sub-pixels per row (upper + lower half-block)
-    let total_v = graph_h * 2;
-
-    // Compute fill level for each column (in sub-pixel units, 0 = bottom)
-    let fill: Vec<usize> = samples
-        .iter()
-        .map(|&val| {
-            let v = ((val as f64 / y_max) * total_v as f64).round() as usize;
-            v.min(total_v)
-        })
-        .collect();
-
-    let mut rows: Vec<Line<'static>> = Vec::new();
-
-    // Render from top (row 0) to bottom (last row)
-    // Each terminal row has 2 sub-pixels: top-half (▀ foreground) and bottom-half (▄ foreground)
-    // We use '▀' with fg=color for filled top, bg=color for filled bottom,
-    // and ' ' for empty. Actually, simpler approach:
-    // For each row (top to bottom), we have 2 sub-rows.
-    // We combine them into single characters using ▀, ▄, █, and space.
-
-    for row in 0..graph_h {
-        let row_top_v = total_v - row * 2; // top sub-pixel boundary (exclusive)
-        let row_mid_v = total_v - row * 2 - 1; // middle boundary
-        let row_bot_v = total_v - (row + 1) * 2; // bottom boundary (inclusive)
-
-        let mut spans: Vec<Span<'static>> = Vec::with_capacity(label_w + graph_w);
-
-        // Compute gradient colors for this row if requested
-        let (c_top, c_bot) = if let Some(fade) = fade_color {
-            let ratio_top = (row * 2) as f64 / total_v.max(1) as f64;
-            let ratio_bot = (row * 2 + 1) as f64 / total_v.max(1) as f64;
-            (
-                interpolate_color(color, fade, ratio_top),
-                interpolate_color(color, fade, ratio_bot),
-            )
-        } else {
-            (color, color)
-        };
-
-        // Y-axis label
-        let label_text = if row == 0 {
-            let v = (y_max * (row_top_v as f64 / total_v as f64)).round() as u64;
-            format!(
-                "{:>width$} ",
-                format!("{}{}", v, scale_unit),
-                width = label_w.saturating_sub(1)
-            )
-        } else if row == graph_h / 2 {
-            let v = (y_max * 0.5).round() as u64;
-            format!(
-                "{:>width$} ",
-                format!("{}{}", v, scale_unit),
-                width = label_w.saturating_sub(1)
-            )
-        } else if row == graph_h - 1 {
-            format!("{:>width$} ", format!("0{}", scale_unit), width = label_w.saturating_sub(1))
-        } else {
-            " ".repeat(label_w)
-        };
-        spans.push(Span::styled(
-            label_text,
-            Style::default().fg(Color::DarkGray),
-        ));
-
-        for f_val in fill.iter().take(graph_w) {
-            let top_filled = *f_val > row_mid_v;
-            let bot_filled = *f_val > row_bot_v;
-
-            let (ch_str, style) = match (top_filled, bot_filled) {
-                (true, true) => ("\u{2588}", Style::default().fg(c_top)), // █ full block
-                (true, false) => ("\u{2580}", Style::default().fg(c_top)), // ▀ upper half
-                (false, true) => ("\u{2584}", Style::default().fg(c_bot)), // ▄ lower half
-                (false, false) => (" ", Style::default()),
-            };
-            spans.push(Span::styled(ch_str, style));
-        }
-
-        rows.push(Line::from(spans));
-    }
-
-    rows
-}
-
 /// Compute dynamic Y-axis ceiling: round `peak` up to the next multiple of 5.
 /// Minimum ceiling is 5. Steps: 5, 10, 15, 20, 25, 30, ...
-#[allow(dead_code)]
 fn dynamic_ceiling(peak: f64) -> f64 {
     let step = 5.0;
     let min = 5.0;
@@ -925,18 +476,118 @@ fn resample(data: &[u64], n: usize) -> Vec<u64> {
         .collect()
 }
 
-/// Helper to interpolate between two colors. Only works fully for Color::Rgb.
-fn interpolate_color(c1: Color, c2: Color, ratio: f64) -> Color {
-    let ratio = ratio.clamp(0.0, 1.0);
-    match (c1, c2) {
-        (Color::Rgb(r1, g1, b1), Color::Rgb(r2, g2, b2)) => {
-            let r = (r1 as f64 * (1.0 - ratio) + r2 as f64 * ratio).round() as u8;
-            let g = (g1 as f64 * (1.0 - ratio) + g2 as f64 * ratio).round() as u8;
-            let b = (b1 as f64 * (1.0 - ratio) + b2 as f64 * ratio).round() as u8;
-            Color::Rgb(r, g, b)
-        }
-        _ => c1,
+/// Render per-core utilization as a strip of vertical bars (btop-style).
+///
+/// Each core is a solid vertical bar whose **height encodes utilization** and
+/// whose **colour encodes load** (green → teal → yellow → peach → red → maroon
+/// via `usage_color`). Bars spread evenly across the full width, so **every
+/// core is always visible** regardless of core count or terminal size: a few
+/// cores render as widely-spaced bars, many cores pack densely. The bottom row
+/// carries core-index labels (every Nth when there is room).
+///
+/// Uses full-block (`█`) + lower-half (`▄`) for 2× vertical sub-pixel
+/// resolution per row — solid and crisp for discrete bars (braille dots are
+/// reserved for the smooth trend graphs).
+pub fn render_core_bars(frame: &mut ratatui::Frame, area: ratatui::layout::Rect, cores: &[f32]) {
+    let w = area.width as usize;
+    let h = area.height as usize;
+    if cores.is_empty() || w == 0 || h < 2 {
+        return;
     }
+    let bar_h = h - 1; // reserve the bottom row for index labels
+    let lines = core_bar_lines(cores, w, bar_h);
+    if !lines.is_empty() {
+        frame.render_widget(ratatui::widgets::Paragraph::new(lines), area);
+    }
+}
+
+/// Build the vertical-bar strip lines: `cores` spread across `w` columns,
+/// `bar_h` rows tall, plus one trailing index-label row.
+fn core_bar_lines(cores: &[f32], w: usize, bar_h: usize) -> Vec<Line<'static>> {
+    let n = cores.len();
+    let sub = (bar_h * 2) as i64; // half-block sub-rows (2 per terminal row)
+
+    // Pack bars close together (1-col gap) and centre the compact group,
+    // instead of spreading bars across the full width. Falls back to touching
+    // bars (no gap) when a gap wouldn't fit, and to even spread only when the
+    // core count exceeds the available columns.
+    let (step, spread) = if n > w {
+        (1usize, true)
+    } else if n * 2 <= w {
+        (2, false)
+    } else {
+        (1, false)
+    };
+    // Bars are left-aligned: they pack against the left edge so the frequency
+    // readout has clean room on the right.
+    let xs: Vec<usize> = cores
+        .iter()
+        .enumerate()
+        .map(|(i, _)| if spread { (i * w) / n } else { i * step })
+        .collect();
+
+    let mut col_util = vec![-1.0_f32; w];
+    for (i, &u) in cores.iter().enumerate() {
+        let x = xs[i];
+        if x < w && u > col_util[x] {
+            col_util[x] = u;
+        }
+    }
+
+    let distinct = n <= w; // labels only read well when bars don't merge
+    let idx_step = ((n as f64) / 8.0).ceil().max(1.0) as usize;
+
+    let mut rows: Vec<Line<'static>> = Vec::with_capacity(bar_h + 1);
+
+    // Bar rows: rb = height-from-bottom (0 = bottom). Iterate top → bottom.
+    for rb in (0..bar_h).rev() {
+        let threshold_full = 2 * rb as i64 + 2;
+        let threshold_half = 2 * rb as i64 + 1;
+        let mut spans: Vec<Span<'static>> = Vec::with_capacity(w);
+        for &u in col_util.iter() {
+            if u < 0.0 {
+                spans.push(Span::raw(" "));
+                continue;
+            }
+            let filled = (u as f64 / 100.0 * sub as f64).round() as i64;
+            let (block, color) = if filled >= threshold_full {
+                ("\u{2588}", usage_color(u)) // █ full block
+            } else if filled >= threshold_half {
+                ("\u{2584}", usage_color(u)) // ▄ lower half
+            } else {
+                spans.push(Span::raw(" "));
+                continue;
+            };
+            spans.push(Span::styled(block, Style::default().fg(color)));
+        }
+        rows.push(Line::from(spans));
+    }
+
+    // Index-label row (dim). Place each idx_step-th core's index at its column.
+    let mut buf = vec![' '; w];
+    if distinct {
+        for i in (0..n).step_by(idx_step) {
+            let x = xs[i];
+            for (off, c) in i.to_string().chars().enumerate() {
+                if x + off < w {
+                    buf[x + off] = c;
+                }
+            }
+        }
+    }
+    let label_spans: Vec<Span<'static>> = buf
+        .iter()
+        .map(|&c| {
+            if c == ' ' {
+                Span::raw(" ")
+            } else {
+                Span::styled(c.to_string(), Style::default().fg(Color::DarkGray))
+            }
+        })
+        .collect();
+    rows.push(Line::from(label_spans));
+
+    rows
 }
 
 #[cfg(test)]
@@ -944,89 +595,11 @@ mod tests {
     use super::*;
 
     fn row_to_string(line: &Line<'_>) -> String {
-        line.spans
-            .iter()
-            .flat_map(|s| s.content.chars())
-            .collect()
+        line.spans.iter().flat_map(|s| s.content.chars()).collect()
     }
 
     /// True if the line contains any braille pattern char (U+2800 and up).
     fn has_braille(line: &Line<'_>) -> bool {
         row_to_string(line).chars().any(|c| c >= '\u{2800}')
-    }
-
-    /// Regression: a flat line at the maximum must render ONLY in the top row,
-    /// lighting the TOP dot of the left braille column (dot1 = U+2801 '⠁').
-    /// This guards BOTH the dot mapping AND vertical row positioning: a buggy
-    /// renderer that draws the same pattern on every row would also light a dot
-    /// in a middle row, which this test forbids.
-    #[test]
-    fn braille_line_graph_top_dot_only_in_top_row() {
-        let mut data = VecDeque::new();
-        for _ in 0..200 {
-            data.push_back(100u64);
-        }
-        let lines = braille_line_graph(&data, 30, 5, Color::Green, "%");
-        assert!(!lines.is_empty(), "should render some rows");
-        // Top row lights dot1.
-        assert!(
-            row_to_string(&lines[0]).contains('\u{2801}'), // ⠁ = dot1
-            "top sub-pixel must map to dot1 (⠁), got: {:?}",
-            row_to_string(&lines[0])
-        );
-        // A middle row must have NO braille dots (line is at the very top).
-        assert!(
-            !has_braille(&lines[2]),
-            "middle row must be empty for a top-only line, got: {:?}",
-            row_to_string(&lines[2])
-        );
-    }
-
-    /// A flat line at zero must render ONLY in the bottom row, lighting the
-    /// BOTTOM dot of the left column (dot7 = U+2840 '⡀').
-    #[test]
-    fn braille_line_graph_bottom_dot_only_in_bottom_row() {
-        let mut data = VecDeque::new();
-        for _ in 0..200 {
-            data.push_back(0u64);
-        }
-        let lines = braille_line_graph(&data, 30, 5, Color::Green, "%");
-        // Bottom row lights dot7.
-        assert!(
-            row_to_string(lines.last().unwrap()).contains('\u{2840}'), // ⡀ = dot7
-            "bottom sub-pixel must map to dot7 (⡀), got: {:?}",
-            row_to_string(lines.last().unwrap())
-        );
-        // A non-bottom row must have NO braille dots.
-        assert!(
-            !has_braille(&lines[1]),
-            "non-bottom row must be empty for a bottom-only line, got: {:?}",
-            row_to_string(&lines[1])
-        );
-    }
-
-    /// Manual visual preview of the rendered braille trend line for a synthetic
-    /// CPU-like waveform. Ignored by default; run with:
-    ///   cargo test --lib _preview_braille_trend -- --nocapture --ignored
-    #[test]
-    #[ignore]
-    fn _preview_braille_trend() {
-        let mut data = VecDeque::new();
-        // a rising-then-falling waveform plus a plateau, ~120 samples
-        for i in 0..120u64 {
-            let v = match i {
-                0..=30 => (i as f64 * 3.0).min(95.0),        // ramp up
-                31..=60 => 95.0 - ((i - 31) as f64 * 2.5),   // ramp down
-                61..=90 => 20.0 + ((i - 61) as f64 * 0.8),   // gentle rise
-                _ => 10.0,                                   // idle plateau
-            };
-            data.push_back(v.round() as u64);
-        }
-        let lines = braille_line_graph(&data, 48, 8, Color::Green, "%");
-        println!("\n=== braille trend line preview (48x8) ===");
-        for line in &lines {
-            println!("{}", row_to_string(line));
-        }
-        println!("=== end preview ===\n");
     }
 }

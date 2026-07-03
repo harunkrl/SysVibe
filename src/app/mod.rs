@@ -85,6 +85,8 @@ pub struct App {
     pub proc_table_state: TableState,
     pub tab: AppTab,
     pub sort_by: SortBy,
+    /// Sort direction (ascending/descending) for the process table.
+    pub sort_dir: SortDir,
     pub temp_celsius: bool,
     pub selected_pids: Vec<(u32, String)>,
 
@@ -249,6 +251,7 @@ impl App {
             total_process_count_fresh: 0,
             proc_table_state: TableState::default(),
             sort_by: SortBy::default(),
+            sort_dir: SortDir::default(),
             temp_celsius: true,
             selected_pids: Vec::new(),
             tab: default_tab,
@@ -483,6 +486,19 @@ impl App {
 
     /// Return the filtered process list, using a cache that is invalidated
     /// when processes, filter, or sort order changes.
+    /// Does a process match the current filter query? The query matches the
+    /// process NAME, full COMMAND LINE, or (if it's all digits) the PID.
+    fn process_matches_filter(p: &ProcessEntry, query: &str) -> bool {
+        if p.name.to_lowercase().contains(query) || p.cmdline.to_lowercase().contains(query) {
+            return true;
+        }
+        // Pure-number query → also match PID (prefix).
+        if query.chars().all(|c| c.is_ascii_digit()) && !query.is_empty() {
+            return p.pid.to_string().contains(query);
+        }
+        false
+    }
+
     pub fn filtered_processes(&self) -> Vec<&ProcessEntry> {
         // Note: we can't mutate self here, so the cache is rebuilt lazily
         // via rebuild_filtered_cache() called from apply_state_update().
@@ -493,7 +509,7 @@ impl App {
             let query = self.filter_input.to_lowercase();
             self.top_processes
                 .iter()
-                .filter(|p| p.name.to_lowercase().contains(&query))
+                .filter(|p| Self::process_matches_filter(p, &query))
                 .collect()
         }
     }
@@ -508,7 +524,7 @@ impl App {
                 .top_processes
                 .iter()
                 .enumerate()
-                .filter(|(_, p)| p.name.to_lowercase().contains(&query))
+                .filter(|(_, p)| Self::process_matches_filter(p, &query))
                 .map(|(i, _)| i)
                 .collect();
         }
@@ -1068,6 +1084,13 @@ impl App {
 
     pub fn set_top_processes(&mut self, processes: Vec<ProcessEntry>, total: usize) {
         self.top_processes = processes;
+        // Re-sort with the user's chosen column + direction so the background
+        // collector's default (Cpu, desc) never overrides the UI selection.
+        processes::sort_process_entries_dir(
+            &mut self.top_processes,
+            &self.sort_by,
+            self.sort_dir,
+        );
         self.total_process_count_fresh = total;
         self.filtered_processes_dirty = true;
         self.tree_dirty = true;
@@ -1577,9 +1600,10 @@ impl App {
             .selected()
             .and_then(|idx| self.top_processes.get(idx).map(|p| p.pid));
 
-        self.top_processes = processes::build_process_list(
+        self.top_processes = processes::build_process_list_dir(
             &self.sys,
             &self.sort_by,
+            self.sort_dir,
             self.config.max_processes,
             self.cpu_normalized,
         );
@@ -1829,26 +1853,27 @@ impl App {
             battery_power_history: sample_wave(HISTORY_LEN, 5, 8),
             battery_charge_history: sample_wave(HISTORY_LEN, 80, 10),
             top_processes: vec![
-                ProcessEntry { pid: 1422, parent_pid: 1, name: "firefox".into(), cpu_pct: 38.4, mem_pct: 12.1 },
-                ProcessEntry { pid: 9821, parent_pid: 1422, name: "Web Content".into(), cpu_pct: 22.7, mem_pct: 6.4 },
-                ProcessEntry { pid: 3017, parent_pid: 1, name: "code".into(), cpu_pct: 14.2, mem_pct: 9.8 },
-                ProcessEntry { pid: 884, parent_pid: 1, name: "node".into(), cpu_pct: 9.6, mem_pct: 4.2 },
-                ProcessEntry { pid: 553, parent_pid: 1, name: "rust-analyzer".into(), cpu_pct: 7.1, mem_pct: 3.3 },
-                ProcessEntry { pid: 2290, parent_pid: 1, name: "dockerd".into(), cpu_pct: 3.8, mem_pct: 2.7 },
-                ProcessEntry { pid: 7712, parent_pid: 1, name: "alacritty".into(), cpu_pct: 1.2, mem_pct: 0.8 },
-                ProcessEntry { pid: 1190, parent_pid: 1, name: "pipewire".into(), cpu_pct: 0.9, mem_pct: 0.6 },
-                ProcessEntry { pid: 1247, parent_pid: 1, name: "gnome-shell".into(), cpu_pct: 0.7, mem_pct: 5.1 },
-                ProcessEntry { pid: 2210, parent_pid: 1, name: "dbus".into(), cpu_pct: 0.5, mem_pct: 0.2 },
-                ProcessEntry { pid: 663, parent_pid: 1, name: "systemd".into(), cpu_pct: 0.4, mem_pct: 0.9 },
-                ProcessEntry { pid: 9881, parent_pid: 1, name: "Isolated Web Co".into(), cpu_pct: 0.3, mem_pct: 1.1 },
-                ProcessEntry { pid: 1450, parent_pid: 1, name: "polkitd".into(), cpu_pct: 0.2, mem_pct: 0.1 },
-                ProcessEntry { pid: 812, parent_pid: 1, name: "NetworkManager".into(), cpu_pct: 0.2, mem_pct: 0.3 },
-                ProcessEntry { pid: 3320, parent_pid: 1, name: "sshd".into(), cpu_pct: 0.1, mem_pct: 0.1 },
-                ProcessEntry { pid: 1900, parent_pid: 1, name: "colord".into(), cpu_pct: 0.0, mem_pct: 0.1 },
+                ProcessEntry { pid: 1422, parent_pid: 1, name: "firefox".into(), cpu_pct: 38.4, mem_pct: 12.1, cmdline: "/usr/lib/firefox/firefox".into() },
+                ProcessEntry { pid: 9821, parent_pid: 1422, name: "Web Content".into(), cpu_pct: 22.7, mem_pct: 6.4, cmdline: "/usr/lib/firefox/plugin-container".into() },
+                ProcessEntry { pid: 3017, parent_pid: 1, name: "code".into(), cpu_pct: 14.2, mem_pct: 9.8, cmdline: "/usr/share/code/code".into() },
+                ProcessEntry { pid: 884, parent_pid: 1, name: "node".into(), cpu_pct: 9.6, mem_pct: 4.2, cmdline: "node server.js".into() },
+                ProcessEntry { pid: 553, parent_pid: 1, name: "rust-analyzer".into(), cpu_pct: 7.1, mem_pct: 3.3, cmdline: "rust-analyzer".into() },
+                ProcessEntry { pid: 2290, parent_pid: 1, name: "dockerd".into(), cpu_pct: 3.8, mem_pct: 2.7, cmdline: "/usr/bin/dockerd".into() },
+                ProcessEntry { pid: 7712, parent_pid: 1, name: "alacritty".into(), cpu_pct: 1.2, mem_pct: 0.8, cmdline: String::new() },
+                ProcessEntry { pid: 1190, parent_pid: 1, name: "pipewire".into(), cpu_pct: 0.9, mem_pct: 0.6, cmdline: String::new() },
+                ProcessEntry { pid: 1247, parent_pid: 1, name: "gnome-shell".into(), cpu_pct: 0.7, mem_pct: 5.1, cmdline: String::new() },
+                ProcessEntry { pid: 2210, parent_pid: 1, name: "dbus".into(), cpu_pct: 0.5, mem_pct: 0.2, cmdline: String::new() },
+                ProcessEntry { pid: 663, parent_pid: 1, name: "systemd".into(), cpu_pct: 0.4, mem_pct: 0.9, cmdline: String::new() },
+                ProcessEntry { pid: 9881, parent_pid: 1, name: "Isolated Web Co".into(), cpu_pct: 0.3, mem_pct: 1.1, cmdline: String::new() },
+                ProcessEntry { pid: 1450, parent_pid: 1, name: "polkitd".into(), cpu_pct: 0.2, mem_pct: 0.1, cmdline: String::new() },
+                ProcessEntry { pid: 812, parent_pid: 1, name: "NetworkManager".into(), cpu_pct: 0.2, mem_pct: 0.3, cmdline: String::new() },
+                ProcessEntry { pid: 3320, parent_pid: 1, name: "sshd".into(), cpu_pct: 0.1, mem_pct: 0.1, cmdline: String::new() },
+                ProcessEntry { pid: 1900, parent_pid: 1, name: "colord".into(), cpu_pct: 0.0, mem_pct: 0.1, cmdline: String::new() },
             ],
             total_process_count_fresh: 247,
             proc_table_state: TableState::default(),
             sort_by: SortBy::Cpu,
+            sort_dir: SortDir::Descending,
             temp_celsius: true,
             selected_pids: Vec::new(),
             tab: AppTab::Dashboard,

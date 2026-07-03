@@ -139,7 +139,11 @@ fn render_log_entries(f: &mut Frame, app: &App, area: Rect) {
             crate::app::collectors::logs::LogScope::System
         );
         (
-            if is_system { "System Logs" } else { "Kernel Logs" },
+            if is_system {
+                "System Logs"
+            } else {
+                "Kernel Logs"
+            },
             if is_system {
                 "No system logs available — requires journalctl access"
             } else {

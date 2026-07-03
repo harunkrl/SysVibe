@@ -1,7 +1,7 @@
 //! SysVibe — Process management: listing, sorting, filtering, kill.
 
 use super::error::{AppError, AppResult};
-use super::state::{ProcessEntry, SortBy};
+use super::state::{ProcessEntry, SortBy, SortDir};
 use sysinfo::System;
 
 /// Build the sorted top-N process list.
@@ -14,6 +14,17 @@ pub fn build_process_list(
     max_procs: usize,
     cpu_normalized: bool,
 ) -> Vec<ProcessEntry> {
+    build_process_list_dir(sys, sort_by, SortDir::default(), max_procs, cpu_normalized)
+}
+
+/// Build the sorted top-N process list with an explicit sort direction.
+pub fn build_process_list_dir(
+    sys: &System,
+    sort_by: &SortBy,
+    sort_dir: SortDir,
+    max_procs: usize,
+    cpu_normalized: bool,
+) -> Vec<ProcessEntry> {
     let total_mem = sys.total_memory() as f64;
 
     let mut procs: Vec<_> = sys
@@ -22,17 +33,21 @@ pub fn build_process_list(
         .filter(|(_, p)| !p.name().is_empty())
         .collect();
 
+    let desc = matches!(sort_dir, SortDir::Descending);
     procs.sort_by(|a, b| {
-        let primary = match sort_by {
-            SortBy::Cpu => {
-                b.1.cpu_usage()
-                    .partial_cmp(&a.1.cpu_usage())
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            }
-            SortBy::Mem => b.1.memory().cmp(&a.1.memory()),
-            SortBy::Pid => return a.0.cmp(b.0),
+        // Compute the ascending comparison for the active column, then flip
+        // the primary key when the requested direction is descending.
+        let asc = match sort_by {
+            SortBy::Cpu => a
+                .1
+                .cpu_usage()
+                .partial_cmp(&b.1.cpu_usage())
+                .unwrap_or(std::cmp::Ordering::Equal),
+            SortBy::Mem => a.1.memory().cmp(&b.1.memory()),
+            SortBy::Pid => a.0.cmp(b.0),
             SortBy::Name => a.1.name().cmp(b.1.name()),
         };
+        let primary = if desc { asc.reverse() } else { asc };
         primary.then_with(|| a.0.cmp(b.0))
     });
 
@@ -58,6 +73,12 @@ pub fn build_process_list(
                 } else {
                     0.0
                 },
+                cmdline: p
+                    .cmd()
+                    .iter()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .collect::<Vec<_>>()
+                    .join(" "),
             }
         })
         .collect()
@@ -101,19 +122,26 @@ pub fn kill_process_force(pid: u32) -> AppResult<()> {
 /// Useful for testing sorting logic without requiring a live System.
 #[cfg(test)]
 pub fn sort_process_entries(entries: &mut [ProcessEntry], sort_by: &SortBy) {
+    sort_process_entries_dir(entries, sort_by, SortDir::default());
+}
+
+pub fn sort_process_entries_dir(
+    entries: &mut [ProcessEntry],
+    sort_by: &SortBy,
+    sort_dir: SortDir,
+) {
+    let desc = matches!(sort_dir, SortDir::Descending);
     entries.sort_by(|a, b| {
-        let primary = match sort_by {
-            SortBy::Cpu => b
+        let asc = match sort_by {
+            SortBy::Cpu => a
                 .cpu_pct
-                .partial_cmp(&a.cpu_pct)
+                .partial_cmp(&b.cpu_pct)
                 .unwrap_or(std::cmp::Ordering::Equal),
-            SortBy::Mem => b
-                .mem_pct
-                .partial_cmp(&a.mem_pct)
-                .unwrap_or(std::cmp::Ordering::Equal),
+            SortBy::Mem => a.mem_pct.partial_cmp(&b.mem_pct).unwrap_or(std::cmp::Ordering::Equal),
             SortBy::Pid => return a.pid.cmp(&b.pid),
             SortBy::Name => return a.name.cmp(&b.name),
         };
+        let primary = if desc { asc.reverse() } else { asc };
         primary.then_with(|| a.pid.cmp(&b.pid))
     });
 }
@@ -130,6 +158,7 @@ mod tests {
                 name: "chrome".to_string(),
                 cpu_pct: 45.0,
                 mem_pct: 20.0,
+                cmdline: String::new(),
             },
             ProcessEntry {
                 pid: 200,
@@ -137,6 +166,7 @@ mod tests {
                 name: "firefox".to_string(),
                 cpu_pct: 10.0,
                 mem_pct: 35.0,
+                cmdline: String::new(),
             },
             ProcessEntry {
                 pid: 300,
@@ -144,6 +174,7 @@ mod tests {
                 name: "bash".to_string(),
                 cpu_pct: 2.0,
                 mem_pct: 1.0,
+                cmdline: String::new(),
             },
             ProcessEntry {
                 pid: 50,
@@ -151,6 +182,7 @@ mod tests {
                 name: "systemd".to_string(),
                 cpu_pct: 0.5,
                 mem_pct: 5.0,
+                cmdline: String::new(),
             },
         ]
     }
@@ -211,6 +243,7 @@ mod tests {
                 name: "a".to_string(),
                 cpu_pct: 50.0,
                 mem_pct: 0.0,
+                cmdline: String::new(),
             },
             ProcessEntry {
                 pid: 100,
@@ -218,6 +251,7 @@ mod tests {
                 name: "b".to_string(),
                 cpu_pct: 50.0,
                 mem_pct: 0.0,
+                cmdline: String::new(),
             },
         ];
         sort_process_entries(&mut procs, &SortBy::Cpu);

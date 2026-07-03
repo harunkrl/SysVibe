@@ -112,6 +112,8 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
                     s.push(sep());
                     s.extend(key_desc("s", "Sort"));
                     s.push(sep());
+                    s.extend(key_desc("S", "Dir"));
+                    s.push(sep());
                     s.extend(key_desc("p", if app.tree_view() { "Flat" } else { "Tree" }));
                     s.push(sep());
                     s.extend(key_desc(

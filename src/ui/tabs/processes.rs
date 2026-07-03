@@ -114,13 +114,23 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
     let visible_end = (scroll_offset + visible_height).min(total_procs);
     let visible_procs = &procs[scroll_offset..visible_end];
 
-    // Sort direction indicator
+    // Sort direction indicator: ▲ ascending, ▼ descending.
     let sort_indicator = |col: SortBy| -> String {
         if app.sort_by == col {
-            if nf {
-                format!(" {}", icons::SORT_DOWN)
+            let arrow = if matches!(app.sort_dir, crate::app::state::SortDir::Ascending) {
+                '▲'
             } else {
-                " ▼".to_string()
+                '▼'
+            };
+            if nf && !icons::SORT_DOWN.is_empty() {
+                // Prefer icon set for the down case; fall back to the unicode arrow.
+                if matches!(app.sort_dir, crate::app::state::SortDir::Descending) {
+                    format!(" {}", icons::SORT_DOWN)
+                } else {
+                    " ↑".to_string()
+                }
+            } else {
+                format!(" {}", arrow)
             }
         } else {
             String::new()

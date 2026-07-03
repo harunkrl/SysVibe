@@ -43,13 +43,41 @@ pub enum AppTab {
 }
 
 /// Process table sort order.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum SortBy {
     #[default]
     Cpu,
     Mem,
     Pid,
     Name,
+}
+
+/// Sort direction for the process table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SortDir {
+    Ascending,
+    #[default]
+    Descending,
+}
+
+impl SortDir {
+    pub fn toggle(self) -> Self {
+        match self {
+            SortDir::Ascending => SortDir::Descending,
+            SortDir::Descending => SortDir::Ascending,
+        }
+    }
+}
+
+/// Default sort direction for a given column (Cpu/Mem start descending so the
+/// heaviest consumers are on top; Pid/Name start ascending).
+impl SortBy {
+    pub fn default_dir(self) -> SortDir {
+        match self {
+            SortBy::Cpu | SortBy::Mem => SortDir::Descending,
+            SortBy::Pid | SortBy::Name => SortDir::Ascending,
+        }
+    }
 }
 
 /// Tracks which panel within a tab is focused.
@@ -246,6 +274,8 @@ pub struct ProcessEntry {
     pub name: String,
     pub cpu_pct: f32,
     pub mem_pct: f32,
+    /// Full command line joined with spaces (for filter matching / detail).
+    pub cmdline: String,
 }
 
 /// Aggregate disk I/O speed and history.

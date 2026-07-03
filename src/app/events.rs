@@ -56,9 +56,16 @@ fn handle_normal_key(app: &mut App, code: KeyCode, _mods: KeyModifiers) {
                     SortBy::Pid => SortBy::Name,
                     SortBy::Name => SortBy::Cpu,
                 };
+                // Switching column resets to that column's natural direction.
+                app.sort_dir = next.default_dir();
                 app.sort_by = next;
                 app.refresh_top_processes();
             }
+        }
+        KeyCode::Char('S') => {
+            // Shift+S — flip the process table sort direction (asc/desc).
+            app.sort_dir = app.sort_dir.toggle();
+            app.refresh_top_processes();
         }
         KeyCode::Char('r') => {
             if app.tab == AppTab::Logs {

@@ -773,18 +773,13 @@ impl App {
     }
 
     /// Scroll the log view up (toward older entries). Auto-disables follow so
-    /// the offset takes effect; when transitioning out of follow, start from
-    /// the newest entry so one page-up moves just one page, not to the very
-    /// top.
+    /// the offset takes effect. The offset is measured as "rows back from the
+    /// newest entry", so it scrolls correctly regardless of viewport height.
     pub fn log_scroll_up(&mut self, amount: usize) {
         self.log_follow = false;
         let count = self.log_visible_count();
-        // If we were following (offset untouched at 0), pin offset to the
-        // newest entry first so the scroll moves up from the bottom.
-        if self.log_scroll_offset == 0 && count > 1 {
-            self.log_scroll_offset = count;
-        }
-        self.log_scroll_offset = self.log_scroll_offset.saturating_sub(amount);
+        let _ = count;
+        self.log_scroll_offset = self.log_scroll_offset.saturating_add(amount);
     }
 
     /// Scroll the log view down (toward newer entries). A no-op while follow
@@ -794,21 +789,17 @@ impl App {
         if self.log_follow {
             return;
         }
-        let count = self.log_visible_count();
-        if count == 0 {
-            return;
-        }
-        self.log_scroll_offset = self.log_scroll_offset.saturating_add(amount);
-        if self.log_scroll_offset >= count.saturating_sub(1) {
+        self.log_scroll_offset = self.log_scroll_offset.saturating_sub(amount);
+        if self.log_scroll_offset == 0 {
             self.log_follow = true;
-            self.log_scroll_offset = 0;
         }
     }
 
     /// Jump to the oldest entry (top).
     pub fn log_scroll_home(&mut self) {
         self.log_follow = false;
-        self.log_scroll_offset = 0;
+        let count = self.log_visible_count();
+        self.log_scroll_offset = count;
     }
 
     /// Jump to the newest entry (bottom) and re-enable follow.
@@ -1340,10 +1331,12 @@ impl App {
         if len == 0 {
             return;
         }
+        // Stop at the bottom (no wrap) — wrapping to the top felt like the
+        // view "jumping" while browsing.
         let i = self
             .proc_table_state
             .selected()
-            .map_or(0, |i| if i + 1 < len { i + 1 } else { 0 });
+            .map_or(0, |i| (i + 1).min(len - 1));
         self.proc_table_state.select(Some(i));
     }
 
@@ -1360,10 +1353,11 @@ impl App {
         if len == 0 {
             return;
         }
+        // Stop at the top (no wrap).
         let i = self
             .proc_table_state
             .selected()
-            .map_or(0, |i| if i > 0 { i - 1 } else { len - 1 });
+            .map_or(0, |i| i.saturating_sub(1));
         self.proc_table_state.select(Some(i));
     }
 

@@ -228,8 +228,8 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
     ];
 
     // Only build rows for the visible slice (virtual scrolling)
-        let bar_len: u16 = 5;
-        let rows = visible_procs.iter().enumerate().map(|(local_idx, p)| {
+    let bar_len: u16 = 5;
+    let rows = visible_procs.iter().enumerate().map(|(local_idx, p)| {
         let row_idx = scroll_offset + local_idx;
         // CPU is stored raw (per-core); normalize for display via the `g` toggle.
         let cpu_disp = app.cpu_display(p.cpu_pct);

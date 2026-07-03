@@ -192,12 +192,14 @@ fn render_log_entries(f: &mut Frame, app: &App, area: Rect) {
 
     let count = filtered_count;
     let visible_height = inner.height as usize;
+    // offset = "rows scrolled back from the newest entry" (0 = bottom).
+    // start = index of the first visible entry.
+    let max_start = count.saturating_sub(visible_height);
     let start = if count > visible_height {
         if app.log_follow() {
-            count - visible_height
+            max_start
         } else {
-            app.log_scroll_offset()
-                .min(count.saturating_sub(visible_height))
+            max_start.saturating_sub(app.log_scroll_offset())
         }
     } else {
         0
@@ -207,7 +209,7 @@ fn render_log_entries(f: &mut Frame, app: &App, area: Rect) {
     let position = if app.log_follow() {
         "\u{25cf} Follow".to_string()
     } else {
-        format!("\u{2191} {}/{}", start.saturating_add(1), count)
+        format!("\u{2191} {}", app.log_scroll_offset())
     };
     let title = if nf {
         format!(

@@ -268,8 +268,14 @@ pub struct DiskIoStats {
 /// A single kernel log entry.
 #[derive(Debug, Clone)]
 pub struct LogEntry {
+    /// Display timestamp, e.g. "Jul 03 21:30:24".
     pub timestamp: String,
+    /// Real-time timestamp in microseconds since the Unix epoch, used for
+    /// accurate ordering/dedup (the display string alone can't be sorted).
+    pub timestamp_us: u64,
     pub level: LogLevel,
+    /// Source identifier (e.g. "kernel", "systemd", "NetworkManager").
+    pub source: Option<String>,
     pub message: String,
 }
 

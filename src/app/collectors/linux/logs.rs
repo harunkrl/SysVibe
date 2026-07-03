@@ -1,8 +1,74 @@
-//! SysVibe — Kernel log collection via journalctl/dmesg.
+//! SysVibe — Kernel log collection via journalctl (JSON) / dmesg.
 
 use crate::app::state::{LogEntry, LogLevel, MAX_LOG_LINES};
 use std::collections::VecDeque;
 use std::process::Command;
+
+/// Format a microsecond epoch timestamp for display: "Jul 03 21:30:24".
+/// (Year is omitted for brevity — the numeric `timestamp_us` is kept for
+/// correct ordering.)
+pub fn format_timestamp_us(us: u64) -> String {
+    let secs = (us / 1_000_000) as i64;
+    // Days since epoch + time-of-day decomposition (no chrono dependency).
+    let day = secs.div_euclid(86400);
+    let tod = secs.rem_euclid(86400);
+    let (_y, m, d) = civil_from_days(day);
+    let hh = tod / 3600;
+    let mm = (tod % 3600) / 60;
+    let ss = tod % 60;
+    let mon = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        [(m - 1) as usize];
+    format!("{} {:02} {:02}:{:02}:{:02}", mon, d, hh, mm, ss)
+}
+
+/// Convert days-since-epoch (1970-01-01) into (year, month, day).
+/// Algorithm from Howard Hinnant's `civil_from_days`.
+fn civil_from_days(z: i64) -> (i64, i64, i64) {
+    let z = z + 719_468;
+    let era = (if z >= 0 { z } else { z - 146_096 }) / 146_097;
+    let doe = z - era * 146_097; // [0, 146096]
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365; // [0, 399]
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let d = doy - (153 * mp + 2) / 5 + 1; // [1, 31]
+    let m = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
+    (if m <= 2 { y + 1 } else { y }, m, d)
+}
+
+/// Map a syslog priority number (0–7) to a `LogLevel`.
+/// 0 emerg, 1 alert, 2 crit, 3 err → Error
+/// 4 → Warning, 5 → Notice, 6 → Info, 7 → Debug.
+fn level_from_priority(prio: Option<&str>) -> LogLevel {
+    match prio.and_then(|p| p.parse::<u32>().ok()) {
+        Some(0..=3) => LogLevel::Error,
+        Some(4) => LogLevel::Warning,
+        Some(5) => LogLevel::Notice,
+        Some(6) => LogLevel::Info,
+        Some(7) => LogLevel::Debug,
+        _ => LogLevel::Unknown,
+    }
+}
+
+/// Fallback level detection (dmesg / json without PRIORITY).
+fn detect_log_level(msg: &str) -> LogLevel {
+    let lower = msg.to_lowercase();
+    if lower.contains("error")
+        || lower.contains("fail")
+        || lower.contains("fault")
+        || lower.contains("critical")
+    {
+        LogLevel::Error
+    } else if lower.contains("warn") {
+        LogLevel::Warning
+    } else if lower.contains("notice") {
+        LogLevel::Notice
+    } else if lower.contains("debug") {
+        LogLevel::Debug
+    } else {
+        LogLevel::Info
+    }
+}
 
 /// Collector for kernel log entries.
 pub struct LogCollector {
@@ -60,68 +126,42 @@ impl LogCollector {
     }
 
     fn refresh_journalctl(&mut self) {
-        let args: Vec<&str> = if !self.initialized {
-            vec![
-                "-k",
-                "--no-pager",
-                "-o",
-                "short",
-                "-n",
-                "200",
-                "--no-hostname",
-            ]
-        } else {
-            vec![
-                "-k",
-                "--no-pager",
-                "-o",
-                "short",
-                "-n",
-                "50",
-                "--no-hostname",
-            ]
-        };
+        // Use JSON output so we get a precise microsecond epoch timestamp, the
+        // syslog PRIORITY (accurate severity), and the source identifier — all
+        // of which the `short` format collapses or drops.
+        let n = if !self.initialized { 200 } else { 50 };
+        let n_str = n.to_string();
+        let args = ["-k", "--no-pager", "-o", "json", "-n", &n_str, "--no-hostname"];
 
-        let output = match Command::new("journalctl").args(&args).output() {
+        let output = match Command::new("journalctl").args(args).output() {
             Ok(o) if o.status.success() => o,
             _ => return,
         };
 
         let text = String::from_utf8_lossy(&output.stdout);
-        let mut new_entries: Vec<LogEntry> = Vec::new();
-
-        for line in text.lines() {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with("--") {
-                continue;
-            }
-            if let Some(entry) = parse_journalctl_line(line) {
-                new_entries.push(entry);
-            }
-        }
+        let new_entries: Vec<LogEntry> = text
+            .lines()
+            .filter_map(|line| parse_journal_json(line.trim()))
+            .collect();
 
         if !self.initialized {
             self.entries.clear();
-            for entry in new_entries {
-                self.entries.push_back(entry);
-            }
+            self.entries.extend(new_entries);
         } else {
-            // Dedup against the last entry: keep newer entries, and at the
-            // boundary timestamp also keep different messages (avoid dropping
-            // same-second logs that merely share the last timestamp).
+            // Merge: keep entries newer than the newest stored entry, plus
+            // same-timestamp entries that aren't an exact duplicate of the
+            // last stored (timestamp_us, message).
             let (last_ts, last_msg) = match self.entries.back() {
-                Some(e) => (Some(e.timestamp.clone()), Some(e.message.clone())),
+                Some(e) => (Some(e.timestamp_us), Some(e.message.clone())),
                 None => (None, None),
             };
             for entry in new_entries {
-                match &last_ts {
+                match last_ts {
                     None => self.entries.push_back(entry),
                     Some(ts) => {
-                        // Keep newer entries, plus same-timestamp entries that
-                        // aren't an exact duplicate of the last stored message.
-                        let newer = entry.timestamp > *ts;
+                        let newer = entry.timestamp_us > ts;
                         let boundary_new =
-                            entry.timestamp == *ts && Some(&entry.message) != last_msg.as_ref();
+                            entry.timestamp_us == ts && Some(&entry.message) != last_msg.as_ref();
                         if newer || boundary_new {
                             self.entries.push_back(entry);
                         }
@@ -173,66 +213,70 @@ impl LogCollector {
     }
 }
 
-fn parse_journalctl_line(line: &str) -> Option<LogEntry> {
-    // Format: "Jun 01 14:31:33 kernel: some message here"
-    let parts: Vec<&str> = line.splitn(4, ' ').collect();
-    if parts.len() < 4 {
-        return Some(LogEntry {
-            timestamp: String::new(),
-            level: LogLevel::Unknown,
-            message: line.to_string(),
-        });
+fn parse_journal_json(line: &str) -> Option<LogEntry> {
+    if line.is_empty() {
+        return None;
+    }
+    let v: serde_json::Value = serde_json::from_str(line).ok()?;
+
+    let msg = v.get("MESSAGE").and_then(|m| m.as_str())?.to_string();
+    if msg.is_empty() {
+        return None;
     }
 
-    let timestamp = format!("{} {} {}", parts[0], parts[1], parts[2]);
-    let rest = parts[3];
-
-    let message = if let Some(idx) = rest.find(": ") {
-        rest[idx + 2..].to_string()
+    let ts_us = v
+        .get("__REALTIME_TIMESTAMP")
+        .and_then(|t| t.as_str())
+        .and_then(|t| t.parse::<u64>().ok())
+        .unwrap_or(0);
+    let timestamp = if ts_us > 0 {
+        format_timestamp_us(ts_us)
     } else {
-        rest.to_string()
+        String::new()
     };
 
-    let level = detect_log_level(&message);
+    let level = {
+        let prio = v.get("PRIORITY").and_then(|p| p.as_str());
+        let lvl = level_from_priority(prio);
+        if matches!(lvl, LogLevel::Unknown) {
+            detect_log_level(&msg)
+        } else {
+            lvl
+        }
+    };
+
+    let source = v
+        .get("SYSLOG_IDENTIFIER")
+        .and_then(|s| s.as_str())
+        .map(|s| s.to_string())
+        .or_else(|| v.get("_COMM").and_then(|s| s.as_str()).map(|s| s.to_string()));
 
     Some(LogEntry {
         timestamp,
+        timestamp_us: ts_us,
         level,
-        message,
+        source,
+        message: msg,
     })
 }
 
 fn parse_dmesg_line(line: &str) -> LogEntry {
-    let (timestamp, message) = if line.starts_with('[') {
+    // dmesg reltime format: "[  123.456789] module: message"
+    let (ts_display, message) = if line.starts_with('[') {
         if let Some(end) = line.find(']') {
-            let ts = line[1..end].trim().to_string();
-            let msg = line[end + 1..].trim().to_string();
-            (ts, msg)
+            (line[1..end].trim().to_string(), line[end + 1..].trim().to_string())
         } else {
             (String::new(), line.to_string())
         }
     } else {
         (String::new(), line.to_string())
     };
-
     let level = detect_log_level(&message);
-
     LogEntry {
-        timestamp,
+        timestamp: ts_display,
+        timestamp_us: 0, // dmesg reltime has no wall-clock epoch
         level,
+        source: None,
         message,
-    }
-}
-
-fn detect_log_level(msg: &str) -> LogLevel {
-    let lower = msg.to_lowercase();
-    if lower.contains("error") || lower.contains("fail") || lower.contains("fault") {
-        LogLevel::Error
-    } else if lower.contains("warn") {
-        LogLevel::Warning
-    } else if lower.contains("notice") {
-        LogLevel::Notice
-    } else {
-        LogLevel::Info
     }
 }

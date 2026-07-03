@@ -144,34 +144,30 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
                 AppTab::Logs => {
                     s.extend(key_desc("h", "Help"));
                     s.push(sep());
+                    s.extend(key_desc("/", "Filter"));
+                    s.push(sep());
                     s.extend(key_desc(
                         "f",
                         if app.log_follow() {
-                            "Follow: ON"
+                            "Follow ✓"
                         } else {
-                            "Follow: OFF"
+                            "Follow"
                         },
                     ));
-                    if app.log_follow() {
-                        s.pop();
-                        s.push(Span::styled(
-                            format!(
-                                " Follow: {}",
-                                if app.config().nerd_fonts {
-                                    icons::CHECK
-                                } else {
-                                    "ON"
-                                }
-                            ),
-                            Style::default().fg(green()),
-                        ));
-                    }
+                    s.push(sep());
+                    s.extend(key_desc("↑↓", "Scroll"));
                     s.push(sep());
                     s.extend(key_desc("r", "Refresh"));
                     s.push(sep());
-                    s.extend(key_desc("E", "Err"));
-                    s.extend(key_desc("W", "Wrn"));
-                    s.extend(key_desc("I", "Inf"));
+                    s.extend(key_desc("e", "Err"));
+                    s.push(sep());
+                    s.extend(key_desc("w", "Wrn"));
+                    s.push(sep());
+                    s.extend(key_desc("i", "Inf"));
+                    s.push(sep());
+                    s.extend(key_desc("n", "Ntc"));
+                    s.push(sep());
+                    s.extend(key_desc("d", "Dbg"));
                     s.push(sep());
                     s.extend(key_desc("q", "Quit"));
                 }

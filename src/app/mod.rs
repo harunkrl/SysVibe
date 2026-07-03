@@ -717,6 +717,56 @@ impl App {
         self.log_scroll_offset
     }
 
+    /// Number of entries currently passing the log level + text filter.
+    fn log_visible_count(&self) -> usize {
+        self.filtered_log_entries().len()
+    }
+
+    /// Scroll the log view up (toward older entries). Auto-disables follow so
+    /// the offset takes effect; when transitioning out of follow, start from
+    /// the newest entry so one page-up moves just one page, not to the very
+    /// top.
+    pub fn log_scroll_up(&mut self, amount: usize) {
+        self.log_follow = false;
+        let count = self.log_visible_count();
+        // If we were following (offset untouched at 0), pin offset to the
+        // newest entry first so the scroll moves up from the bottom.
+        if self.log_scroll_offset == 0 && count > 1 {
+            self.log_scroll_offset = count;
+        }
+        self.log_scroll_offset = self.log_scroll_offset.saturating_sub(amount);
+    }
+
+    /// Scroll the log view down (toward newer entries). A no-op while follow
+    /// is on (already at the newest). Re-enables follow when the bottom is
+    /// reached.
+    pub fn log_scroll_down(&mut self, amount: usize) {
+        if self.log_follow {
+            return;
+        }
+        let count = self.log_visible_count();
+        if count == 0 {
+            return;
+        }
+        self.log_scroll_offset = self.log_scroll_offset.saturating_add(amount);
+        if self.log_scroll_offset >= count.saturating_sub(1) {
+            self.log_follow = true;
+            self.log_scroll_offset = 0;
+        }
+    }
+
+    /// Jump to the oldest entry (top).
+    pub fn log_scroll_home(&mut self) {
+        self.log_follow = false;
+        self.log_scroll_offset = 0;
+    }
+
+    /// Jump to the newest entry (bottom) and re-enable follow.
+    pub fn log_scroll_end(&mut self) {
+        self.log_follow = true;
+        self.log_scroll_offset = 0;
+    }
+
     pub fn tree_view(&self) -> bool {
         self.tree_view
     }
@@ -860,6 +910,26 @@ impl App {
             "OFF"
         };
         self.set_status(format!("Info logs: {}", state));
+    }
+
+    pub fn toggle_log_level_notice(&mut self) {
+        self.log_level_filter.show_notice = !self.log_level_filter.show_notice;
+        let state = if self.log_level_filter.show_notice {
+            "ON"
+        } else {
+            "OFF"
+        };
+        self.set_status(format!("Notice logs: {}", state));
+    }
+
+    pub fn toggle_log_level_debug(&mut self) {
+        self.log_level_filter.show_debug = !self.log_level_filter.show_debug;
+        let state = if self.log_level_filter.show_debug {
+            "ON"
+        } else {
+            "OFF"
+        };
+        self.set_status(format!("Debug logs: {}", state));
     }
 
     /// GPU live stats.
@@ -1104,6 +1174,10 @@ impl App {
             self.gpu_scroll_down();
             return;
         }
+        if self.tab == AppTab::Logs {
+            self.log_scroll_down(1);
+            return;
+        }
         let len = self.process_list_len();
         if len == 0 {
             return;
@@ -1120,6 +1194,10 @@ impl App {
             self.gpu_scroll_up();
             return;
         }
+        if self.tab == AppTab::Logs {
+            self.log_scroll_up(1);
+            return;
+        }
         let len = self.process_list_len();
         if len == 0 {
             return;
@@ -1132,6 +1210,10 @@ impl App {
     }
 
     pub fn navigate_page_down(&mut self) {
+        if self.tab == AppTab::Logs {
+            self.log_scroll_down(20);
+            return;
+        }
         let len = self.process_list_len();
         if len == 0 {
             return;
@@ -1142,6 +1224,10 @@ impl App {
     }
 
     pub fn navigate_page_up(&mut self) {
+        if self.tab == AppTab::Logs {
+            self.log_scroll_up(20);
+            return;
+        }
         let len = self.process_list_len();
         if len == 0 {
             return;
@@ -1152,6 +1238,10 @@ impl App {
     }
 
     pub fn navigate_home(&mut self) {
+        if self.tab == AppTab::Logs {
+            self.log_scroll_home();
+            return;
+        }
         let len = self.process_list_len();
         if len > 0 {
             self.proc_table_state.select(Some(0));
@@ -1159,6 +1249,10 @@ impl App {
     }
 
     pub fn navigate_end(&mut self) {
+        if self.tab == AppTab::Logs {
+            self.log_scroll_end();
+            return;
+        }
         let len = self.process_list_len();
         if len > 0 {
             self.proc_table_state.select(Some(len - 1));
@@ -1557,18 +1651,21 @@ fn sample_wave(len: usize, base: u64, amp: u64) -> VecDeque<u64> {
 #[cfg(feature = "preview")]
 #[allow(dead_code)]
 fn sample_log_entries() -> VecDeque<LogEntry> {
-    let mk = |level, msg: &str| LogEntry {
-        timestamp: format!("Jul 01 09:1{:1}:0{}", (msg.len() % 10), (msg.len() % 6)),
+    let mk = |level, ts_us: u64, source: &str, msg: &str| LogEntry {
+        timestamp: crate::app::collectors::linux::logs::format_timestamp_us(ts_us),
+        timestamp_us: ts_us,
         level,
+        source: Some(source.into()),
         message: msg.into(),
     };
+    let base = 1_751_366_000_000_000; // arbitrary fixed epoch (us)
     let mut dq = VecDeque::new();
-    dq.push_back(mk(LogLevel::Info, "systemd[1]: Started Session 12 of user lenovo."));
-    dq.push_back(mk(LogLevel::Notice, "NetworkManager[842]: <info> device (wlp0s20f3): Activation successful"));
-    dq.push_back(mk(LogLevel::Warning, "kernel: thermal thermal_zone0: temperature above threshold"));
-    dq.push_back(mk(LogLevel::Error, "audit[1330]: AVC apparmor=\"DENIED\" operation=\"capable\""));
-    dq.push_back(mk(LogLevel::Info, "kernel: EXT4-fs (nvme0n1p2): mounted filesystem with ordered data mode."));
-    dq.push_back(mk(LogLevel::Warning, "fwupd[9121]: Failed to load SMBIOS table 0x7"));
+    dq.push_back(mk(LogLevel::Info, base, "systemd", "Started Session 12 of user lenovo."));
+    dq.push_back(mk(LogLevel::Notice, base + 60_000_000, "NetworkManager", "device (wlp0s20f3): Activation successful"));
+    dq.push_back(mk(LogLevel::Warning, base + 120_000_000, "kernel", "thermal thermal_zone0: temperature above threshold"));
+    dq.push_back(mk(LogLevel::Error, base + 180_000_000, "audit", "AVC apparmor=\"DENIED\" operation=\"capable\""));
+    dq.push_back(mk(LogLevel::Info, base + 240_000_000, "kernel", "EXT4-fs (nvme0n1p2): mounted filesystem with ordered data mode."));
+    dq.push_back(mk(LogLevel::Warning, base + 300_000_000, "fwupd", "Failed to load SMBIOS table 0x7"));
     dq
 }
 

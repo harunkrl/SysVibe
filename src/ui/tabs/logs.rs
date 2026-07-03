@@ -32,7 +32,7 @@ pub fn render_logs_tab(f: &mut Frame, app: &App, area: Rect) {
 
 /// Render the log-level toggle filter bar with colored tags.
 fn render_level_filter_bar(f: &mut Frame, app: &App, area: Rect) {
-    let block = panel_block("Level Filter");
+    let block = panel_block_themed("Level Filter", false, red());
     let inner = block.inner(area);
     f.render_widget(block, area);
 
@@ -70,7 +70,7 @@ fn render_level_filter_bar(f: &mut Frame, app: &App, area: Rect) {
 
     // Show hint
     spans.push(Span::styled(
-        "   Toggle: e=ERR  w=WRN  i=INF",
+        "   Toggle: e/w/i/n/d",
         Style::default().fg(subtext()),
     ));
 
@@ -79,7 +79,7 @@ fn render_level_filter_bar(f: &mut Frame, app: &App, area: Rect) {
 
 /// Render the text filter bar for log messages.
 fn render_text_filter_bar(f: &mut Frame, app: &App, area: Rect) {
-    let block = panel_block("Text Filter");
+    let block = panel_block_themed("Text Filter", false, peach());
     let inner = block.inner(area);
     f.render_widget(block, area);
 
@@ -137,20 +137,8 @@ fn render_log_entries(f: &mut Frame, app: &App, area: Rect) {
             "No kernel logs available — requires journalctl or dmesg access",
         )
     };
-    let title = if nf {
-        format!(
-            "{} {}  ({}/{})",
-            icons::TAB_LOGS,
-            log_label,
-            filtered_count,
-            total_count
-        )
-    } else {
-        format!("{}  ({}/{})", log_label, filtered_count, total_count)
-    };
-    let block = panel_block_focused(&title, true);
+    let block = panel_block_themed("", true, red());
     let inner = block.inner(area);
-    f.render_widget(block, area);
 
     if filtered.is_empty() {
         if total_count == 0 {
@@ -170,6 +158,14 @@ fn render_log_entries(f: &mut Frame, app: &App, area: Rect) {
                 inner,
             );
         }
+        // Still draw the (titled) border on the empty panel.
+        let title = if nf {
+            format!("{} {}  ({}/{})", icons::TAB_LOGS, log_label, filtered_count, total_count)
+        } else {
+            format!("{}  ({}/{})", log_label, filtered_count, total_count)
+        };
+        let block = panel_block_themed(&title, true, red());
+        f.render_widget(block, area);
         return;
     }
 
@@ -185,6 +181,23 @@ fn render_log_entries(f: &mut Frame, app: &App, area: Rect) {
     } else {
         0
     };
+
+    // Position indicator: following newest, or scrolled back (offset).
+    let position = if app.log_follow() {
+        "\u{25cf} Follow".to_string()
+    } else {
+        format!("\u{2191} {}/{}", start.saturating_add(1), count)
+    };
+    let title = if nf {
+        format!(
+            "{} {}  ({}/{})  {}",
+            icons::TAB_LOGS, log_label, filtered_count, total_count, position
+        )
+    } else {
+        format!("{}  ({}/{})  {}", log_label, filtered_count, total_count, position)
+    };
+    let block = panel_block_themed(&title, true, red());
+    f.render_widget(block, area);
 
     let lines: Vec<Line<'_>> = filtered
         .iter()
@@ -247,7 +260,41 @@ fn render_log_entries(f: &mut Frame, app: &App, area: Rect) {
                     Color::Rgb(140, 145, 165), // dim fg
                 ),
             };
-            Line::from(vec![
+            // Reserve the leading columns (timestamp + icon + badge +
+            // spacing) and truncate the message so long kernel lines don't
+            // overflow off the right edge. Source (e.g. "kernel") is shown
+            // dim before the message when present.
+            //   " Jul 03 21:30:24 ⚠  WRN  kernel: <message>"
+            let used = 16; // timestamp(13) + icon(1) + space + badge(3) ...
+            let mut prefix_len = used;
+            let source_line = if let Some(src) = &entry.source {
+                if !src.is_empty() {
+                    prefix_len += src.len() + 2;
+                    Some(Span::styled(
+                        format!("{}: ", src),
+                        Style::default().fg(subtext()),
+                    ))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            let msg_avail = inner.width as usize;
+            let msg_max = msg_avail.saturating_sub(prefix_len).max(3);
+            let message = if entry.message.chars().count() <= msg_max {
+                entry.message.clone()
+            } else {
+                let cut = entry
+                    .message
+                    .char_indices()
+                    .nth(msg_max.saturating_sub(1))
+                    .map(|(i, _)| i)
+                    .unwrap_or(entry.message.len());
+                format!("{}…", &entry.message[..cut])
+            };
+
+            let mut line_spans = vec![
                 Span::styled(
                     format!(" {} ", &entry.timestamp),
                     Style::default().fg(overlay()),
@@ -261,8 +308,12 @@ fn render_log_entries(f: &mut Frame, app: &App, area: Rect) {
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(" ", Style::default()),
-                Span::styled(&entry.message, Style::default().fg(text())),
-            ])
+            ];
+            if let Some(s) = source_line {
+                line_spans.push(s);
+            }
+            line_spans.push(Span::styled(message, Style::default().fg(text())));
+            Line::from(line_spans)
         })
         .collect();
 

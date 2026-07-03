@@ -115,6 +115,16 @@ fn handle_normal_key(app: &mut App, code: KeyCode, _mods: KeyModifiers) {
                 app.toggle_log_level_info();
             }
         }
+        KeyCode::Char('n') => {
+            if app.tab == AppTab::Logs {
+                app.toggle_log_level_notice();
+            }
+        }
+        KeyCode::Char('d') => {
+            if app.tab == AppTab::Logs {
+                app.toggle_log_level_debug();
+            }
+        }
         KeyCode::Char('p') => {
             if app.tab == AppTab::Processes {
                 app.toggle_tree_view();

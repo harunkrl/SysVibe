@@ -110,14 +110,12 @@ fn render_hero_row(f: &mut Frame, app: &App, area: Rect, nf: bool) {
             .nth(1)
             .and_then(|s| s.trim().strip_suffix("GHz").map(str::trim))
             .map(|s| format!("{}GHz", s));
-        let base = match ghz {
+        match ghz {
             Some(g) => format!("{} cores · {}", app.num_cores(), g),
             None => format!("{} cores", app.num_cores()),
-        };
-        // Load average (1m) — the full 1/5/15 breakdown lives in the System
-        // tab; the hero card carries only the headline 1-minute value.
-        let load_1m = app.system_info().load_average.0;
-        format!("{base} · load {:.2}", load_1m)
+        }
+        // Load average lives in the System / Hardware CPU panel; the hero card
+        // keeps just cores + clock to stay uncluttered.
     };
     cards.push(HeroCard {
         label: "CPU",

@@ -146,6 +146,10 @@ pub struct App {
     /// Hardware fan readings (RPM) from `/sys/class/hwmon`.
     fans: Vec<FanReading>,
 
+    /// Active cooling/performance profile (e.g. "balanced", "performance") —
+    /// a fallback signal for machines that expose no fan RPM.
+    power_profile: String,
+
     /// GPU tab scroll offset (for multi-GPU navigation).
     gpu_scroll: usize,
 
@@ -275,6 +279,7 @@ impl App {
             cached_partitions: Vec::new(),
             gpu_stats: Vec::new(),
             fans: Vec::new(),
+            power_profile: String::new(),
             gpu_scroll: 0,
             hardware_data: collectors::hardware::fetch_hardware_data(),
             cached_system_info: SystemInfo::default(),
@@ -286,7 +291,7 @@ impl App {
         app.refresh_data();
         app.refresh_top_processes();
         app.components.refresh(false);
-        collectors::sensors::refresh_temperatures(&app.components, &mut app.temperatures);
+        collectors::sensors::read_temperatures(&mut app.temperatures);
         app.battery = collectors::battery::read_battery();
 
         // Initial disk partition cache
@@ -890,6 +895,15 @@ impl App {
         self.fans = fans;
     }
 
+    /// Active cooling/performance profile (empty when none reported).
+    pub fn power_profile(&self) -> &str {
+        &self.power_profile
+    }
+
+    pub fn set_power_profile(&mut self, profile: String) {
+        self.power_profile = profile;
+    }
+
     pub fn set_temperatures(&mut self, temps: Vec<SensorReading>) {
         self.temperatures = temps;
     }
@@ -1368,7 +1382,7 @@ impl App {
         let sensor_interval = self.config.sensor_refresh_rate;
         if self.last_sensor_refresh.elapsed().as_millis() >= sensor_interval as u128 {
             self.components.refresh(false);
-            collectors::sensors::refresh_temperatures(&self.components, &mut self.temperatures);
+            collectors::sensors::read_temperatures(&mut self.temperatures);
             // Battery histories are advanced inside set_battery (the single
             // live entry point for battery data), so this dormant path stays
             // consistent with the background-collector path.
@@ -1621,7 +1635,7 @@ impl App {
             prev_disk_bytes: (0, 0),
             temperatures: vec![
                 SensorReading {
-                    label: "CPU Package".into(),
+                    label: "CPU".into(),
                     temp_c: 62.0,
                     history: sample_wave(HISTORY_LEN, 45, 20),
                 },
@@ -1631,9 +1645,24 @@ impl App {
                     history: sample_wave(HISTORY_LEN, 40, 18),
                 },
                 SensorReading {
-                    label: "NVMe SSD".into(),
+                    label: "NVMe".into(),
                     temp_c: 41.0,
                     history: sample_wave(HISTORY_LEN, 30, 12),
+                },
+                SensorReading {
+                    label: "NVMe 2".into(),
+                    temp_c: 38.0,
+                    history: sample_wave(HISTORY_LEN, 28, 10),
+                },
+                SensorReading {
+                    label: "WiFi".into(),
+                    temp_c: 44.0,
+                    history: sample_wave(HISTORY_LEN, 35, 8),
+                },
+                SensorReading {
+                    label: "ACPI".into(),
+                    temp_c: 40.0,
+                    history: sample_wave(HISTORY_LEN, 32, 8),
                 },
             ],
             battery: Some(BatteryStatus {
@@ -1755,6 +1784,7 @@ impl App {
                 FanReading { label: "cpu".into(), rpm: 3200 },
                 FanReading { label: "case".into(), rpm: 1850 },
             ],
+            power_profile: "balanced".into(),
             hardware_data: HardwareData {
                 motherboard: MotherboardInfo {
                     vendor: Some("Lenovo".into()),

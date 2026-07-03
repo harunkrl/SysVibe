@@ -2,120 +2,137 @@
 
 use crate::app::helpers;
 use crate::app::state::{FanReading, SensorReading, HISTORY_LEN};
-use sysinfo::Components;
 
-/// Refresh temperature readings from system components, maintaining per-sensor
-/// history for braille sparklines.
-pub fn refresh_temperatures(components: &Components, prev: &mut Vec<SensorReading>) {
-    let fresh: Vec<(String, f32)> = components
-        .list()
-        .iter()
-        .filter_map(|c| c.temperature().map(|t| (clean_sensor_label(c.label()), t)))
-        .filter(|(label, t)| !label.is_empty() && *t > 0.0)
-        .collect();
+/// Refresh temperature readings directly from `/sys/class/hwmon`.
+///
+/// Reading hwmon (rather than `sysinfo::Components`) gives us each sensor's
+/// *device* context (the hwmon `name`, e.g. `k10temp`, `amdgpu`, `nvme`), so we
+/// can label sensors accurately instead of guessing from ambiguous sysinfo
+/// labels like `"Sensor 1"` or `"temp1"` (which sysinfo exposes without saying
+/// which device they belong to). Per-sensor rolling history is preserved across
+/// refreshes.
+pub fn read_temperatures(prev: &mut Vec<SensorReading>) {
+    let mut fresh: Vec<(String, f32)> = Vec::new();
 
-    let mut updated = Vec::with_capacity(fresh.len());
+    if let Ok(devs) = std::fs::read_dir("/sys/class/hwmon") {
+        // Track how often each base label appears so we can disambiguate
+        // multi-sensor devices (e.g. amdgpu edge/junction/mem,
+        // nvme composite/sensor1/2, acpitz temp1/2/3).
+        let mut seen_label_count: std::collections::HashMap<String, u32> =
+            std::collections::HashMap::new();
+        for dev in devs.flatten() {
+            let dev_name = std::fs::read_to_string(dev.path().join("name"))
+                .unwrap_or_default()
+                .trim()
+                .to_ascii_lowercase();
+            let Ok(sub) = std::fs::read_dir(dev.path()) else { continue };
+            // collect this device's temp*_input files, sorted
+            let mut temps: Vec<(String, i64)> = Vec::new();
+            for f in sub.flatten() {
+                if let Some(fname) = f.file_name().to_str()
+                    && fname.starts_with("temp") && fname.ends_with("_input")
+                        && let Ok(v) = std::fs::read_to_string(f.path())
+                            && let Ok(mv) = v.trim().parse::<i64>() {
+                                temps.push((fname.to_string(), mv));
+                            }
+            }
+            temps.sort_by(|a, b| a.0.cmp(&b.0));
+            for (_fname, mv) in temps {
+                let temp_c = mv as f32 / 1000.0;
+                if temp_c <= 0.0 {
+                    continue;
+                }
+                let base = device_label(&dev_name);
+                if base.is_empty() {
+                    continue;
+                }
+                let count = seen_label_count
+                    .entry(base.clone())
+                    .and_modify(|c| *c += 1)
+                    .or_insert(1);
+                let label = if *count == 1 {
+                    base
+                } else {
+                    format!("{} {}", base, count)
+                };
+                fresh.push((label, temp_c));
+            }
+        }
+    }
 
+    // Build the updated readings, preserving rolling history per label
+    // (deduped by label — keep the warmest reading per label).
+    let mut updated: Vec<SensorReading> = Vec::with_capacity(fresh.len());
     for (label, temp_c) in fresh {
+        if let Some(slot) = updated.iter_mut().find(|r| r.label == label) {
+            if temp_c > slot.temp_c {
+                slot.temp_c = temp_c;
+            }
+            helpers::push_history(&mut slot.history, temp_c.round() as u64);
+            continue;
+        }
         let mut history = prev
             .iter()
             .find(|r| r.label == label)
             .map(|r| r.history.clone())
             .unwrap_or_else(|| std::collections::VecDeque::with_capacity(HISTORY_LEN));
-
         helpers::push_history(&mut history, temp_c.round() as u64);
-
         updated.push(SensorReading {
             label,
             temp_c,
             history,
         });
     }
-
     *prev = updated;
 }
 
-/// Clean raw sensor labels into human-readable names.
-pub(crate) fn clean_sensor_label(raw: &str) -> String {
-    let lower = raw.to_lowercase();
-    let trimmed = raw.trim();
-
-    // ── Specific chip/device mappings ────────────────────────
-    if lower.contains("tctl") || lower.contains("tdie") {
+/// Map a hwmon device `name` to a short, human-readable category label.
+/// Returns empty for devices we deliberately skip (no meaningful
+/// temperature, e.g. pure voltage/power chips).
+fn device_label(dev_name: &str) -> String {
+    let n = dev_name.to_ascii_lowercase();
+    if n.contains("k10temp")
+        || n.contains("coretemp")
+        || n.contains("k8temp")
+        || n.contains("cpu_thermal")
+        || n.contains("zenpower")
+    {
         return "CPU".into();
     }
-    if lower.contains("package") || lower.contains("pkg") {
-        return "CPU Pkg".into();
-    }
-    if lower.contains("composite") {
-        return "NVMe Composite".into();
-    }
-    if lower.contains("sensor 1") || lower.contains("temp1") {
-        return "CPU Temp 1".into();
-    }
-    if lower.contains("sensor 2") || lower.contains("temp2") {
-        return "CPU Temp 2".into();
-    }
-    if lower.contains("core") && lower.contains("temp") {
-        return "CPU Cores".into();
-    }
-    if lower.starts_with("core") || lower.contains("core ") {
-        return "CPU Cores".into();
-    }
-    if lower.contains("sodimm") || lower.contains("dimm") {
-        return "RAM".into();
-    }
-    if lower.contains("nvme") {
-        return "NVMe".into();
-    }
-    if lower.contains("ssd") {
-        return "SSD".into();
-    }
-    if lower.contains("hdd") {
-        return "HDD".into();
-    }
-    if lower.contains("gpu") || lower.contains("edge") {
+    if n.contains("amdgpu") || n.contains("radeon") || n.contains("nvidia") {
         return "GPU".into();
     }
-    if lower.contains("junction") {
-        return "SoC Junction".into();
+    if n.contains("nvme") {
+        return "NVMe".into();
     }
-    if lower.contains("wifi")
-        || lower.contains("wlan")
-        || lower.contains("mt7921")
-        || lower.contains("iwlwifi")
-        || lower.contains("ath")
+    if n.contains("ssd") || n.contains("scsi") {
+        return "SSD".into();
+    }
+    if n.contains("hdd") {
+        return "HDD".into();
+    }
+    if n.contains("acpi") || n.contains("acpitz") {
+        return "ACPI".into();
+    }
+    if n.contains("wifi")
+        || n.contains("wlan")
+        || n.contains("mt79")
+        || n.contains("iwl")
+        || n.contains("ath")
+        || n.contains("wl")
     {
         return "WiFi".into();
     }
-    if lower.contains("bat") {
-        return "Battery".into();
-    }
-    if lower.contains("acpi") {
-        return "ACPI".into();
-    }
-    if lower.contains("thermal") || lower.contains("tz") || trimmed.starts_with('x') {
-        return "Thermal".into();
-    }
-    if lower.contains("pch") {
+    if n.contains("pch") {
         return "Chipset".into();
     }
-    if lower.contains("board") || lower.contains("motherboard") {
-        return "Board".into();
+    if n.contains("bat") {
+        return "Battery".into();
     }
-    if lower.contains("fan") {
-        return "Fan".into();
-    }
-    // Generic "Sensor N" / "tempN" → skip (not useful)
-    if lower.starts_with("sensor") || lower.starts_with("temp") && lower.len() <= 5 {
-        return String::new(); // will be filtered out
-    }
-
-    // ── Default: clean up underscores/dashes, title-case ─────
-    let cleaned = trimmed.replace(['_', '-'], " ");
-    let mut chars = cleaned.chars();
+    // Generic: title-case the device name as a best-effort label.
+    let mut chars = dev_name.chars();
     match chars.next() {
-        None => raw.into(),
+        None => String::new(),
         Some(f) => f.to_uppercase().collect::<String>() + chars.as_str(),
     }
 }
@@ -180,57 +197,88 @@ pub fn read_fans() -> Vec<FanReading> {
     fans
 }
 
+/// Read the active cooling/performance profile, as a fallback for machines
+/// (most modern Lenovo IdeaPad/ThinkBook laptops) whose `ideapad_laptop`
+/// driver exposes a `fan_mode`/`platform-profile` but **no `fan*_input` RPM**.
+/// Returns a short label like "performance" / "balanced" / "low-power", or an
+/// empty string when no profile interface exists.
+pub fn read_power_profile() -> String {
+    // Preferred: the platform_profile interface (standard, human-readable).
+    if let Ok(p) = std::fs::read_to_string("/sys/firmware/acpi/platform_profile") {
+        let s = p.trim().to_string();
+        if !s.is_empty() {
+            return s;
+        }
+    }
+    // Fall back to the Lenovo ideapad VPC `fan_mode` numeric code.
+    // (These codes vary by model/firmware; map the common Lenovo values.)
+    if let Ok(raw) = std::fs::read_to_string(
+        "/sys/devices/platform/ideapad_acpi/fan_mode",
+    )
+        && let Ok(code) = raw.trim().parse::<u32>() {
+            return match code {
+                0 => "balanced".into(),
+                1 => "performance".into(),
+                2 => "quiet".into(),
+                _ => format!("mode {code}"),
+            };
+        }
+    // VPC2004 path (some ThinkBooks expose fan_mode here).
+    if let Ok(raw) = std::fs::read_to_string(
+        "/sys/devices/pci0000:00/0000:00:14.3/PNP0C09:00/VPC2004:00/fan_mode",
+    )
+        && let Ok(code) = raw.trim().parse::<u32>() {
+            // Lenovo VPC fan_mode: bit-encoded; low bits select the mode.
+            return match code & 0x0f {
+                0 => "performance".into(),
+                1 => "balanced".into(),
+                2 => "quiet".into(),
+                3 => "intelligent".into(),
+                _ => format!("mode {code}"),
+            };
+        }
+    String::new()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_clean_sensor_label_tctl() {
-        assert_eq!(clean_sensor_label("Tctl"), "CPU");
-        assert_eq!(clean_sensor_label("tdie"), "CPU");
+    fn test_device_label_cpu() {
+        assert_eq!(device_label("k10temp"), "CPU");
+        assert_eq!(device_label("coretemp"), "CPU");
+        assert_eq!(device_label("cpu_thermal"), "CPU");
+        assert_eq!(device_label("zenpower"), "CPU");
     }
 
     #[test]
-    fn test_clean_sensor_label_package() {
-        assert_eq!(clean_sensor_label("Package id 0"), "CPU Pkg");
-        assert_eq!(clean_sensor_label("pkg temp"), "CPU Pkg");
+    fn test_device_label_gpu() {
+        assert_eq!(device_label("amdgpu"), "GPU");
+        assert_eq!(device_label("radeon"), "GPU");
+        assert_eq!(device_label("nvidia"), "GPU");
     }
 
     #[test]
-    fn test_clean_sensor_label_nvme() {
-        assert_eq!(clean_sensor_label("NVMe"), "NVMe");
-        assert_eq!(clean_sensor_label("Composite"), "NVMe Composite");
+    fn test_device_label_storage() {
+        assert_eq!(device_label("nvme"), "NVMe");
+        assert_eq!(device_label("hdd"), "HDD");
     }
 
     #[test]
-    fn test_clean_sensor_label_gpu() {
-        assert_eq!(clean_sensor_label("GPU"), "GPU");
-        assert_eq!(clean_sensor_label("edge"), "GPU");
+    fn test_device_label_wifi_acpi() {
+        assert_eq!(device_label("mt7921_phy0"), "WiFi");
+        assert_eq!(device_label("iwlwifi_0"), "WiFi");
+        assert_eq!(device_label("acpitz"), "ACPI");
     }
 
     #[test]
-    fn test_clean_sensor_label_generic_sensor_filtered() {
-        // Generic "sensor 3" and "temp3" hit the generic filter (no specific match)
-        assert_eq!(clean_sensor_label("sensor 3"), "");
-        assert_eq!(clean_sensor_label("temp3"), "");
-        // "sensor 1" and "temp1" match the specific mapping to "CPU Temp 1"
-        assert_eq!(clean_sensor_label("sensor 1"), "CPU Temp 1");
-        assert_eq!(clean_sensor_label("temp1"), "CPU Temp 1");
+    fn test_device_label_title_case_fallback() {
+        assert_eq!(device_label("some_custom"), "Some_custom");
     }
 
     #[test]
-    fn test_clean_sensor_label_wifi() {
-        assert_eq!(clean_sensor_label("iwlwifi"), "WiFi");
-        assert_eq!(clean_sensor_label("wlan0"), "WiFi");
-    }
-
-    #[test]
-    fn test_clean_sensor_label_title_case_fallback() {
-        assert_eq!(clean_sensor_label("some_custom"), "Some custom");
-    }
-
-    #[test]
-    fn test_clean_sensor_label_empty() {
-        assert_eq!(clean_sensor_label(""), "");
+    fn test_device_label_empty() {
+        assert_eq!(device_label(""), "");
     }
 }

@@ -64,6 +64,7 @@ pub enum StateUpdate {
         temperatures: Vec<app::state::SensorReading>,
         gpu_stats: Vec<app::state::GpuStats>,
         fans: Vec<app::state::FanReading>,
+        power_profile: String,
     },
 
     /// Tier 4: Log entries (every ~5s)
@@ -300,26 +301,26 @@ fn spawn_collector_tasks(tx: mpsc::Sender<StateUpdate>, config: &Config) {
         }
     });
 
-    // ── Task: Tier 3 — Sensors, GPU ──
+    // ── Task: Tier 3 — Sensors, GPU, fans ──
     // std::thread::spawn: all operations are blocking (sysfs reads, nvidia-smi)
     let tx_sensor = tx.clone();
     std::thread::spawn(move || {
-        let mut components = sysinfo::Components::new_with_refreshed_list();
         let interval = std::time::Duration::from_millis(sensor_refresh_ms);
 
         loop {
             std::thread::sleep(interval);
 
-            components.refresh(false);
             let mut temperatures = Vec::new();
-            app::collectors::sensors::refresh_temperatures(&components, &mut temperatures);
+            app::collectors::sensors::read_temperatures(&mut temperatures);
             let gpu_stats = app::collectors::gpu::collect_gpu_stats();
             let fans = app::collectors::sensors::read_fans();
+            let power_profile = app::collectors::sensors::read_power_profile();
 
             drop(tx_sensor.blocking_send(StateUpdate::Sensors {
                 temperatures,
                 gpu_stats,
                 fans,
+                power_profile,
             }));
         }
     });
@@ -460,10 +461,12 @@ fn apply_state_update(app: &mut App, update: StateUpdate) {
             temperatures,
             gpu_stats,
             fans,
+            power_profile,
         } => {
             app.set_temperatures(temperatures);
             app.set_gpu_stats(gpu_stats);
             app.set_fans(fans);
+            app.set_power_profile(power_profile);
         }
         StateUpdate::Logs { entries } => {
             app.set_log_entries(entries);

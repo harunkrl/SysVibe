@@ -579,18 +579,23 @@ fn render_network(f: &mut Frame, app: &App, area: Rect, focused: bool) {
 
     let primary = &stats[0];
 
-    // Top text: "RX {speed}" (download, green) and "TX {speed}" (upload, peach) —
-    // colour-coded to match the graph and the dashboard network panel.
-    let rx_txt = format!("RX {}", format_speed(primary.rx_speed_bps));
-    let tx_txt = format!("TX {}", format_speed(primary.tx_speed_bps));
+    // Aggregate RX/TX across all interfaces (the dashboard shows the same
+    // totals; here they headline the per-interface breakdown below).
+    let sum_rx = stats.iter().map(|s| s.rx_speed_bps).sum::<f64>();
+    let sum_tx = stats.iter().map(|s| s.tx_speed_bps).sum::<f64>();
+
+    // Top text: "↓ RX" (download, green) and "↑ TX" (upload, peach) plus the
+    // interface count — colour-coded to match the graph and the dashboard.
+    let head = format!(
+        "↓ {}  ↑ {}  {} ifaces",
+        format_speed(sum_rx),
+        format_speed(sum_tx),
+        stats.len()
+    );
     f.render_widget(
-        Paragraph::new(two_span_line(
-            rx_txt,
-            green(),
-            tx_txt,
-            peach(),
-            chunks[0].width,
-        )),
+        Paragraph::new(Line::from(vec![
+            Span::styled(head, Style::default().fg(text())),
+        ])),
         chunks[0],
     );
 
@@ -612,41 +617,47 @@ fn render_network(f: &mut Frame, app: &App, area: Rect, focused: bool) {
     }
 
     // Per-interface breakdown (bottom): name · RX/TX speed · cumulative totals · IP.
-    // The detailed view — the dashboard network panel shows the aggregate; here
-    // each interface gets its own line so you can see per-NIC traffic.
+    // Columns are sized to the panel width so nothing overflows/truncates; the
+    // total-traffic column is dropped on narrow panels in favour of the IP.
     let bd = chunks[2];
     if bd.height >= 2 {
+        let w = bd.width as usize;
+        // iface(8) + rx(11) + tx(11) = 30, leaving the rest for IP / totals.
+        let iface_w = 8;
+        let speed_w = 11;
+        let show_totals = w > 46;
         let mut lines: Vec<Line> = Vec::with_capacity(stats.len() + 1);
-        lines.push(Line::from(vec![
-            Span::styled("iface", Style::default().fg(subtext())),
-            Span::raw("      "),
-            Span::styled("rx", Style::default().fg(green())),
-            Span::raw(" "),
-            Span::styled("tx", Style::default().fg(peach())),
-            Span::raw("  "),
-            Span::styled("total rx/tx", Style::default().fg(subtext())),
-            Span::raw("  "),
-            Span::styled("ip", Style::default().fg(subtext())),
-        ]));
+        let mut head_spans = vec![
+            Span::styled(format!("{:<width$}", "iface", width = iface_w - 1), Style::default().fg(subtext())),
+            Span::styled(format!("{:>width$}", "rx", width = speed_w), Style::default().fg(green())),
+            Span::styled(format!("{:>width$}", "tx", width = speed_w), Style::default().fg(peach())),
+        ];
+        if show_totals {
+            head_spans.push(Span::styled(" total rx/tx", Style::default().fg(subtext())));
+        } else {
+            head_spans.push(Span::styled(" ip", Style::default().fg(subtext())));
+        }
+        lines.push(Line::from(head_spans));
         for s in stats {
             let rx = format_speed(s.rx_speed_bps);
             let tx = format_speed(s.tx_speed_bps);
-            let tot_rx = format_bytes(s.total_rx_bytes);
-            let tot_tx = format_bytes(s.total_tx_bytes);
-            let ip = s.local_ip.clone().unwrap_or_else(|| "—".to_string());
-            lines.push(Line::from(vec![
-                Span::styled(format!("{:<6}", s.interface), Style::default().fg(text())),
-                Span::styled(format!("{:>8}", rx), Style::default().fg(green())),
-                Span::raw(" "),
-                Span::styled(format!("{:>8}", tx), Style::default().fg(peach())),
-                Span::raw(" "),
-                Span::styled(
-                    format!("{:>5}/{:<5}", tot_rx, tot_tx),
+            let mut spans = vec![
+                Span::styled(format!("{:<width$}", s.interface, width = iface_w - 1), Style::default().fg(text())),
+                Span::styled(format!("{:>width$}", rx, width = speed_w), Style::default().fg(green())),
+                Span::styled(format!("{:>width$}", tx, width = speed_w), Style::default().fg(peach())),
+            ];
+            if show_totals {
+                spans.push(Span::styled(
+                    format!(" {:>5}/{:<5}", format_bytes(s.total_rx_bytes), format_bytes(s.total_tx_bytes)),
                     Style::default().fg(subtext()),
-                ),
-                Span::raw(" "),
-                Span::styled(ip, Style::default().fg(subtext())),
-            ]));
+                ));
+            } else {
+                spans.push(Span::styled(
+                    format!(" {}", s.local_ip.clone().unwrap_or_else(|| "—".into())),
+                    Style::default().fg(subtext()),
+                ));
+            }
+            lines.push(Line::from(spans));
         }
         f.render_widget(Paragraph::new(lines), bd);
     }
@@ -665,35 +676,19 @@ fn render_temperatures(f: &mut Frame, app: &App, area: Rect, focused: bool) {
     }
 
     let temps = app.temperatures();
-    // Show only the essentials: one CPU, one GPU, one disk (NVMe/SSD/HDD).
-    // We take the FIRST matching sensor per category (systems often report
-    // several CPU/GPU packages). Labels are normalised to cpu/gpu/disk.
-    fn first_match(
-        ts: &[crate::app::state::SensorReading],
-        pred: impl Fn(&str) -> bool,
-    ) -> Option<&crate::app::state::SensorReading> {
-        ts.iter().find(|s| pred(&s.label.to_ascii_uppercase()))
-    }
-    let cpu = first_match(temps, |l| {
-        l.contains("CPU") || l.contains("PACKAGE") || l.contains("CORE")
-    });
-    let gpu = first_match(temps, |l| l.contains("GPU"));
-    let disk = first_match(temps, |l| {
-        l.contains("NVME") || l.contains("DISK") || l.contains("SSD") || l.contains("HDD")
-    });
-    let items: Vec<(&str, &crate::app::state::SensorReading)> =
-        [("cpu", cpu), ("gpu", gpu), ("disk", disk)]
-            .into_iter()
-            .filter_map(|(lbl, opt)| opt.map(|s| (lbl, s)))
-            .collect();
-    // Each bar takes 2 rows (data + a gap), so show half as many sensors.
-    let max_rows = (inner.height as usize) / 2;
+    // Show ALL detected temperature sensors (not just cpu/gpu/disk) so the
+    // panel reflects the real sensor count and doesn't look empty. Readings
+    // are already deduped + correctly labelled by the hwmon collector.
+    // Each bar takes 2 rows (data + a gap); fit as many as the panel allows.
     let bar_width = inner.width.saturating_sub(15).max(3);
     let unit = if app.temp_celsius { "°C" } else { "°F" };
     let mut lines: Vec<Line> = Vec::new();
+    lines.push(Line::raw("")); // top padding: first bar shouldn't hug the border
 
-    for (label_str, s) in items.iter().take(max_rows) {
-        let label_padded = format!("{:<6}", label_str);
+    // 1 leading pad + 2 rows per sensor.
+    let max_sensors = inner.height.saturating_sub(1) as usize / 2;
+    for s in temps.iter().take(max_sensors) {
+        let label_padded = truncate_str(&s.label, 6).to_string();
         let temp_val = s.temp_c as f64;
         let display = if app.temp_celsius {
             temp_val
@@ -702,7 +697,10 @@ fn render_temperatures(f: &mut Frame, app: &App, area: Rect, focused: bool) {
         };
         let color = temp_threshold_color(temp_val as f32);
         let ratio = (temp_val / 100.0).clamp(0.0, 1.0);
-        let mut spans = vec![Span::styled(label_padded, Style::default().fg(color))];
+        let mut spans = vec![Span::styled(
+            format!("{:<6}", label_padded),
+            Style::default().fg(color),
+        )];
         spans.extend(gradient_bar_spans(bar_width, ratio));
         spans.push(Span::styled(
             format!(" {:>3.0}{}", display, unit),
@@ -762,6 +760,24 @@ fn render_temperatures(f: &mut Frame, app: &App, area: Rect, focused: bool) {
             lines.push(Line::raw("")); // separator before fans
         }
         lines.extend(fan_lines);
+    } else {
+        // No readable fan RPM (common on modern Lenovo IdeaPad/ThinkBook,
+        // which expose a platform-profile / fan-mode but no `fan*_input`).
+        // Show the active cooling profile as a fallback signal instead of
+        // leaving the area blank.
+        let profile = app.power_profile();
+        if !profile.is_empty() {
+            if !lines.is_empty() {
+                lines.push(Line::raw(""));
+            }
+            lines.push(Line::from(vec![
+                Span::styled("fan   ", Style::default().fg(subtext())),
+                Span::styled(
+                    format!("profile: {}", profile),
+                    Style::default().fg(sky()),
+                ),
+            ]));
+        }
     }
 
     f.render_widget(Paragraph::new(lines), inner);
@@ -794,11 +810,11 @@ fn render_disk_io(f: &mut Frame, app: &App, area: Rect, focused: bool) {
     let scale = crate::app::helpers::nice_number_ceiling(raw_peak);
 
     // Layout: [header(1)] [graph(fill)] [disk usage bars(N)]
-    // Each bar takes 2 rows (data + a gap), so bars need 1 header + 2*N.
+    // Each bar takes 2 rows (data + a gap), so bars need 2*N.
     let bars_c: u16 = if parts.is_empty() {
         0
     } else {
-        parts.len() as u16 * 2 + 1 // +1 header row, each bar has a gap row
+        parts.len() as u16 * 2 // each bar has a gap row
     };
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -841,16 +857,11 @@ fn render_disk_io(f: &mut Frame, app: &App, area: Rect, focused: bool) {
 
     // Per-disk usage bars (extra detail not in the dashboard): each partition
     // shows mount · used/total · a fill bar coloured by how full it is.
+    // No header row — the columns are self-evident and a header looked like
+    // table scaffolding.
     let bd = chunks[2];
     if bd.height >= 2 && !parts.is_empty() {
-        let mut lines: Vec<Line> = Vec::with_capacity(parts.len() + 1);
-        lines.push(Line::from(vec![
-            Span::styled("mount", Style::default().fg(subtext())),
-            Span::raw("    "),
-            Span::styled("used / total", Style::default().fg(subtext())),
-            Span::raw("   "),
-            Span::styled("fill", Style::default().fg(subtext())),
-        ]));
+        let mut lines: Vec<Line> = Vec::with_capacity(parts.len() * 2);
         for p in parts {
             let total = p.total_bytes.max(1);
             let ratio = (p.used_bytes as f64 / total as f64).clamp(0.0, 1.0);

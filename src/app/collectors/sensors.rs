@@ -1,7 +1,7 @@
 //! SysVibe — Temperature sensor and battery data collection.
 
 use crate::app::helpers;
-use crate::app::state::{HISTORY_LEN, SensorReading};
+use crate::app::state::{FanReading, SensorReading, HISTORY_LEN};
 use sysinfo::Components;
 
 /// Refresh temperature readings from system components, maintaining per-sensor
@@ -118,6 +118,66 @@ pub(crate) fn clean_sensor_label(raw: &str) -> String {
         None => raw.into(),
         Some(f) => f.to_uppercase().collect::<String>() + chars.as_str(),
     }
+}
+
+/// Read hardware fan speeds (RPM) from `/sys/class/hwmon/*/fan*_input`.
+///
+/// Returns one `FanReading` per readable fan, labelled by its hwmon device
+/// (e.g. "cpu", "gpu", "case"). Machines without a readable fan (many laptops
+/// expose no `fan*_input` sysfs node) get an empty Vec — the UI then hides the
+/// fan row instead of showing an empty placeholder.
+pub fn read_fans() -> Vec<FanReading> {
+    let mut fans = Vec::new();
+    let Ok(entries) = std::fs::read_dir("/sys/class/hwmon") else {
+        return fans;
+    };
+    for dev in entries.flatten() {
+        let dev_path = dev.path();
+        // Device label (name) — used to derive a short fan label.
+        let name = std::fs::read_to_string(dev_path.join("name"))
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase();
+        let Ok(sub) = std::fs::read_dir(&dev_path) else {
+            continue;
+        };
+        for f in sub.flatten() {
+            let fname = f.file_name();
+            let Some(fname) = fname.to_str() else {
+                continue;
+            };
+            if !fname.starts_with("fan") || !fname.ends_with("_input") {
+                continue;
+            }
+            let Ok(rpm_str) = std::fs::read_to_string(f.path()) else {
+                continue;
+            };
+            if let Ok(rpm) = rpm_str.trim().parse::<u32>() {
+                if rpm == 0 {
+                    continue; // 0 RPM usually means "off / not reported"
+                }
+                let label =
+                    if name.contains("gpu") || name.contains("amd") || name.contains("nvidia") {
+                        "gpu".to_string()
+                    } else if name.contains("cpu") || name.contains("core") || name.contains("k10")
+                    {
+                        "cpu".to_string()
+                    } else if name.contains("acpi")
+                        || name.contains("think")
+                        || name.contains("thinkpad")
+                    {
+                        "case".to_string()
+                    } else {
+                        name.clone()
+                    };
+                fans.push(FanReading { label, rpm });
+            }
+        }
+    }
+    // De-dup by label, keeping the first (a device may expose several fans).
+    let mut seen = std::collections::HashSet::new();
+    fans.retain(|f| seen.insert(f.label.clone()));
+    fans
 }
 
 #[cfg(test)]

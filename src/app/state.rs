@@ -157,6 +157,16 @@ pub struct BatteryStatus {
     pub health_pct: Option<f64>,
 }
 
+/// A single hardware fan reading (RPM) from `/sys/class/hwmon/*/fan*_input`.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct FanReading {
+    /// Short label, e.g. "cpu", "gpu", "case".
+    pub label: String,
+    /// Revolutions per minute.
+    pub rpm: u32,
+}
+
 /// A single row in the process table.
 #[derive(Debug, Clone)]
 pub struct ProcessEntry {

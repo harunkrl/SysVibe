@@ -134,16 +134,19 @@ fn render_cpu_clusters(f: &mut Frame, app: &App, area: Rect, focused: bool) {
 
     let mut lines: Vec<Line> = Vec::new();
 
-    // Headline: short brand name + vendor + architecture. Real identity detail
-    // beyond the live metrics below.
-    let brand_short = info
+    // Headline: short brand name + vendor + architecture. The brand string is
+    // cleaned (drop the "@..." and "Intel(R)"/"AMD"/"CPU" noise) and then
+    // truncated to the available width so the whole headline — brand +
+    // vendor + (arch) — always fits on a single line.
+    let brand_full = info
         .cpu_brand
         .split('@')
         .next()
         .unwrap_or(&info.cpu_brand)
         .trim()
         .trim_start_matches("Intel(R) ")
-        .trim_start_matches("AMD ");
+        .trim_start_matches("AMD ")
+        .trim_end_matches(" CPU");
     let vendor_short = if info.cpu_brand.to_ascii_uppercase().contains("INTEL") {
         "Intel"
     } else if info.cpu_brand.to_ascii_uppercase().contains("AMD") {
@@ -151,29 +154,42 @@ fn render_cpu_clusters(f: &mut Frame, app: &App, area: Rect, focused: bool) {
     } else {
         ""
     };
+    let arch_tag = format!(" ({})", info.architecture);
+    let vendor_tag = if vendor_short.is_empty() {
+        String::new()
+    } else {
+        format!("  {}", vendor_short)
+    };
+    let head_w = head.width as usize;
+    let tail_len = vendor_tag.chars().count() + arch_tag.chars().count();
+    let max_brand = head_w.saturating_sub(1 + tail_len);
+    let brand_disp = if brand_full.chars().count() <= max_brand {
+        brand_full.to_string()
+    } else if max_brand > 2 {
+        let mut s: String = brand_full
+            .chars()
+            .take(max_brand.saturating_sub(1))
+            .collect();
+        s.push('…');
+        s
+    } else {
+        brand_full.chars().take(head_w.saturating_sub(1)).collect()
+    };
     let mut head_spans = vec![Span::styled(
-        format!(" {}", brand_short),
+        format!(" {}", brand_disp),
         Style::default().fg(green()).add_modifier(Modifier::BOLD),
     )];
-    if !vendor_short.is_empty() {
-        head_spans.push(Span::styled(
-            format!("  {}", vendor_short),
-            Style::default().fg(subtext()),
-        ));
-    }
-    head_spans.push(Span::styled(
-        format!("  ({})", info.architecture),
-        Style::default().fg(overlay()),
-    ));
+    head_spans.push(Span::styled(vendor_tag, Style::default().fg(subtext())));
+    head_spans.push(Span::styled(arch_tag, Style::default().fg(overlay())));
     lines.push(Line::from(head_spans));
     lines.push(Line::from(vec![
         bold(" Cores"),
         Span::styled(
-            format!("  {}", app.num_cores()),
+            format!("   {}", app.num_cores()),
             Style::default().fg(text()),
         ),
         Span::styled(
-            format!("  ({} threads)", info.cpu_cores),
+            format!("   ({} threads)", info.cpu_cores),
             Style::default().fg(overlay()),
         ),
     ]));
@@ -191,7 +207,7 @@ fn render_cpu_clusters(f: &mut Frame, app: &App, area: Rect, focused: bool) {
         ),
         Span::styled(
             format!(
-                "  ▲{} ▼{}",
+                "   ▲{} ▼{}",
                 ghz(app.cpu_freq_max_mhz),
                 ghz(app.cpu_freq_min_mhz)
             ),
@@ -211,9 +227,9 @@ fn render_cpu_clusters(f: &mut Frame, app: &App, area: Rect, focused: bool) {
     lines.push(Line::from(vec![
         bold(" Load"),
         Span::styled(format!("   {:.2}", load.0), Style::default().fg(green())),
-        Span::styled(format!(" {:.2}", load.1), Style::default().fg(yellow())),
-        Span::styled(format!(" {:.2}", load.2), Style::default().fg(peach())),
-        Span::styled(" (1/5/15m)", Style::default().fg(overlay())),
+        Span::styled(format!("  {:.2}", load.1), Style::default().fg(yellow())),
+        Span::styled(format!("  {:.2}", load.2), Style::default().fg(peach())),
+        Span::styled("   (1/5/15m)", Style::default().fg(overlay())),
     ]));
 
     f.render_widget(Paragraph::new(lines), head);
@@ -242,7 +258,7 @@ fn render_battery_panel(f: &mut Frame, app: &App, area: Rect, focused: bool) {
     let block = panel_block_themed(&title, focused, peach());
     let inner = panel_inner(area, &block);
     f.render_widget(block, area);
-    if inner.width < 12 || inner.height < 5 {
+    if inner.width < 12 || inner.height < 3 {
         return;
     }
     render_battery_section(f, app, inner);
@@ -282,7 +298,10 @@ fn render_memory_section(f: &mut Frame, app: &App, area: Rect) {
         green()
     };
 
-    // Layout: title · 4 mem bars (with gaps) · mem info · Swap heading · swap bar · swap info
+    // Layout: title · 4 mem bars (with gaps) · mem info · spacer · Swap
+    // heading · swap bar · swap info. The Min(0) spacer sits between the
+    // memory info and the swap section so the swap section is pinned to the
+    // bottom of the panel instead of floating right under the memory bars.
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -295,9 +314,10 @@ fn render_memory_section(f: &mut Frame, app: &App, area: Rect) {
             Constraint::Length(1), // gap
             Constraint::Length(1), // Free
             Constraint::Length(1), // mem info footer
+            Constraint::Min(0),    // spacer (pushes swap to the bottom)
             Constraint::Length(1), // Swap heading
             Constraint::Length(1), // Swap bar
-            Constraint::Min(0),    // swap info footer
+            Constraint::Length(1), // swap info footer
         ])
         .split(area);
 
@@ -365,14 +385,23 @@ fn render_memory_section(f: &mut Frame, app: &App, area: Rect) {
         rows[7],
     );
 
-    // Memory info footer (under the 4 memory bars).
+    // Memory info footer (under the 4 memory bars). Compact form so it fits
+    // the (narrow, left-column) memory panel: bytes shortened to e.g. "15.5G"
+    // and "Pressure" → "Press".
+    let short = |b: u64| {
+        format_bytes(b)
+            .replace(" GB", "G")
+            .replace(" MB", "M")
+            .replace(" TB", "T")
+            .replace(" KB", "K")
+    };
     f.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled(
                 format!(
-                    "Total {} · Avail {} · Pressure ",
-                    format_bytes(mem.total_bytes),
-                    format_bytes(avail_bytes)
+                    "Total {} · Avail {} · Press ",
+                    short(mem.total_bytes),
+                    short(avail_bytes)
                 ),
                 Style::default().fg(subtext()),
             ),
@@ -389,7 +418,7 @@ fn render_memory_section(f: &mut Frame, app: &App, area: Rect) {
                 "Swap",
                 Style::default().fg(sapphire()).add_modifier(Modifier::BOLD),
             ))),
-            rows[9],
+            rows[10],
         );
         f.render_widget(
             Paragraph::new(mk_bar(
@@ -398,73 +427,49 @@ fn render_memory_section(f: &mut Frame, app: &App, area: Rect) {
                 mem.swap_used_bytes,
                 sapphire(),
             )),
-            rows[10],
+            rows[11],
         );
         f.render_widget(
             Paragraph::new(Line::from(Span::styled(
                 format!(
                     "{}/{}",
-                    format_bytes(mem.swap_used_bytes),
-                    format_bytes(mem.swap_total_bytes)
+                    short(mem.swap_used_bytes),
+                    short(mem.swap_total_bytes)
                 ),
                 Style::default().fg(sapphire()),
             )))
             .alignment(Alignment::Right),
-            rows[11],
+            rows[12],
         );
     }
 }
 
 fn render_battery_section(f: &mut Frame, app: &App, area: Rect) {
-    if area.width < 12 || area.height < 4 {
+    if area.width < 12 || area.height < 3 {
         return;
     }
 
     let bat = app.battery();
-
-    let rows = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1), // "Battery" title
-            Constraint::Length(1), // state · health · %
-            Constraint::Length(1), // big bar
-            Constraint::Min(3),    // braille charge trend (CPU-info style)
-        ])
-        .split(area);
-
     let state = bat
         .as_ref()
         .map(|b| b.state.clone())
         .unwrap_or_else(|| "Discharging".to_string());
     let health_pct = bat.as_ref().and_then(|b| b.health_pct).unwrap_or(90.0);
     let percentage = bat.as_ref().map(|b| b.percentage).unwrap_or(90.0);
+    let cur_w = bat.as_ref().and_then(|b| b.power_w).unwrap_or(0.0);
+    let hist = &app.battery_power_history;
 
-    // Row 0: "Battery" title (peach, bold)
-    f.render_widget(
-        Paragraph::new(Line::from(Span::styled(
-            "Battery",
-            Style::default().fg(peach()).add_modifier(Modifier::BOLD),
-        ))),
-        rows[0],
-    );
+    // state · health line. The charge % is shown on the bar below, so it is not
+    // repeated here. (The panel's own border already titles it "Battery".)
+    let text_line = Line::from(vec![
+        Span::styled(state, Style::default().fg(peach())),
+        Span::styled(
+            format!("  Health {:.0}%", health_pct),
+            Style::default().fg(subtext()),
+        ),
+    ]);
 
-    // Row 1: state · health · % combined (peach).
-    f.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(state, Style::default().fg(peach())),
-            Span::styled(
-                format!("  Health {:.0}%", health_pct),
-                Style::default().fg(subtext()),
-            ),
-            Span::styled(
-                format!("  {:.0}%", percentage),
-                Style::default().fg(peach()).add_modifier(Modifier::BOLD),
-            ),
-        ])),
-        rows[1],
-    );
-
-    // Row 2: large gradient bar (peach, dashboard-style) with the % label.
+    // large gradient bar (peach, dashboard-style) with the % label.
     let bw = area.width.saturating_sub(8).max(3);
     let mut bar_spans = vec![Span::raw(" ")];
     bar_spans.extend(gradient_bar_spans(bw, percentage / 100.0));
@@ -472,19 +477,52 @@ fn render_battery_section(f: &mut Frame, app: &App, area: Rect) {
         format!(" {:.0}%", percentage),
         Style::default().fg(peach()).add_modifier(Modifier::BOLD),
     ));
-    f.render_widget(Paragraph::new(Line::from(bar_spans)), rows[2]);
+    let bar_line = Line::from(bar_spans);
 
-    // Row 3+: braille POWER-DRAW trend (watts). Full width (no left-gutter
-    // labels — the current draw W is shown in a header above the graph) so the
-    // curve uses all available space, like the network/disk graphs.
-    let g = rows[3];
-    let hist = &app.battery_power_history;
-    let cur_w = bat.as_ref().and_then(|b| b.power_w).unwrap_or(0.0);
-    if g.height >= 4 && g.width >= 8 && hist.len() >= 2 {
+    // Layout adapts to height. With enough room (≥ 8 rows) we get a roomy
+    // layout — a top breathing-room row (pushes the text/bar down from the
+    // border), the text, a small gap, the bar, then the power-draw trend.
+    // In shorter panels (the narrow/compact stacked view, where the battery
+    // panel is only ~4 rows) we drop the spacers so the text + bar still show
+    // instead of leaving the panel blank.
+    let rows = if area.height >= 8 {
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(1), // top breathing room
+                Constraint::Length(1), // state · health
+                Constraint::Length(1), // small gap between text and bar
+                Constraint::Length(1), // big bar
+                Constraint::Min(3),    // braille power-draw trend
+            ])
+            .split(area)
+    } else {
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(1), // state · health
+                Constraint::Length(1), // big bar
+                Constraint::Min(0),    // braille power-draw trend (if it fits)
+            ])
+            .split(area)
+    };
+    let roomy = area.height >= 8;
+
+    let text_row = if roomy { rows[1] } else { rows[0] };
+    let bar_row = if roomy { rows[3] } else { rows[1] };
+    let graph_row = if roomy { rows[4] } else { rows[2] };
+
+    f.render_widget(Paragraph::new(text_line), text_row);
+    f.render_widget(Paragraph::new(bar_line), bar_row);
+
+    // braille POWER-DRAW trend (watts). Full width (no left-gutter labels —
+    // the current draw W is shown in a header above the graph) so the curve
+    // uses all available space, like the network/disk graphs.
+    if graph_row.height >= 4 && graph_row.width >= 8 && hist.len() >= 2 {
         let parts = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Length(1), Constraint::Min(2)])
-            .split(g);
+            .split(graph_row);
         // Power-draw header: "Draw {W}" (peach), right-aligned.
         f.render_widget(
             Paragraph::new(Line::from(Span::styled(
@@ -494,7 +532,9 @@ fn render_battery_section(f: &mut Frame, app: &App, area: Rect) {
             .alignment(Alignment::Right),
             parts[0],
         );
-        sparkline::render_braille_smooth_nolabel(f, parts[1], hist, "W", true, 10.0);
+        // y_floor = 30 W so the color gradient maps 0 W (green) → ~30 W (red);
+        // typical laptop draw (~8–15 W) lands in the lower/green part of the scale.
+        sparkline::render_braille_smooth_nolabel(f, parts[1], hist, "W", true, 30.0);
     }
 }
 
@@ -672,22 +712,22 @@ fn render_temperatures(f: &mut Frame, app: &App, area: Rect, focused: bool) {
         lines.push(Line::raw("")); // breathing space between temp bars
     }
 
-    // ── Fan speeds ── fill the remaining panel space with GPU/CPU fan data.
-    // GPU fan comes from GpuStats.fan_speed_pct (nvidia-smi / sysfs).
-    if !lines.is_empty() {
-        lines.push(Line::raw("")); // separator
-    }
+    // ── Fan speeds ── fill the remaining panel space with fan data. We show
+    // any real fans (hwmon `fan*_input` RPMs) plus the GPU fan (percentage from
+    // nvidia-smi / sysfs). When NO fan is available at all (common on laptops
+    // that expose no `fan*_input`), we hide the fan row entirely instead of
+    // leaving an empty "fan —" placeholder.
     let gpus = app.gpu_stats();
-    let gpu_fan = gpus
-        .iter()
-        .find_map(|g| g.fan_speed_pct)
-        .map(|pct| ("gpu", pct));
-    if let Some((lbl, pct)) = gpu_fan {
+    let gpu_fan_pct = gpus.iter().find_map(|g| g.fan_speed_pct);
+    let hwmon_fans = app.fans();
+    let gpu_present = gpu_fan_pct.is_some();
+
+    // Assume ~6000 RPM ≈ 100% for the bar width.
+    const FAN_MAX_RPM: f64 = 6000.0;
+    let mut fan_lines: Vec<Line> = Vec::new();
+    if let Some(pct) = gpu_fan_pct {
         let color = if pct > 80.0 { red() } else { green() };
-        let mut spans = vec![Span::styled(
-            format!("{:<6}", lbl),
-            Style::default().fg(color),
-        )];
+        let mut spans = vec![Span::styled("gpu   ", Style::default().fg(color))];
         spans.extend(gradient_bar_spans(
             bar_width,
             (pct as f64 / 100.0).clamp(0.0, 1.0),
@@ -696,12 +736,32 @@ fn render_temperatures(f: &mut Frame, app: &App, area: Rect, focused: bool) {
             format!(" {:>3.0}%", pct),
             Style::default().fg(color),
         ));
-        lines.push(Line::from(spans));
-    } else {
-        lines.push(Line::from(Span::styled(
-            "fan   —",
-            Style::default().fg(subtext()),
-        )));
+        fan_lines.push(Line::from(spans));
+    }
+    for fr in hwmon_fans {
+        // Skip if the GPU fan already covers "gpu".
+        if fr.label == "gpu" && gpu_present {
+            continue;
+        }
+        let pct = (fr.rpm as f64 / FAN_MAX_RPM * 100.0).clamp(0.0, 100.0);
+        let color = if pct > 80.0 { red() } else { green() };
+        let mut spans = vec![Span::styled(
+            format!("{:<6}", fr.label),
+            Style::default().fg(color),
+        )];
+        spans.extend(gradient_bar_spans(bar_width, (pct / 100.0).clamp(0.0, 1.0)));
+        spans.push(Span::styled(
+            format!(" {:>5} rpm", fr.rpm),
+            Style::default().fg(color),
+        ));
+        fan_lines.push(Line::from(spans));
+    }
+
+    if !fan_lines.is_empty() {
+        if !lines.is_empty() {
+            lines.push(Line::raw("")); // separator before fans
+        }
+        lines.extend(fan_lines);
     }
 
     f.render_widget(Paragraph::new(lines), inner);

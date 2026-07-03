@@ -143,6 +143,9 @@ pub struct App {
     // Live GPU stats
     gpu_stats: Vec<GpuStats>,
 
+    /// Hardware fan readings (RPM) from `/sys/class/hwmon`.
+    fans: Vec<FanReading>,
+
     /// GPU tab scroll offset (for multi-GPU navigation).
     gpu_scroll: usize,
 
@@ -271,6 +274,7 @@ impl App {
             tick_count: 0,
             cached_partitions: Vec::new(),
             gpu_stats: Vec::new(),
+            fans: Vec::new(),
             gpu_scroll: 0,
             hardware_data: collectors::hardware::fetch_hardware_data(),
             cached_system_info: SystemInfo::default(),
@@ -877,20 +881,37 @@ impl App {
         self.disk_io = io;
     }
 
+    /// Hardware fan readings (RPM), most-recent refresh first.
+    pub fn fans(&self) -> &[FanReading] {
+        &self.fans
+    }
+
+    pub fn set_fans(&mut self, fans: Vec<FanReading>) {
+        self.fans = fans;
+    }
+
     pub fn set_temperatures(&mut self, temps: Vec<SensorReading>) {
         self.temperatures = temps;
     }
 
     pub fn set_battery(&mut self, bat: Option<BatteryStatus>) {
-        if let Some(ref b) = bat
-            && let Some(w) = b.power_w
-        {
-            // NOTE: we do NOT push to the power/charge history here. This setter
-            // is called from a slow background path; pushing from it made the
-            // battery graph advance slower than the network/disk graphs.
-            // Histories are pushed once per main refresh instead (refresh_data),
-            // keeping all trend graphs in lock-step.
-            let _ = w; // value read in the main refresh path
+        // Advance the battery trend histories whenever a fresh reading
+        // arrives. This setter is the single live entry point for battery
+        // data: the background sensor collector delivers a new reading here
+        // every refresh (default 5 s), so pushing here keeps the power-draw
+        // graph in lock-step with the real sampling cadence.
+        //
+        // Many batteries don't report power draw (power_w == None); fall back
+        // to 0 so the trend still draws (a flat line is honest: "no reading").
+        if let Some(ref b) = bat {
+            let power_val = b.power_w.unwrap_or(0.0).round() as u64;
+            if b.state == "Charging" {
+                helpers::push_history(&mut self.battery_charge_history, power_val);
+                helpers::push_history(&mut self.battery_power_history, 0);
+            } else {
+                helpers::push_history(&mut self.battery_power_history, power_val);
+                helpers::push_history(&mut self.battery_charge_history, 0);
+            }
         }
         self.battery = bat;
     }
@@ -1348,22 +1369,10 @@ impl App {
         if self.last_sensor_refresh.elapsed().as_millis() >= sensor_interval as u128 {
             self.components.refresh(false);
             collectors::sensors::refresh_temperatures(&self.components, &mut self.temperatures);
-            self.battery = collectors::battery::read_battery();
-
-            if let Some(ref bat) = self.battery {
-                // Always advance the battery histories when there's a battery —
-                // many batteries don't report power draw (power_w == None), and
-                // gating the push on it left the graph empty. Fall back to 0 so
-                // the trend still draws (a flat line is honest: "no reading").
-                let power_val = bat.power_w.unwrap_or(0.0).round() as u64;
-                if bat.state == "Charging" {
-                    helpers::push_history(&mut self.battery_charge_history, power_val);
-                    helpers::push_history(&mut self.battery_power_history, 0);
-                } else {
-                    helpers::push_history(&mut self.battery_power_history, power_val);
-                    helpers::push_history(&mut self.battery_charge_history, 0);
-                }
-            }
+            // Battery histories are advanced inside set_battery (the single
+            // live entry point for battery data), so this dormant path stays
+            // consistent with the background-collector path.
+            self.set_battery(collectors::battery::read_battery());
 
             self.last_sensor_refresh = now;
 
@@ -1742,6 +1751,10 @@ impl App {
                 clock_mhz: Some(1920),
             }],
             gpu_scroll: 0,
+            fans: vec![
+                FanReading { label: "cpu".into(), rpm: 3200 },
+                FanReading { label: "case".into(), rpm: 1850 },
+            ],
             hardware_data: HardwareData {
                 motherboard: MotherboardInfo {
                     vendor: Some("Lenovo".into()),

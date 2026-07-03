@@ -31,6 +31,7 @@ use tokio::sync::mpsc;
 
 /// Represents an update from a background data collection task.
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)] // FastMetrics carries an Option<BatteryStatus> for 1s power sampling
 pub enum StateUpdate {
     /// Tier 1+2: CPU, Memory, Network, Disk (every ~250ms)
     /// Only carries instantaneous values — history is maintained on the
@@ -46,6 +47,10 @@ pub enum StateUpdate {
         swap_total: u64,
         network_stats: Vec<app::state::NetworkStats>,
         disk_io: app::state::DiskIoStats,
+        // Battery is sampled here (Tier 1, ~1 s) rather than in the slow sensor
+        // task so the power-draw trend graph advances at the same ~1 s cadence
+        // as the CPU/network/disk graphs (and stays smooth rather than chunky).
+        battery: Option<app::state::BatteryStatus>,
     },
 
     /// Tier 1b: Process list (every ~process_refresh_rate, decoupled from fast metrics)
@@ -54,11 +59,11 @@ pub enum StateUpdate {
         total: usize,
     },
 
-    /// Tier 3: Sensors, battery, GPU (every ~5s)
+    /// Tier 3: Sensors, GPU, fans (every ~5s)
     Sensors {
         temperatures: Vec<app::state::SensorReading>,
-        battery: Option<app::state::BatteryStatus>,
         gpu_stats: Vec<app::state::GpuStats>,
+        fans: Vec<app::state::FanReading>,
     },
 
     /// Tier 4: Log entries (every ~5s)
@@ -251,6 +256,10 @@ fn spawn_collector_tasks(tx: mpsc::Sender<StateUpdate>, config: &Config) {
             // history grows across ticks.
             app::collectors::disk::refresh_disk(&mut disk_io, &mut prev_disk_bytes, elapsed);
 
+            // Battery — sampled at the fast (~1 s) cadence so the power-draw
+            // graph advances in lock-step with the CPU/network/disk graphs.
+            let battery = app::collectors::battery::read_battery();
+
             drop(tx_fast.blocking_send(StateUpdate::FastMetrics {
                 cpu_usage,
                 per_core_usage,
@@ -261,6 +270,7 @@ fn spawn_collector_tasks(tx: mpsc::Sender<StateUpdate>, config: &Config) {
                 swap_total,
                 network_stats: network_stats.clone(),
                 disk_io: disk_io.clone(),
+                battery,
             }));
         }
     });
@@ -290,7 +300,7 @@ fn spawn_collector_tasks(tx: mpsc::Sender<StateUpdate>, config: &Config) {
         }
     });
 
-    // ── Task: Tier 3 — Sensors, Battery, GPU ──
+    // ── Task: Tier 3 — Sensors, GPU ──
     // std::thread::spawn: all operations are blocking (sysfs reads, nvidia-smi)
     let tx_sensor = tx.clone();
     std::thread::spawn(move || {
@@ -303,13 +313,13 @@ fn spawn_collector_tasks(tx: mpsc::Sender<StateUpdate>, config: &Config) {
             components.refresh(false);
             let mut temperatures = Vec::new();
             app::collectors::sensors::refresh_temperatures(&components, &mut temperatures);
-            let battery = app::collectors::battery::read_battery();
             let gpu_stats = app::collectors::gpu::collect_gpu_stats();
+            let fans = app::collectors::sensors::read_fans();
 
             drop(tx_sensor.blocking_send(StateUpdate::Sensors {
                 temperatures,
-                battery,
                 gpu_stats,
+                fans,
             }));
         }
     });
@@ -416,6 +426,7 @@ fn apply_state_update(app: &mut App, update: StateUpdate) {
             swap_total,
             network_stats,
             disk_io,
+            battery,
         } => {
             // Push instantaneous CPU values into App-maintained history
             app::helpers::push_history(&mut app.cpu_history, cpu_usage);
@@ -438,18 +449,21 @@ fn apply_state_update(app: &mut App, update: StateUpdate) {
             app.set_ram_swap(ram_used, ram_total, ram_free, swap_used, swap_total);
             app.set_network_stats(network_stats);
             app.set_disk_io(disk_io);
+            // set_battery advances the battery power/charge histories (~1 s)
+            // so the power-draw graph stays in lock-step with the other graphs.
+            app.set_battery(battery);
         }
         StateUpdate::Processes { processes, total } => {
             app.set_top_processes(processes, total);
         }
         StateUpdate::Sensors {
             temperatures,
-            battery,
             gpu_stats,
+            fans,
         } => {
             app.set_temperatures(temperatures);
-            app.set_battery(battery);
             app.set_gpu_stats(gpu_stats);
+            app.set_fans(fans);
         }
         StateUpdate::Logs { entries } => {
             app.set_log_entries(entries);

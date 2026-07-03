@@ -30,11 +30,14 @@ pub fn render_processes_tab(f: &mut Frame, app: &mut App, area: Rect) {
 }
 
 fn render_filter_bar(f: &mut Frame, app: &App, area: Rect) {
-    let block = panel_block("Filter");
-
+    let base = panel_block_themed("Filter", false, peach());
     let is_filtering = matches!(app.mode(), AppMode::Filter);
-    let border_color = if is_filtering { peach() } else { surface1() };
-    let block = block.border_style(Style::default().fg(border_color));
+    // Highlight the border when actively typing in the filter.
+    let block = if is_filtering {
+        base.border_style(Style::default().fg(peach()).add_modifier(Modifier::BOLD))
+    } else {
+        base
+    };
 
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -56,7 +59,7 @@ fn render_filter_bar(f: &mut Frame, app: &App, area: Rect) {
         Line::from(vec![
             Span::styled(prefix, Style::default().fg(overlay())),
             Span::styled(
-                "Press '/' to filter by name...",
+                "Press '/' to filter by name, PID, or cmdline...",
                 Style::default().fg(surface2()),
             ),
         ])
@@ -99,7 +102,7 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
             app.total_process_count()
         )
     };
-    let block = panel_block_focused(&title, true);
+    let block = panel_block_themed(&title, true, sky());
 
     // ── Virtual scrolling: only render the visible viewport ──
     // Reserve 3 lines for block borders + header (header row + bottom_margin=1)
@@ -175,6 +178,7 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
             format!("{} NAME{}", name_icon, sort_indicator(SortBy::Name)),
             name_style,
         ),
+        Span::styled("USER", header_base),
         Span::styled(format!("CPU%{}", sort_indicator(SortBy::Cpu)), cpu_style),
         Span::styled(format!("MEM%{}", sort_indicator(SortBy::Mem)), mem_style),
     ])
@@ -183,7 +187,8 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
 
     let widths = [
         Constraint::Length(8),
-        Constraint::Percentage(30),
+        Constraint::Min(10),   // NAME (flexible, takes leftover)
+        Constraint::Length(9), // USER
         Constraint::Length(10),
         Constraint::Length(10),
     ];
@@ -223,6 +228,21 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
             "░".repeat(bar_len.saturating_sub(m_fill))
         );
 
+        // Owner: root → red (system), others → subtext; missing → overlay.
+        let user_text = p.user.as_deref().unwrap_or("?");
+        let user_color = if user_text == "root" {
+            red()
+        } else if user_text == "?" {
+            overlay()
+        } else {
+            subtext()
+        };
+        let user_cell = if user_text.chars().count() > 8 {
+            format!("{}…", user_text.chars().take(7).collect::<String>())
+        } else {
+            user_text.to_string()
+        };
+
         Row::new(vec![
             Cell::from(Span::styled(
                 format!("{}", p.pid),
@@ -231,6 +251,10 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
             Cell::from(Span::styled(
                 format!("{}{}{}", prefix, proc_icon, p.name),
                 Style::default().fg(name_color).bg(row_bg),
+            )),
+            Cell::from(Span::styled(
+                user_cell,
+                Style::default().fg(user_color).bg(row_bg),
             )),
             Cell::from(Line::from(vec![
                 Span::styled(
@@ -456,7 +480,7 @@ fn render_tree_view(f: &mut Frame, app: &mut App, area: Rect) {
             app.total_process_count()
         )
     };
-    let block = panel_block_focused(&title, true);
+    let block = panel_block_themed(&title, true, sky());
     let inner = block.inner(area);
     f.render_widget(block, area);
 
@@ -543,9 +567,14 @@ fn render_tree_view(f: &mut Frame, app: &mut App, area: Rect) {
             indent.clone()
         };
 
-        // Truncate name to fit
-        let name_display = if name.len() > 20 {
-            format!("{}...", &name[..17])
+        // Truncate name to fit (consistent with the flat table: ellipsis).
+        let name_display = if name.chars().count() > 20 {
+            let cut = name
+                .char_indices()
+                .nth(17)
+                .map(|(i, _)| i)
+                .unwrap_or(name.len());
+            format!("{}…", &name[..cut])
         } else {
             name.clone()
         };

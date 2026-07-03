@@ -276,6 +276,8 @@ pub struct ProcessEntry {
     pub mem_pct: f32,
     /// Full command line joined with spaces (for filter matching / detail).
     pub cmdline: String,
+    /// Owning user name (e.g. "root", "lenovo"), if resolvable.
+    pub user: Option<String>,
 }
 
 /// Aggregate disk I/O speed and history.

@@ -27,6 +27,9 @@ pub fn build_process_list_dir(
 ) -> Vec<ProcessEntry> {
     let total_mem = sys.total_memory() as f64;
 
+    // Resolve uid → username for the owning-user column.
+    let users = sysinfo::Users::new_with_refreshed_list();
+
     let mut procs: Vec<_> = sys
         .processes()
         .iter()
@@ -79,42 +82,50 @@ pub fn build_process_list_dir(
                     .map(|s| s.to_string_lossy().into_owned())
                     .collect::<Vec<_>>()
                     .join(" "),
+                user: p
+                    .user_id()
+                    .and_then(|uid| users.get_user_by_id(uid))
+                    .map(|u| u.name().to_string()),
             }
         })
         .collect()
 }
 
-/// Send SIGTERM to a process.
+/// Send SIGTERM to a process. Uses sysinfo directly (no shell `kill` subprocess)
+/// and surfaces the OS error (e.g. EPERM on a root-owned process) in the
+/// returned message.
 pub fn kill_process(pid: u32) -> AppResult<()> {
-    let output = std::process::Command::new("kill")
-        .arg(format!("{}", pid))
-        .output()
-        .map_err(|e| AppError::command("kill", e.to_string()))?;
-
-    if output.status.success() {
-        Ok(())
-    } else {
-        Err(AppError::command(
-            "kill",
-            String::from_utf8_lossy(&output.stderr).trim(),
-        ))
+    let mut sys = sysinfo::System::new();
+    sys.refresh_processes(
+        sysinfo::ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(pid)]),
+        true,
+    );
+    if let Some(p) = sys.process(sysinfo::Pid::from_u32(pid)) {
+        match p.kill_with(sysinfo::Signal::Term) {
+            Some(true) | None => return Ok(()),
+            Some(false) => return Err(AppError::command("kill (SIGTERM)", "permission denied")),
+        }
     }
+    Ok(())
 }
 
 /// Send SIGKILL (force kill) to a process.
 pub fn kill_process_force(pid: u32) -> AppResult<()> {
-    let output = std::process::Command::new("kill")
-        .args(["-9", &format!("{}", pid)])
-        .output()
-        .map_err(|e| AppError::command("kill -9", e.to_string()))?;
-
-    if output.status.success() {
-        Ok(())
-    } else {
-        Err(AppError::command(
-            "kill -9",
-            String::from_utf8_lossy(&output.stderr).trim(),
-        ))
+    let mut sys = sysinfo::System::new();
+    sys.refresh_processes(
+        sysinfo::ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(pid)]),
+        true,
+    );
+    match sys.process(sysinfo::Pid::from_u32(pid)) {
+        Some(p) => {
+            // kill() sends SIGKILL on Unix.
+            if p.kill() {
+                Ok(())
+            } else {
+                Err(AppError::command("kill (SIGKILL)", "permission denied"))
+            }
+        }
+        None => Ok(()), // already gone
     }
 }
 
@@ -159,6 +170,7 @@ mod tests {
                 cpu_pct: 45.0,
                 mem_pct: 20.0,
                 cmdline: String::new(),
+                user: None,
             },
             ProcessEntry {
                 pid: 200,
@@ -167,6 +179,7 @@ mod tests {
                 cpu_pct: 10.0,
                 mem_pct: 35.0,
                 cmdline: String::new(),
+                user: None,
             },
             ProcessEntry {
                 pid: 300,
@@ -175,6 +188,7 @@ mod tests {
                 cpu_pct: 2.0,
                 mem_pct: 1.0,
                 cmdline: String::new(),
+                user: None,
             },
             ProcessEntry {
                 pid: 50,
@@ -183,6 +197,7 @@ mod tests {
                 cpu_pct: 0.5,
                 mem_pct: 5.0,
                 cmdline: String::new(),
+                user: None,
             },
         ]
     }
@@ -244,6 +259,7 @@ mod tests {
                 cpu_pct: 50.0,
                 mem_pct: 0.0,
                 cmdline: String::new(),
+                user: None,
             },
             ProcessEntry {
                 pid: 100,
@@ -252,6 +268,7 @@ mod tests {
                 cpu_pct: 50.0,
                 mem_pct: 0.0,
                 cmdline: String::new(),
+                user: None,
             },
         ];
         sort_process_entries(&mut procs, &SortBy::Cpu);

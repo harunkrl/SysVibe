@@ -159,6 +159,11 @@ pub struct App {
     // Live GPU stats
     gpu_stats: Vec<GpuStats>,
 
+    /// Primary-GPU usage trend (0-100 per sample), fed at the GPU collector
+    /// cadence via [`set_gpu_stats`]. Drives the Dashboard GPU Info braille
+    /// trend, mirroring `cpu_history`.
+    gpu_history: std::collections::VecDeque<u64>,
+
     /// Hardware fan readings (RPM) from `/sys/class/hwmon`.
     fans: Vec<FanReading>,
 
@@ -234,6 +239,7 @@ impl App {
             mode: AppMode::Normal,
             should_quit: false,
             cpu_history: VecDeque::with_capacity(HISTORY_LEN),
+            gpu_history: VecDeque::with_capacity(HISTORY_LEN),
             per_core_history: vec![VecDeque::with_capacity(HISTORY_LEN); num_cores],
             // Seed frequency trackers from the initial sample; the collector
             // updates them on each refresh. `min` starts at the current reading
@@ -1099,7 +1105,21 @@ impl App {
     }
 
     pub fn set_gpu_stats(&mut self, stats: Vec<GpuStats>) {
+        // Advance the primary-GPU usage trend whenever fresh stats arrive (the
+        // GPU collector's cadence — typically the 5 s sensor tier). Track the
+        // PRIMARY GPU (first) only, matching the hero card and the dashboard
+        // panel. When there is no GPU we leave the history untouched rather
+        // than pushing a 0.
+        if let Some(primary) = stats.first() {
+            helpers::push_history(&mut self.gpu_history, primary.usage_pct.round() as u64);
+        }
         self.gpu_stats = stats;
+    }
+
+    /// Primary-GPU usage history (0-100 per sample), for the Dashboard trend.
+    #[allow(dead_code)]
+    pub fn gpu_history(&self) -> &std::collections::VecDeque<u64> {
+        &self.gpu_history
     }
 
     pub fn set_log_entries(&mut self, entries: std::collections::VecDeque<LogEntry>) {
@@ -1664,7 +1684,7 @@ impl App {
             self.last_sensor_refresh = now;
 
             // GPU stats (same tier as sensors - expensive, 5s)
-            self.gpu_stats = collectors::gpu::collect_gpu_stats();
+            self.set_gpu_stats(collectors::gpu::collect_gpu_stats());
         }
 
         // ══ Tier 4: Logs (5s) ════════════════════════════════════
@@ -1860,6 +1880,7 @@ impl App {
             mode: AppMode::Normal,
             should_quit: false,
             cpu_history: sample_wave(HISTORY_LEN, 10, 25),
+            gpu_history: sample_wave(HISTORY_LEN, 15, 40),
             per_core_history: (0..num_cores)
                 .map(|i| sample_wave(HISTORY_LEN, 20 + i as u64 * 8, 25))
                 .collect(),
@@ -2354,5 +2375,30 @@ mod preview_tests {
         assert!(!app.gpu_stats().is_empty(), "gpu stats should be filled");
         assert!(!app.temperatures().is_empty(), "temperatures should be filled");
         assert!(!app.disk_partitions().is_empty(), "partitions should be filled");
+    }
+
+    #[test]
+    fn set_gpu_stats_advances_history() {
+        // set_gpu_stats is the live entry point; it must advance the primary-
+        // GPU usage trend, mirroring set_battery's power history.
+        let mut app = App::new_sample(Config::default());
+        app.gpu_history.clear();
+        app.set_gpu_stats(vec![crate::app::state::GpuStats {
+            name: "x".into(),
+            usage_pct: 42.0,
+            vram_used_mb: 0,
+            vram_total_mb: 0,
+            temperature: 0.0,
+            power_w: None,
+            fan_speed_pct: None,
+            clock_mhz: None,
+            vram_kind: crate::app::state::VramKind::Dedicated,
+            vendor: crate::app::state::GpuVendor::Nvidia,
+            processes: Vec::new(),
+        }]);
+        assert_eq!(app.gpu_history.back().copied(), Some(42));
+        // No GPU -> history must NOT advance (no panic, no 0 push).
+        app.set_gpu_stats(Vec::new());
+        assert_eq!(app.gpu_history.back().copied(), Some(42));
     }
 }

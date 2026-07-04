@@ -319,7 +319,11 @@ fn spawn_collector_tasks(
         loop {
             std::thread::sleep(interval);
 
-            sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+            sys.refresh_processes_specifics(
+                sysinfo::ProcessesToUpdate::All,
+                true,
+                sysinfo::ProcessRefreshKind::nothing().with_cpu(),
+            );
             // Always collect RAW per-core CPU% (a process saturating one core
             // shows ~100%); normalization is applied at display time via the
             // `g` toggle. Sending normalized values made a loaded process look

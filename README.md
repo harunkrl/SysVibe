@@ -6,29 +6,27 @@
 
 <p align="center">
   Built with <code>ratatui</code> · <code>crossterm</code> · <code>sysinfo</code> · <code>tokio</code><br>
-  Colored by <a href="https://github.com/catppuccin/catppuccin">Catppuccin</a> (+ 6 more themes) · Graphed with braille &amp; half-block
+  Colored by <a href="https://github.com/catppuccin/catppuccin">Catppuccin</a> (+ 6 more themes) · Graphed with braille &amp; half block
 </p>
 
 ---
 
-## ✨ Highlights
+## Highlights
 
-| | Feature | Detail |
-|---|---|---|
-| 🎛️ | **6 live tabs** | Dashboard · System · Hardware · Processes · Logs · GPU |
-| 📊 | **Hero stat cards** | At-a-glance CPU/RAM/GPU/Net/Temp/Battery with mini sparklines |
-| 🎨 | **Live theming** | 7 built-in themes + custom TOML themes, switchable at runtime (`T`) |
-| ⌨️ | **Command palette** | Fuzzy action menu (`:`) — jump tabs, switch theme, export, quit, … |
-| 🔔 | **Alerts & toasts** | Configurable CPU/Mem/Temp/Disk thresholds with a prominent toast banner |
-| 🪟 | **Compact mode** | Narrow terminals (Android/Termux portrait) auto-stack to a single column |
-| ⚡ | **Low CPU overhead** | Async event loop + background `std::thread` collectors + tiered refresh |
-| 🐧 | **Deep hardware** | CPU caches/microcode/flags, RAM/battery breakdown, storage devices, network interfaces, temps, disk I/O, NVIDIA/AMD/Intel GPU |
-| 📜 | **Log viewer** | `journalctl -o json` / `dmesg` (Linux), `logcat` (Android) — accurate timestamps/levels/sources, kernel/system scope, severity filters, scrollable |
-| 🖱️ | **Mouse + keyboard** | Click tabs, scroll lists, *and* full vim-style keyboard control |
+- **Six live tabs** — Dashboard, System, Hardware, Processes, Logs, GPU.
+- **Hero stat cards** — at-a-glance CPU / RAM / GPU / Net / Temp / Battery with mini sparklines; the Temp card stacks the CPU and GPU readings.
+- **Live theming** — 7 built-in themes plus custom TOML themes, switchable at runtime (`T`).
+- **Command palette** — fuzzy action menu (`:`): jump tabs, switch theme, export, quit, and more.
+- **Alerts and toasts** — configurable CPU / Mem / Temp / Disk thresholds with a prominent toast banner.
+- **Compact mode** — narrow terminals (Android/Termux portrait) auto-stack to a single column.
+- **Low CPU overhead** — async event loop, background `std::thread` collectors, tiered refresh.
+- **Deep hardware** — CPU caches/microcode/flags, RAM/battery breakdown, storage devices, network interfaces, temperatures, disk I/O, and NVIDIA/AMD/Intel GPUs.
+- **Log viewer** — `journalctl -o json` / `dmesg` (Linux), `logcat` (Android): accurate timestamps/levels/sources, kernel/system scope, severity filters, scrollable history.
+- **Mouse and keyboard** — click tabs, scroll lists, *and* full vim-style keyboard control.
 
 ---
 
-## 📦 Installation
+## Installation
 
 ### Option A — install script (recommended)
 
@@ -64,7 +62,7 @@ sysvibe
 
 ---
 
-## 🚀 Usage
+## Usage
 
 ```bash
 sysvibe                          # run with default settings
@@ -77,31 +75,31 @@ Edit it to change theme, refresh rates, alert thresholds, and more.
 
 ---
 
-## 🗂️ Tabs
+## Tabs
 
-- **1 · Dashboard** — hero stat cards + CPU history graph (load avg in the CPU Info panel) + memory bars + system/network overview + top processes.
-- **2 · System** — two-column inventory: identity (OS/kernel/host, motherboard/BIOS, session, **boot/security/locale**, app-about) and hardware (CPU caches/microcode/flags, RAM, storage devices, network interfaces, GPUs). Theme-coloured panels.
-- **3 · Hardware** — per-core CPU clusters, memory & swap breakdown, battery charge + **power-draw trend graph** (1 s sampling, 0–30 W scale), network RX↑/TX↓ graph, **all temperature sensors** (accurate hwmon labels) + fan/power-profile, disk I/O graphs.
-- **4 · Processes** — **frozen table** (refresh on `r`), sort + direction, name/PID/cmdline filter, multi-select + **marked-only** view, USER column (root highlighted), gradient bars, tree view, and kill via sysinfo (with confirmation modal).
-- **5 · Logs** — real-time `journalctl -o json` (accurate timestamps/levels/sources) or `dmesg` (`logcat` on Android), kernel/system scope toggle, scrollable history, level filters, follow mode.
-- **6 · GPU** — usage, VRAM, temperature, power, fan, clock per GPU (NVIDIA/AMD/Intel).
+- **1 - Dashboard** — hero stat cards (Temp card shows stacked CPU + GPU readings), a CPU history graph with per-core clusters and the CPU temperature shown on the frequency line, a GPU Info panel (braille usage trend + Power/Temp/Clock/VRAM), memory and disk overview, and a sortable top-processes list.
+- **2 - System** — two-column inventory: identity (OS/kernel/host, motherboard/BIOS, session, boot/security/locale, app-about) and hardware (CPU caches/microcode/flags, RAM, storage devices, network interfaces, GPUs). Theme-coloured panels.
+- **3 - Hardware** — per-core CPU clusters, memory & swap breakdown, battery charge plus a power-draw trend graph (1 s sampling, 0-30 W scale), deduplicated and ordered temperature sensors (CPU to GPU to NVMe to WiFi to ACPI), fan/power-profile, and disk I/O graphs.
+- **4 - Processes** — frozen table (refresh on `r`), sort plus direction, name/PID/cmdline filter, multi-select and marked-only view, USER column (root highlighted), gradient bars, tree view, and kill via sysinfo (with confirmation modal).
+- **5 - Logs** — real-time `journalctl -o json` (accurate timestamps/levels/sources) or `dmesg` (`logcat` on Android), kernel/system scope toggle, scrollable history, level filters, follow mode.
+- **6 - GPU** — usage (1 Hz braille trend on the Dashboard), VRAM (dedicated percent gauge; iGPUs/APUs honestly labelled "Shared RAM"), temperature, power, fan, clock per GPU (NVIDIA/AMD/Intel). NVIDIA GPUs also show per-process attribution — which process is using GPU/VRAM (`nvidia-smi --query-compute-apps`).
 
-> Tabs shrink to a single stacked column when the terminal is narrow (`< 90` cols).
+> Tabs shrink to a single stacked column when the terminal is narrow (under 90 columns).
 
 ---
 
-## ⌨️ Keybindings
+## Keybindings
 
 ### Global
 
 | Key | Action |
 |---|---|
-| `1`–`6` | Jump to tab |
+| `1`-`6` | Jump to tab |
 | `Tab` / `Shift+Tab` | Next / previous tab |
 | `[` / `]` | Cycle panel focus |
-| `:` | **Command palette** |
+| `:` | Command palette |
 | `T` | Cycle theme |
-| `t` | Toggle °C / °F |
+| `t` | Toggle Celsius / Fahrenheit |
 | `h` / `?` | Help modal |
 | `/` | Filter |
 | `q` / `Esc` | Quit |
@@ -110,7 +108,7 @@ Edit it to change theme, refresh rates, alert thresholds, and more.
 
 | Key | Action |
 |---|---|
-| `j` / `↓` · `k` / `↑` | Move down / up |
+| `j` / `ArrowDown` · `k` / `ArrowUp` | Move down / up |
 | `PageDown` / `PageUp` | Page down / up |
 | `Home` / `End` | Top / bottom |
 
@@ -118,13 +116,13 @@ Edit it to change theme, refresh rates, alert thresholds, and more.
 
 | Key | Action |
 |---|---|
-| `s` | Cycle sort (CPU → Mem → PID → Name) |
+| `s` | Cycle sort (CPU to Mem to PID to Name) |
 | `S` | Toggle sort direction (asc / desc) |
-| `g` | Toggle CPU view: per-core (raw) / normalized |
-| `r` | Refresh (the table is otherwise **frozen** so browsing isn't disrupted) |
+| `g` | Toggle CPU view: per-core (raw) / normalized *(Dashboard & Hardware tabs only)* |
+| `r` | Refresh (the table is otherwise frozen so browsing isn't disrupted) |
 | `/` | Filter by name, PID, or command line |
 | `Space` | Toggle select |
-| `m` | Toggle **marked-only** view (show just space-selected processes) |
+| `m` | Toggle marked-only view (show just space-selected processes) |
 | `x` | Kill selected (confirm) |
 | `p` / `F5` | Toggle tree view |
 | `c` | Clear selection |
@@ -135,19 +133,19 @@ Edit it to change theme, refresh rates, alert thresholds, and more.
 | Key | Action |
 |---|---|
 | `f` | Toggle follow |
-| `↑` / `↓` · `PgUp` / `PgDn` · `Home` / `End` | Scroll the log view |
-| `s` | Toggle scope: kernel-only ↔ full system journal |
+| `ArrowUp` / `ArrowDown` · `PgUp` / `PgDn` · `Home` / `End` | Scroll the log view |
+| `s` | Toggle scope: kernel-only to full system journal |
 | `e` / `w` / `i` | Toggle Error / Warning / Info level filter |
 | `n` / `d` | Toggle Notice / Debug level filter |
 | `r` | Refresh |
 
 ### Command palette (`:`)
 
-Type to fuzzy-match; `↑`/`↓` navigate, `Enter` run, `Esc` cancel, `Ctrl+U` clear.
+Type to fuzzy-match; arrow keys navigate, `Enter` runs, `Esc` cancels, `Ctrl+U` clears.
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
 Config lives at `~/.config/sysvibe/config.toml` (XDG). Run `sysvibe --init-config`
 to (re)generate it with comments. Key fields:
@@ -156,7 +154,7 @@ to (re)generate it with comments. Key fields:
 |---|---|---|
 | `theme` | `catppuccin-macchiato` | One of the built-in themes (see below) |
 | `default_tab` | `dashboard` | Startup tab |
-| `nerd_fonts` | `true` | Nerd Font icons; `false` → geometric fallback (Termux-friendly) |
+| `nerd_fonts` | `true` | Nerd Font icons; `false` for the geometric fallback (Termux-friendly) |
 | `data_refresh_rate` | `1000` | Fast metrics refresh interval (ms) |
 | `process_refresh_rate` | `2000` | Background process refresh (ms); the table only updates the display on `r` |
 | `sensor_refresh_rate` | `5000` | Temperature/sensor refresh (ms) |
@@ -166,11 +164,11 @@ to (re)generate it with comments. Key fields:
 | `log_max_lines` | `1000` | Log buffer size |
 | `show_gpu` | `true` | Show GPU tab/card |
 | `show_battery` | `true` | Show battery panel/card |
-| `resolve_public_ip` | `false` | **Opt-in**: resolve public IP via HTTPS request |
-| `cpu_alert_threshold` | *unset* | CPU % alert (0–100) |
-| `memory_alert_threshold` | *unset* | RAM % alert (0–100) |
-| `temperature_alert_threshold` | *unset* | Temp alert (°C) |
-| `disk_alert_threshold` | *unset* | Disk usage % alert (0–100) |
+| `resolve_public_ip` | `false` | Opt-in: resolve public IP via HTTPS request |
+| `cpu_alert_threshold` | *unset* | CPU percent alert (0-100) |
+| `memory_alert_threshold` | *unset* | RAM percent alert (0-100) |
+| `temperature_alert_threshold` | *unset* | Temp alert (Celsius) |
+| `disk_alert_threshold` | *unset* | Disk usage percent alert (0-100) |
 
 ### Example
 
@@ -187,7 +185,7 @@ temperature_alert_threshold = 80.0
 
 ---
 
-## 🎨 Themes
+## Themes
 
 Seven built-in themes, switchable live with `T` or set in config:
 
@@ -198,14 +196,22 @@ TOML file passed to the theme loader.
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 src/
 ├── main.rs              # entry: terminal setup, async event loop (tokio::select!),
-│                        # background collector threads → mpsc StateUpdate channel
+│                        # background collector threads -> mpsc StateUpdate channel
 ├── app/
-│   ├── mod.rs           # App state, navigation, alerts, command palette, export
+│   ├── mod.rs           # App struct + constructor + static helpers
+│   ├── accessors.rs     # public read-only accessors (data the UI renders)
+│   ├── mutations.rs     # event-driven state mutations
+│   ├── state_update.rs  # apply StateUpdate messages from collector threads
+│   ├── tick.rs          # lightweight per-tick update
+│   ├── refresh.rs       # tiered heavy data refresh
+│   ├── process_ops.rs   # process refresh/kill/mark/sort
+│   ├── events_dispatch.rs # top-level key routing
+│   ├── sample.rs        # preview-only sample data (svshot; behind `preview` feature)
 │   ├── state.rs         # data structs, AppTab, AppMode
 │   ├── events.rs        # key/mouse dispatch
 │   ├── processes.rs     # process table/tree logic
@@ -226,13 +232,15 @@ src/
 - **Data flow:** background `std::thread` collectors (fast metrics, processes,
   sensors+fans+power-profile, GPU, logs) push `StateUpdate` messages over an mpsc
   channel; the main async loop applies them. Heavy blocking I/O never stalls the
-  render loop. The process table is intentionally **frozen** (refresh on `r`) and
+  render loop. The process table is intentionally frozen (refresh on `r`) and
   the battery power-draw graph samples at 1 s alongside the fast metrics.
+- **GPU trend sampling:** AMD/Intel GPUs sample usage via a cheap sysfs read at
+  1 Hz; NVIDIA keeps the 5 s sensor cadence (nvidia-smi is too heavy per tick).
 - **Theming:** pluggable `Theme` with a thread-local palette accessor.
 
 ---
 
-## 🛠️ Building from source
+## Building from source
 
 Requires Rust 1.88+ (edition 2024, uses let-chains).
 
@@ -242,7 +250,7 @@ cd SysVibe
 cargo run --release
 ```
 
-Lint & test:
+Lint and test:
 
 ```bash
 cargo clippy --all-targets -- -D warnings
@@ -251,7 +259,7 @@ cargo test
 
 ---
 
-## 🧹 Uninstall
+## Uninstall
 
 ```bash
 ./uninstall.sh          # cargo uninstall + remove menu shortcut
@@ -261,6 +269,6 @@ The script also offers to remove the config directory.
 
 ---
 
-## 📄 License
+## License
 
 See `LICENSE` (or the crate metadata) for details.

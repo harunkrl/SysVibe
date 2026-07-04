@@ -41,6 +41,13 @@ pub enum StateUpdate {
     FastMetrics {
         cpu_usage: u64,
         per_core_usage: Vec<u64>,
+        // CPU frequency (MHz): current mean + session envelope of the peak core.
+        // Added because the live data path is the collector thread, not the
+        // dead refresh_data(); without this the frequency readout froze at
+        // its startup value.
+        cpu_freq_mhz: u64,
+        cpu_freq_min_mhz: u64,
+        cpu_freq_max_mhz: u64,
         ram_used: u64,
         ram_total: u64,
         ram_free: u64,
@@ -246,6 +253,16 @@ fn spawn_collector_tasks(
             let cpu_usage = sys.global_cpu_usage() as u64;
             let per_core_usage: Vec<u64> =
                 sys.cpus().iter().map(|c| c.cpu_usage() as u64).collect();
+            // CPU frequency: mean across cores (stable readout) + session
+            // envelope of the peak core. sysinfo reads scaling_cur_freq, which
+            // is live on the user's amd-pstate machine (verified).
+            let cpu_freqs: Vec<u64> = sys.cpus().iter().map(|c| c.frequency()).collect();
+            let cur = if cpu_freqs.is_empty() {
+                0
+            } else {
+                cpu_freqs.iter().sum::<u64>() / cpu_freqs.len() as u64
+            };
+            let peak = cpu_freqs.iter().copied().max().unwrap_or(0);
             sys.refresh_memory();
 
             let ram_used = sys.used_memory();
@@ -275,6 +292,9 @@ fn spawn_collector_tasks(
             drop(tx_fast.blocking_send(StateUpdate::FastMetrics {
                 cpu_usage,
                 per_core_usage,
+                cpu_freq_mhz: cur,
+                cpu_freq_min_mhz: peak,
+                cpu_freq_max_mhz: peak,
                 ram_used,
                 ram_total,
                 ram_free,
@@ -448,6 +468,9 @@ fn apply_state_update(app: &mut App, update: StateUpdate) {
         StateUpdate::FastMetrics {
             cpu_usage,
             per_core_usage,
+            cpu_freq_mhz,
+            cpu_freq_min_mhz,
+            cpu_freq_max_mhz,
             ram_used,
             ram_total,
             ram_free,
@@ -459,6 +482,20 @@ fn apply_state_update(app: &mut App, update: StateUpdate) {
         } => {
             // Push instantaneous CPU values into App-maintained history
             app::helpers::push_history(&mut app.cpu_history, cpu_usage);
+
+            // Update the CPU frequency readout + session envelope. The collector
+            // sends the current mean and the current peak; we widen the min/max
+            // envelope (the App's `min` only ever decreases, `max` only ever
+            // increases) so the range reflects idle/turbo extremes seen so far.
+            app.cpu_freq_mhz = cpu_freq_mhz;
+            if cpu_freq_min_mhz > 0 {
+                if app.cpu_freq_min_mhz == 0 || cpu_freq_min_mhz < app.cpu_freq_min_mhz {
+                    app.cpu_freq_min_mhz = cpu_freq_min_mhz;
+                }
+                if cpu_freq_max_mhz > app.cpu_freq_max_mhz {
+                    app.cpu_freq_max_mhz = cpu_freq_max_mhz;
+                }
+            }
 
             // Resize per-core history if core count changed
             if app.num_cores() != per_core_usage.len() {

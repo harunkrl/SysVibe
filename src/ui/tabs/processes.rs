@@ -80,6 +80,15 @@ fn render_filter_bar(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(Paragraph::new(text), inner);
 }
 
+/// Aggregate CPU% across processes, normalized to system scale (÷ core
+/// count) so it reads like total system CPU usage regardless of the per-row
+/// `g` toggle. Per-process `cpu_pct` values are per-core (a multi-threaded
+/// process can exceed 100%), so the raw sum is meaningless to users.
+fn sigma_cpu_normalized(raw_pcts: &[f32], num_cores: usize) -> f32 {
+    let cores = num_cores.max(1) as f32;
+    raw_pcts.iter().sum::<f32>() / cores
+}
+
 fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
     let procs = app.filtered_processes();
     let nf = app.config().nerd_fonts;
@@ -99,10 +108,16 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
         ""
     };
 
-    // Aggregate CPU/MEM across the full filtered list, and the live
-    // multi-selection count (if any). CPU is normalized for the display mode.
-    let vis_cpu: f32 = procs.iter().map(|p| app.cpu_display(p.cpu_pct)).sum();
-    let vis_mem: f32 = procs.iter().map(|p| p.mem_pct).sum();
+    // Σ CPU is always system-scaled (÷ cores) so it reads like total system
+    // CPU usage regardless of the per-row `g` toggle. Per-process `cpu_pct`
+    // values are per-core (a multi-threaded process can exceed 100%), so the
+    // raw sum would read 200%+ on an idle multi-threaded machine. Σ MEM is
+    // intentionally dropped: RSS-based `mem_pct` double-counts shared
+    // libraries and is perpetually >100% — misleading rather than useful.
+    let vis_cpu: f32 = sigma_cpu_normalized(
+        &procs.iter().map(|p| p.cpu_pct).collect::<Vec<_>>(),
+        app.num_cores(),
+    );
     let sel_n = app.selected_pids.len();
     let sel_suffix = if sel_n > 0 {
         format!("  sel:{}", sel_n)
@@ -112,26 +127,24 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
 
     let title = if nf {
         format!(
-            "{} Processes{} [{}] ({}/{})  Σ {:.0}%/{:.0}%{}{}",
+            "{} Processes{} [{}] ({}/{})  Σ {:.0}%{}{}",
             icons::TAB_PROCESSES,
             mode_label,
             view_label,
             total_procs,
             app.total_process_count(),
             vis_cpu,
-            vis_mem,
             sel_suffix,
             pending_dot,
         )
     } else {
         format!(
-            "Processes{} [{}] ({}/{})  Σ {:.0}%/{:.0}%{}{}",
+            "Processes{} [{}] ({}/{})  Σ {:.0}%{}{}",
             mode_label,
             view_label,
             total_procs,
             app.total_process_count(),
             vis_cpu,
-            vis_mem,
             sel_suffix,
             pending_dot,
         )
@@ -498,26 +511,28 @@ fn render_tree_view(f: &mut Frame, app: &mut App, area: Rect) {
     } else {
         String::new()
     };
-    let vis_cpu: f32 = procs.iter().map(|p| p.cpu_pct).sum();
-    let vis_mem: f32 = procs.iter().map(|p| p.mem_pct).sum();
+    // Σ CPU system-scaled (same rationale as the flat view); Σ MEM dropped
+    // (RSS double-counts shared libraries, perpetually >100%).
+    let vis_cpu: f32 = sigma_cpu_normalized(
+        &procs.iter().map(|p| p.cpu_pct).collect::<Vec<_>>(),
+        app.num_cores(),
+    );
 
     let title = if nf {
         format!(
-            "{} Processes [Tree] ({}/{})  Σ {:.0}%/{:.0}%{}",
+            "{} Processes [Tree] ({}/{})  Σ {:.0}%{}",
             icons::TAB_PROCESSES,
             procs.len(),
             app.total_process_count(),
             vis_cpu,
-            vis_mem,
             sel_suffix,
         )
     } else {
         format!(
-            "Processes [Tree] ({}/{})  Σ {:.0}%/{:.0}%{}",
+            "Processes [Tree] ({}/{})  Σ {:.0}%{}",
             procs.len(),
             app.total_process_count(),
             vis_cpu,
-            vis_mem,
             sel_suffix,
         )
     };
@@ -701,5 +716,18 @@ mod tests {
                 selected
             );
         }
+    }
+    #[test]
+    fn sigma_cpu_is_system_scaled_regardless_of_toggle() {
+        // Two processes each at 50% per-core CPU on an 8-thread machine.
+        // Raw sum = 100%; system-scaled (÷8) = 12.5% — what Σ should show.
+        let raws = [50.0_f32, 50.0];
+        assert_eq!(sigma_cpu_normalized(&raws, 8), 12.5);
+    }
+
+    #[test]
+    fn sigma_cpu_single_core_makes_sense_idle() {
+        // Idle: tiny per-core usage summed stays small after normalization.
+        assert_eq!(sigma_cpu_normalized(&[0.5, 0.3, 0.2], 16), 0.0625);
     }
 }

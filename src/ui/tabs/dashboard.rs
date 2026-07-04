@@ -851,7 +851,9 @@ fn render_top_processes(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: 
         return;
     }
 
-    let procs = app.filtered_processes();
+    // Use the LIVE snapshot (updated every collector tick) so the smart list
+    // reflects current CPU/MEM, not the Processes-tab's frozen table.
+    let procs: Vec<_> = app.live_processes().iter().collect();
 
     // Header — the active sort column is highlighted (focus colour + bold)
     // and carries a ▲/▼ direction arrow, mirroring the Processes tab table.

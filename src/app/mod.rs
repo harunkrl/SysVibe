@@ -81,6 +81,11 @@ pub struct App {
 
     // Processes
     top_processes: Vec<ProcessEntry>,
+    /// Live (always-current) top-process snapshot for the Dashboard smart list.
+    /// Unlike [`top_processes`] (frozen by design for the Processes tab, swapped
+    /// in only on first load / `r`), this updates on every collector tick so the
+    /// Dashboard reflects current CPU/MEM usage.
+    live_processes: Vec<ProcessEntry>,
     /// Most recent process list from the background collector, held in a
     /// pending buffer and only swapped into `top_processes` on the first load
     /// or an explicit refresh (`r`). This keeps the displayed table FROZEN so
@@ -264,6 +269,7 @@ impl App {
             battery_power_history: VecDeque::with_capacity(HISTORY_LEN),
             battery_charge_history: VecDeque::with_capacity(HISTORY_LEN),
             top_processes: Vec::new(),
+            live_processes: Vec::new(),
             pending_top_processes: None,
             pending_total: 0,
             processes_initialized: false,

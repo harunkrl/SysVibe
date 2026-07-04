@@ -98,9 +98,18 @@ impl super::App {
     }
 
     pub fn set_top_processes(&mut self, processes: Vec<ProcessEntry>, total: usize) {
-        // Buffer the latest snapshot from the collector. The displayed table is
-        // FROZEN: we only swap this in on the first load or an explicit refresh
-        // (`r`), so sorting/browsing isn't disrupted by every auto-refresh.
+        // The Dashboard smart list ALWAYS reflects the latest snapshot, so it
+        // gets a live copy (sorted for display). The Processes TAB table stays
+        // FROZEN by design (swapped in only on first load / `r`) so sorting and
+        // browsing aren't disrupted by auto-refresh — it buffers to
+        // `pending_top_processes` and applies conditionally below.
+        self.live_processes = processes.clone();
+        processes::sort_process_entries_dir(
+            &mut self.live_processes,
+            &self.sort_by,
+            self.sort_dir,
+        );
+
         self.pending_top_processes = Some(processes);
         self.pending_total = total;
         if !self.processes_initialized {

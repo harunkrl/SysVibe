@@ -210,6 +210,16 @@ impl super::App {
             .collect()
     }
 
+    /// Live (always-current) top-process snapshot for the Dashboard smart list.
+    /// Unlike [`filtered_processes`] (which reads the Processes-tab's frozen
+    /// `top_processes`), this reads [`live_processes`] — updated on every
+    /// collector tick — so the Dashboard reflects current CPU/MEM usage. The
+    /// Dashboard doesn't honour the Processes-tab filter/marked-only toggles
+    /// (those are tab-specific); it shows the live sorted top-N.
+    pub fn live_processes(&self) -> &[ProcessEntry] {
+        &self.live_processes
+    }
+
     /// Rebuild the filtered process cache. Called when processes or filter changes.
     pub(super) fn rebuild_filtered_cache(&mut self) {
         let query = self.filter_input.to_lowercase();

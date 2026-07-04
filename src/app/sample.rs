@@ -244,6 +244,9 @@ impl super::App {
                 ProcessEntry { pid: 3320, parent_pid: 1, name: "sshd".into(), cpu_pct: 0.1, mem_pct: 0.1, cmdline: String::new(), user: None },
                 ProcessEntry { pid: 1900, parent_pid: 1, name: "colord".into(), cpu_pct: 0.0, mem_pct: 0.1, cmdline: String::new(), user: None },
             ],
+            // Live mirror of the top list for the Dashboard smart panel (the
+            // sample snapshot is fine here; svshot doesn't run the collector).
+            live_processes: Vec::new(),
             total_process_count_fresh: 247,
             proc_table_state: TableState::default(),
             sort_by: SortBy::Cpu,

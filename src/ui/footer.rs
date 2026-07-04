@@ -160,7 +160,11 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
                     s.push(sep());
                     s.extend(key_desc(
                         "f",
-                        if app.log_follow() { "Follow ✓" } else { "Follow" },
+                        if app.log_follow() {
+                            "Follow ✓"
+                        } else {
+                            "Follow"
+                        },
                     ));
                     s.push(sep());
                     s.extend(key_desc("ewind", "Levels"));

@@ -324,18 +324,15 @@ pub enum LogLevel {
 }
 
 /// Whether a GPU exposes dedicated VRAM or shares system RAM.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum VramKind {
     #[default]
     Dedicated,
     Shared,
 }
 
-
 /// GPU vendor, used to drive vendor-specific UI (e.g. NVIDIA process list).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum GpuVendor {
     Nvidia,
     Amd,
@@ -343,7 +340,6 @@ pub enum GpuVendor {
     #[default]
     Unknown,
 }
-
 
 /// A process using the GPU (NVIDIA-only data path via nvidia-smi).
 #[derive(Debug, Clone)]

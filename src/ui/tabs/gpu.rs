@@ -5,15 +5,15 @@
 //! Supports multi-GPU systems with scroll navigation.
 
 use ratatui::{
-    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Gauge, Paragraph},
+    Frame,
 };
 
-use crate::app::App;
 use crate::app::state::PanelFocus;
+use crate::app::App;
 use crate::ui::helpers::*;
 use crate::ui::icons;
 use crate::ui::palette::*;
@@ -106,11 +106,8 @@ fn render_gpu_card(
     } else {
         0
     };
-    let [metrics_area, proc_area] = Layout::vertical([
-        Constraint::Min(4),
-        Constraint::Length(proc_rows),
-    ])
-    .areas(inner);
+    let [metrics_area, proc_area] =
+        Layout::vertical([Constraint::Min(4), Constraint::Length(proc_rows)]).areas(inner);
 
     // ── Build dynamic constraints based on available GPU info ──
     let has_power = gpu.power_w.is_some();
@@ -331,7 +328,10 @@ fn vram_display(gpu: &crate::app::state::GpuStats) -> String {
         VramKind::Dedicated if gpu.vram_total_mb == 0 => "—".to_string(),
         VramKind::Dedicated => {
             let pct = (gpu.vram_used_mb as f64 / gpu.vram_total_mb as f64) * 100.0;
-            format!("{:.0}%  {}/{} MiB", pct, gpu.vram_used_mb, gpu.vram_total_mb)
+            format!(
+                "{:.0}%  {}/{} MiB",
+                pct, gpu.vram_used_mb, gpu.vram_total_mb
+            )
         }
     }
 }
@@ -357,7 +357,10 @@ fn render_gpu_processes(f: &mut Frame, area: Rect, procs: &[crate::app::state::G
                 format!(" {:<14}", truncate_str(&p.name, 14)),
                 Style::default().fg(text()),
             ),
-            Span::styled(format!(" {:>5} MiB", p.vram_mb), Style::default().fg(blue())),
+            Span::styled(
+                format!(" {:>5} MiB", p.vram_mb),
+                Style::default().fg(blue()),
+            ),
         ]));
     }
     f.render_widget(Paragraph::new(lines), area);
@@ -427,7 +430,10 @@ mod tests {
     fn shared_vram_display_has_no_percent() {
         let g = gpu(VramKind::Shared, GpuVendor::Amd, 498, 512);
         let s = vram_display(&g);
-        assert!(!s.contains('%'), "shared must not show a misleading percent: {s}");
+        assert!(
+            !s.contains('%'),
+            "shared must not show a misleading percent: {s}"
+        );
         assert!(s.contains("Shared"), "got: {s}");
     }
 
@@ -463,8 +469,16 @@ mod tests {
         use ratatui::Terminal;
 
         let procs = vec![
-            GpuProcess { pid: 1234, name: "blender".into(), vram_mb: 2100 },
-            GpuProcess { pid: 5678, name: "glxgears".into(), vram_mb: 320 },
+            GpuProcess {
+                pid: 1234,
+                name: "blender".into(),
+                vram_mb: 2100,
+            },
+            GpuProcess {
+                pid: 5678,
+                name: "glxgears".into(),
+                vram_mb: 320,
+            },
         ];
         let backend = TestBackend::new(40, 6);
         let mut terminal = Terminal::new(backend).unwrap();

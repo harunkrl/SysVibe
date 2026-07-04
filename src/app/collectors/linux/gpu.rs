@@ -142,20 +142,14 @@ fn collect_amd_stats() -> Vec<GpuStats> {
             temp
         };
 
-        // Read GPU clock
+        // Read GPU clock (active P-state is marked with '*' in pp_dpm_sclk).
         let clock_mhz = fs::read_to_string(device_path.join("pp_dpm_sclk"))
             .ok()
-            .and_then(|s| {
-                // Parse the active clock line (marked with *)
-                for line in s.lines() {
-                    if line.contains('*')
-                        && let Some(mhz_part) = line.split_whitespace().nth(1)
-                    {
-                        return mhz_part.trim_end_matches("Mhz").parse::<u32>().ok();
-                    }
-                }
-                None
-            });
+            .and_then(|s| parse_amd_active_clock(&s));
+
+        // Read power draw (power1_input, microwatts) and fan duty (pwm1,
+        // 0-255) from the GPU's hwmon. Best-effort: absent on some APUs.
+        let (power_w, fan_speed_pct) = read_amd_hwmon_extras(&device_path.join("hwmon"));
 
         // Get GPU name from PCI
         let gpu_name = {
@@ -176,19 +170,19 @@ fn collect_amd_stats() -> Vec<GpuStats> {
                 .unwrap_or_else(|| "AMD GPU".to_string())
         };
 
-        // APU/iGPU heuristic (refined in a later commit to use power/fan):
-        // discrete AMD cards expose ≥ ~1 GiB of real VRAM; APUs report a small
-        // GTT carveout. Mark small-carveout GPUs as Shared so the UI doesn't
-        // show a misleading near-full VRAM gauge.
-        let is_apu = vram_total_mb < 1024;
+        // APU/iGPU heuristic: discrete AMD cards expose ≥ ~1 GiB of real VRAM
+        // and usually a PWM fan; APUs report a small GTT carveout and have no
+        // GPU-specific fan. Mark these as Shared so the UI doesn't show a
+        // misleading near-full VRAM gauge.
+        let is_apu = vram_total_mb < 1024 && fan_speed_pct.is_none();
         results.push(amd_stats_from_raw(
             &gpu_name,
             usage_pct,
             vram_used_mb,
             vram_total_mb,
             temperature,
-            None,
-            None,
+            power_w,
+            fan_speed_pct,
             clock_mhz,
             is_apu,
         ));
@@ -257,6 +251,60 @@ fn intel_stats_from_raw(
         vendor: GpuVendor::Intel,
         processes: Vec::new(),
     }
+}
+
+/// Parse the active (starred) clock from `pp_dpm_sclk` content, e.g.
+/// `"0: 200Mhz \n1: 533Mhz *\n2: 2200Mhz \n"`. The line marked with `*` is the
+/// currently-selected power state. Returns `None` if no active line is found.
+fn parse_amd_active_clock(s: &str) -> Option<u32> {
+    for line in s.lines() {
+        if line.contains('*') {
+            // Format is like "1: 533Mhz *"; the clock token is the 2nd field.
+            let tok = line.split_whitespace().nth(1)?;
+            return tok
+                .trim_end_matches("Mhz")
+                .trim_end_matches("MHz")
+                .parse::<u32>()
+                .ok();
+        }
+    }
+    None
+}
+
+/// Parse a microwatt sysfs value (e.g. `power1_input`) into watts.
+/// Returns `None` on a non-numeric value.
+fn parse_microwatts_to_w(s: &str) -> Option<f32> {
+    s.trim().parse::<f32>().ok().map(|uw| uw / 1_000_000.0)
+}
+
+/// Read `power1_input` (power draw, microwatts) and `pwm1` (fan duty cycle,
+/// 0-255) from the first AMD GPU hwmon that exposes them. Best-effort:
+/// returns `(None, None)` when neither is present (common on APUs, which
+/// have no GPU-specific fan control).
+fn read_amd_hwmon_extras(hwmon_path: &std::path::Path) -> (Option<f32>, Option<f32>) {
+    let mut power = None;
+    let mut fan = None;
+    let Ok(entries) = fs::read_dir(hwmon_path) else {
+        return (power, fan);
+    };
+    for entry in entries.flatten() {
+        let p = entry.path();
+        if power.is_none()
+            && let Ok(v) = fs::read_to_string(p.join("power1_input")) {
+                power = parse_microwatts_to_w(&v);
+            }
+        if fan.is_none() {
+            // pwm1 is a 0-255 duty cycle; convert to a percentage.
+            if let Ok(v) = fs::read_to_string(p.join("pwm1"))
+                && let Ok(duty) = v.trim().parse::<f32>() {
+                    fan = Some((duty / 255.0 * 100.0).clamp(0.0, 100.0));
+                }
+        }
+        if power.is_some() && fan.is_some() {
+            break;
+        }
+    }
+    (power, fan)
 }
 
 /// Collect Intel GPU stats via SysFS.
@@ -427,5 +475,28 @@ mod tests {
         let g = intel_stats_from_raw("Intel Iris", 5.0, 0, 0, 45.0, None, None, None);
         assert_eq!(g.vendor, GpuVendor::Intel);
         assert_eq!(g.vram_kind, VramKind::Shared);
+    }
+}
+
+#[cfg(test)]
+mod amd_sysfs_tests {
+    use super::*;
+
+    #[test]
+    fn amd_clock_parsing_picks_active_state() {
+        // pp_dpm_sclk lines; the '*' marks the active P-state.
+        let s = "0: 200Mhz \n1: 533Mhz *\n2: 2200Mhz \n";
+        assert_eq!(parse_amd_active_clock(s), Some(533));
+    }
+
+    #[test]
+    fn amd_clock_parsing_no_active_returns_none() {
+        assert_eq!(parse_amd_active_clock("0: 200Mhz\n1: 2200Mhz\n"), None);
+    }
+
+    #[test]
+    fn microwatts_to_watts_parses() {
+        assert_eq!(parse_microwatts_to_w("4238000"), Some(4.238));
+        assert_eq!(parse_microwatts_to_w("nope"), None);
     }
 }

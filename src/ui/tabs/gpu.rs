@@ -321,7 +321,7 @@ fn render_gpu_card(
 /// shared-memory GPUs (iGPU/APU) show a label instead of a misleading gauge
 /// (their sysfs reports a near-full GTT carveout that doesn't reflect real app
 /// usage).
-fn vram_display(gpu: &crate::app::state::GpuStats) -> String {
+pub(crate) fn vram_display(gpu: &crate::app::state::GpuStats) -> String {
     use crate::app::state::VramKind;
     match gpu.vram_kind {
         VramKind::Shared => "Shared RAM".to_string(),

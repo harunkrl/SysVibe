@@ -88,14 +88,106 @@ pub fn render_dashboard_tab(f: &mut Frame, app: &App, area: Rect) {
     }
 }
 
-/// GPU Info panel — CPU-Info-style: braille usage trend + Power/Temp/Clock
-/// detail rows. Body is filled in by the follow-up commit; this placeholder
-/// renders an empty titled block so the grid layout is verifiable first.
-/// Reuses the freed `Panel4` focus slot (previously the Network panel).
+/// VRAM summary fragment for the GPU Info detail row. Dedicated GPUs show a
+/// percent; shared-memory GPUs (iGPU/APU) show a label (no misleading gauge).
+/// Reuses `gpu::vram_display` so the panel and the GPU tab stay consistent.
+fn gpu_vram_fragment(gpu: &crate::app::state::GpuStats) -> String {
+    crate::ui::tabs::gpu::vram_display(gpu)
+}
+
+/// GPU Info panel — mirrors the CPU Info panel: a braille usage trend on top
+/// (from `gpu_history`) plus a compact Power/Temp/Clock/VRAM detail readout
+/// below. Renders a graceful "No GPU detected" state when there is no GPU.
+/// Non-empty for all vendors (NVIDIA / AMD / Intel); VRAM shows a percent only
+/// for dedicated GPUs (shared-memory GPUs show "Shared RAM").
 fn render_gpu_info(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: PanelFocus) {
     let title = icons::titled(app, icons::GPU, icons::fallback::GPU, "GPU Info");
     let block = panel_block_themed(&title, focus.is_focused(PanelFocus::Panel4), mauve());
+    let inner = panel_inner(area, &block);
     f.render_widget(block, area);
+
+    if inner.width < 15 || inner.height < 3 {
+        return;
+    }
+
+    let gpu = match app.gpu_stats().first() {
+        Some(g) => g,
+        None => {
+            f.render_widget(
+                Paragraph::new(Span::styled(
+                    " No GPU detected",
+                    Style::default().fg(overlay()),
+                )),
+                inner,
+            );
+            return;
+        }
+    };
+
+    // Vertical split: braille trend on top, detail readout (2 rows) below.
+    // On very short panels, drop the detail readout and just draw the trend.
+    let (chart_area, detail_area) = if inner.height >= 6 {
+        let rows = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(0), Constraint::Length(2)])
+            .split(inner);
+        (rows[0], Some(rows[1]))
+    } else {
+        (inner, None)
+    };
+
+    // Braille usage trend (primary GPU). Usage is 0-100, so y_floor=50 keeps
+    // the curve readable like the CPU trend; fewer than 2 samples shows the
+    // single current value instead.
+    let hist = app.gpu_history();
+    let usage_color = usage_color(gpu.usage_pct);
+    if hist.len() >= 2 {
+        sparkline::render_braille_smooth(f, chart_area, hist, "%", true, 50.0);
+    } else {
+        f.render_widget(
+            Paragraph::new(Span::styled(
+                format!(" {:.0}%", gpu.usage_pct),
+                Style::default().fg(usage_color).add_modifier(Modifier::BOLD),
+            )),
+            chart_area,
+        );
+    }
+
+    // Detail readout: line 1 = GPU name (bold), line 2 = Power · Temp · Clock · VRAM.
+    if let Some(da) = detail_area {
+        let name = Line::from(Span::styled(
+            format!(
+                " {}",
+                crate::ui::helpers::truncate_str(
+                    &gpu.name,
+                    (inner.width as usize).saturating_sub(2),
+                )
+            ),
+            Style::default().fg(text()).add_modifier(Modifier::BOLD),
+        ));
+        let mut stats: Vec<Span> = Vec::new();
+        if let Some(p) = gpu.power_w {
+            stats.push(Span::styled(
+                format!(" {:.1}W", p),
+                Style::default().fg(yellow()),
+            ));
+        }
+        stats.push(Span::styled(
+            format!("  {:.0}°", gpu.temperature),
+            Style::default().fg(peach()),
+        ));
+        if let Some(c) = gpu.clock_mhz {
+            stats.push(Span::styled(
+                format!("  {}MHz", c),
+                Style::default().fg(mauve()),
+            ));
+        }
+        stats.push(Span::styled(
+            format!("  {}", gpu_vram_fragment(gpu)),
+            Style::default().fg(blue()),
+        ));
+        f.render_widget(Paragraph::new(vec![name, Line::from(stats)]), da);
+    }
 }
 
 struct HeroCard {
@@ -968,4 +1060,41 @@ fn render_disk_panel(f: &mut Frame, app: &App, area: Rect, nf: bool, focus: Pane
     }
 
     f.render_widget(Paragraph::new(lines), inner);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::state::{GpuStats, GpuVendor, VramKind};
+
+    #[test]
+    fn gpu_vram_fragment_respects_vram_kind() {
+        // Shared-memory GPUs (iGPU/APU) must NOT show a misleading VRAM
+        // percent in the GPU Info detail row; dedicated GPUs should.
+        let mut g = GpuStats {
+            name: "680M".into(),
+            usage_pct: 5.0,
+            vram_used_mb: 498,
+            vram_total_mb: 512,
+            temperature: 44.0,
+            power_w: Some(4.2),
+            fan_speed_pct: None,
+            clock_mhz: Some(533),
+            vram_kind: VramKind::Shared,
+            vendor: GpuVendor::Amd,
+            processes: Vec::new(),
+        };
+        assert!(
+            !gpu_vram_fragment(&g).contains('%'),
+            "shared must not show a percent: {}",
+            gpu_vram_fragment(&g)
+        );
+        g.vram_kind = VramKind::Dedicated;
+        g.vram_total_mb = 8000;
+        assert!(
+            gpu_vram_fragment(&g).contains('%'),
+            "dedicated should show a percent: {}",
+            gpu_vram_fragment(&g)
+        );
+    }
 }

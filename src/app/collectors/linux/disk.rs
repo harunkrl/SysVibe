@@ -16,17 +16,41 @@ pub fn read_disk_bytes() -> (u64, u64) {
         Ok(c) => c,
         Err(_) => return (0, 0),
     };
-    let (read, write, _, _) = parse_diskstats(&content);
+    let whole = read_whole_disk_names();
+    let (read, write, _, _) = parse_diskstats(&content, &whole);
     (read, write)
+}
+
+/// List whole-disk names present in `/sys/block` (e.g. `sda`, `nvme0n1`).
+/// Partitions live under `/sys/block/<parent>/<part>`, so membership here is
+/// the robust "is this a whole disk, not a partition" signal — works across
+/// SATA (`sda` vs `sda1`), NVMe (`nvme0n1` vs `nvme0n1p1`), and mmc.
+fn read_whole_disk_names() -> std::collections::HashSet<String> {
+    let mut set = std::collections::HashSet::new();
+    if let Ok(entries) = fs::read_dir("/sys/block") {
+        for entry in entries.flatten() {
+            if let Ok(name) = entry.file_name().into_string() {
+                set.insert(name);
+            }
+        }
+    }
+    set
 }
 
 /// Pure parser for `/proc/diskstats` content. Sums sector-based bytes
 /// (× 512) across whole disks, skipping loop/ram devices (major 7/1) and
-/// partition slices (names like `nvme0n1p1`). Returns byte totals and, when
-/// IOPS fields are present, completed read/write op counts.
+/// partition slices. A line is treated as a whole disk iff its name is in
+/// `whole_disk_names` (the `/sys/block` set); this is robust where the old
+/// `name.contains('p')` heuristic was not — it wrongly INCLUDED `sda1` (a
+/// partition, no 'p') and double-counted SATA disks.
 ///
-/// Extracted from the I/O so the sector/partition logic is unit-testable.
-fn parse_diskstats(content: &str) -> (u64, u64, Option<u64>, Option<u64>) {
+/// `whole_disk_names` is dependency-injected by the I/O layer so the parser
+/// stays pure and unit-testable (inject a fake set). Returns byte totals and,
+/// when IOPS fields are present, completed read/write op counts.
+fn parse_diskstats(
+    content: &str,
+    whole_disk_names: &std::collections::HashSet<String>,
+) -> (u64, u64, Option<u64>, Option<u64>) {
     let mut total_read_bytes: u64 = 0;
     let mut total_write_bytes: u64 = 0;
     let mut total_reads: u64 = 0;
@@ -43,7 +67,9 @@ fn parse_diskstats(content: &str) -> (u64, u64, Option<u64>, Option<u64>) {
             continue;
         }
         let name = fields[2];
-        if name.contains('p') && name.chars().last().is_some_and(|c| c.is_ascii_digit()) {
+        // Skip partitions: only sum WHOLE disks (those listed in /sys/block).
+        // This catches sda1/sdb2 (SATA) and nvme0n1p1 (NVMe) alike.
+        if !whole_disk_names.contains(name) {
             continue;
         }
         // Bytes from sectors (512 B/sector).
@@ -83,7 +109,8 @@ fn read_diskstats() -> (u64, u64, Option<u64>, Option<u64>) {
         Ok(c) => c,
         Err(_) => return (0, 0, None, None),
     };
-    parse_diskstats(&content)
+    let whole = read_whole_disk_names();
+    parse_diskstats(&content, &whole)
 }
 
 /// Refresh disk I/O stats: speed, IOPS, and history.
@@ -151,21 +178,41 @@ fn sys_attr(dev_name: &str, attr: &str) -> Option<String> {
 
 /// Extract the underlying block device name from a partition device name.
 /// e.g. "nvme0n1p2" → "nvme0n1", "sda1" → "sda"
+/// Extract the underlying block device name from a partition device name.
+/// e.g. "nvme0n1p2" → "nvme0n1", "sda1" → "sda", "mmcblk0p1" → "mmcblk0".
+/// A name with no partition suffix (a whole disk like "sda" or "nvme0n1")
+/// is returned unchanged.
+///
+/// Pure (no I/O). Note the ambiguity `nvme0n1` (whole disk) vs `sda1`
+/// (partition) both look like `<letters><digits>` — this resolves it by only
+/// trimming trailing digits when the resulting prefix ends in a LETTER (the
+/// classic SCSI `sdX<N>` / `mmcblk<N>p<M>` partition shape), so whole NVMe
+/// disks like `nvme0n1` are NOT mangled into `nvme0n`.
 fn parent_block_dev(partition_dev: &str) -> Option<String> {
-    // nvme: nvme0n1p2 → nvme0n1
+    // NVMe / mmc: "<base>p<N>" → "<base>" (the 'p<N>' suffix is unambiguous).
     if let Some(idx) = partition_dev.rfind('p') {
         let prefix = &partition_dev[..idx];
-        // Verify prefix ends with a digit (e.g. nvme0n1)
         if prefix.chars().last().is_some_and(|c| c.is_ascii_digit()) {
             return Some(prefix.to_string());
         }
     }
-    // sdX: sda1 → sda, mmcblk0p1 → mmcblk0
+    // SCSI/SATA: "sdX<N>" → "sdX". Only trim when the prefix ends in a LETTER
+    // (a real sd-base), so whole NVMe names like "nvme0n1" (prefix "nvme0n"
+    // ends in a letter BUT is not a real base) … still trim. Hmm.
+    //
+    // Distinguish whole-disk "nvme0n1" from partition "sda1": NVMe whole-disk
+    // names contain 'n<digits>' (namespace). If the name has no 'p' and the
+    // digit-run is preceded by a letter that is NOT the tail of an
+    // sd-style base, treat it as whole.
+    // Simplest robust rule: trim trailing digits only if the prefix is a
+    // single lowercase-letter run with NO inner digits (classic sdX base).
     let trimmed = partition_dev.trim_end_matches(|c: char| c.is_ascii_digit());
-    if !trimmed.is_empty() && trimmed != partition_dev {
+    let looks_like_sd_base = !trimmed.is_empty()
+        && trimmed.chars().all(|c| c.is_ascii_lowercase());
+    if looks_like_sd_base && trimmed != partition_dev {
         return Some(trimmed.to_string());
     }
-    // No partition suffix — it IS the block device
+    // No unambiguous partition suffix → it IS the (whole) block device.
     Some(partition_dev.to_string())
 }
 
@@ -276,68 +323,118 @@ mod tests {
         format!("{major} 0 {name} 100 0 {sectors_read} 50 200 0 {sectors_written} 60 0 0 0 0 0")
     }
 
+    // The `/sys/block` set: only whole-disk names belong here. Partitions
+    // (sda1, nvme0n1p1) are injected into diskstats content but NOT into this
+    // set, mirroring the real filesystem layout.
+    use std::collections::HashSet;
+    fn whole(names: &[&str]) -> HashSet<String> {
+        names.iter().map(|s| s.to_string()).collect()
+    }
+
     #[test]
     fn parse_diskstats_sums_sectors_x_512() {
-        // Two real disks (major 8 = SCSI/SATA), 10 sectors each.
         let content = format!(
             "{}\n{}\n",
             stats_line(8, "sda", 10, 20),
             stats_line(8, "sdb", 10, 20)
         );
-        let (read, write, reads, writes) = parse_diskstats(&content);
-        assert_eq!(read, 2 * 10 * 512); // 20 sectors * 512
+        let set = whole(&["sda", "sdb"]);
+        let (read, write, reads, writes) = parse_diskstats(&content, &set);
+        assert_eq!(read, 2 * 10 * 512);
         assert_eq!(write, 2 * 20 * 512);
-        assert_eq!(reads, Some(2 * 100)); // 2 lines × 100 reads
+        assert_eq!(reads, Some(2 * 100));
         assert_eq!(writes, Some(2 * 200));
     }
 
     #[test]
     fn parse_diskstats_skips_loop_and_ram() {
-        // major 7 (loop) and major 1 (ram) must be excluded.
+        // major 7 (loop) and major 1 (ram) must be excluded regardless of the
+        // whole-disk set (they are excluded by major number first).
         let content = format!(
             "{}\n{}\n{}\n",
             stats_line(7, "loop0", 999, 999),
             stats_line(1, "ram0", 999, 999),
             stats_line(8, "sda", 5, 5)
         );
-        let (read, _, _, _) = parse_diskstats(&content);
+        let set = whole(&["loop0", "ram0", "sda"]);
+        let (read, _, _, _) = parse_diskstats(&content, &set);
         assert_eq!(read, 5 * 512); // only sda counts
     }
 
     #[test]
-    fn parse_diskstats_skips_partitions() {
-        // "sda1" (name contains 'p'? no — sda1 has no 'p'. The partition skip
-        // rule is name.contains('p') && ends-with-digit, e.g. nvme0n1p1).
-        // nvme0n1p1 → skipped; nvme0n1 → counted.
+    fn parse_diskstats_skips_nvme_partitions() {
+        // nvme0n1p1 is a partition (not in /sys/block) → skipped.
         let content = format!(
             "{}\n{}\n",
             stats_line(259, "nvme0n1p1", 999, 999),
             stats_line(259, "nvme0n1", 7, 7)
         );
-        let (read, _, _, _) = parse_diskstats(&content);
+        let set = whole(&["nvme0n1"]);
+        let (read, _, _, _) = parse_diskstats(&content, &set);
         assert_eq!(read, 7 * 512);
+    }
+
+    #[test]
+    fn parse_diskstats_skips_sata_partitions_no_double_count() {
+        // REGRESSION for the sda1 double-counting bug: sda1 (a partition, no
+        // 'p') must be skipped. The old `contains('p')` heuristic INCLUDED it
+        // and counted sda's bytes twice on SATA disks.
+        let content = format!(
+            "{}\n{}\n",
+            stats_line(8, "sda", 100, 200),
+            stats_line(8, "sda1", 100, 200) // partition — must NOT add
+        );
+        let set = whole(&["sda"]);
+        let (read, write, _, _) = parse_diskstats(&content, &set);
+        assert_eq!(read, 100 * 512); // sda only, not 2×
+        assert_eq!(write, 200 * 512);
     }
 
     #[test]
     fn parse_diskstats_short_lines_ignored() {
         let content = "8 0 sda\n"; // only 4 fields (< 10) → skipped
-        let (read, write, reads, writes) = parse_diskstats(&content);
+        let set = whole(&["sda"]);
+        let (read, write, reads, writes) = parse_diskstats(&content, &set);
         assert_eq!((read, write, reads, writes), (0, 0, None, None));
     }
 
     #[test]
     fn parse_diskstats_empty_content() {
-        let (read, write, reads, writes) = parse_diskstats("");
+        let set = whole(&[]);
+        let (read, write, reads, writes) = parse_diskstats("", &set);
         assert_eq!((read, write, reads, writes), (0, 0, None, None));
     }
 
     #[test]
     fn read_disk_bytes_consistent_with_diskstats() {
         // read_disk_bytes should be a pure subset (bytes only) of read_diskstats.
-        // Both read the same real /proc/diskstats, so their byte counts match.
+        // Both read the same real /proc/diskstats + /sys/block, so counts match.
         let (rb, wb) = read_disk_bytes();
         let (rb2, wb2, _, _) = read_diskstats();
         assert_eq!(rb, rb2);
         assert_eq!(wb, wb2);
+    }
+
+    // ── parent_block_dev (pure partition→parent resolution) ──────────────
+    #[test]
+    fn parent_block_dev_nvme_partition() {
+        assert_eq!(parent_block_dev("nvme0n1p2"), Some("nvme0n1".into()));
+    }
+
+    #[test]
+    fn parent_block_dev_sata_partition() {
+        assert_eq!(parent_block_dev("sda1"), Some("sda".into()));
+        assert_eq!(parent_block_dev("sdb3"), Some("sdb".into()));
+    }
+
+    #[test]
+    fn parent_block_dev_mmc_partition() {
+        assert_eq!(parent_block_dev("mmcblk0p1"), Some("mmcblk0".into()));
+    }
+
+    #[test]
+    fn parent_block_dev_whole_disk_is_itself() {
+        assert_eq!(parent_block_dev("sda"), Some("sda".into()));
+        assert_eq!(parent_block_dev("nvme0n1"), Some("nvme0n1".into()));
     }
 }

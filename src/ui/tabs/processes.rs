@@ -138,18 +138,20 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
     };
     let block = panel_block_themed(&title, true, sky());
 
-    // ── Virtual scrolling: only render the visible viewport ──
-    // Reserve 3 lines for block borders + header (header row + bottom_margin=1)
+    // ratatui's `TableState` manages scrolling itself: `Table::render` keeps
+    // the selected row in view by advancing its internal `offset` only when
+    // the cursor reaches the viewport edge — smooth, one-row-at-a-time
+    // scrolling. We therefore pass the FULL row list (no manual slicing) and
+    // read back `proc_table_state.offset()` for the scrollbar thumb.
+    //
+    // Manual virtual-scroll slicing here previously fought with ratatui's own
+    // clamp (`state.select(rows.len()-1)` whenever `selected >= rows.len()`),
+    // which snapped the selection back to the top viewport — the
+    // "scroll jumps to the top" bug.
     let inner = block.inner(area);
-    let visible_height = inner.height.saturating_sub(3) as usize; // header takes 2+1 lines
-    let visible_height = visible_height.max(1);
-
-    // Calculate viewport window
-    let selected = app.proc_table_state.selected().unwrap_or(0);
-    let scroll_offset = calculate_scroll_offset(selected, total_procs, visible_height);
-
-    let visible_end = (scroll_offset + visible_height).min(total_procs);
-    let visible_procs = &procs[scroll_offset..visible_end];
+    // Header row (1) + its bottom margin (1) = 2 rows of overhead.
+    let viewport = inner.height.saturating_sub(2) as usize;
+    let viewport = viewport.max(1);
 
     // Sort direction indicator: ▲ ascending, ▼ descending.
     let sort_indicator = |col: SortBy| -> String {
@@ -227,10 +229,12 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
         Constraint::Length(12), // MEM% + 5-cell bar
     ];
 
-    // Only build rows for the visible slice (virtual scrolling)
+    // Build a row for every process. ratatui only paints the rows that fit
+    // (those starting at `proc_table_state.offset()`), so off-screen rows cost
+    // nothing to render — only their `Row` objects are constructed, which is
+    // cheap given `max_processes` is bounded (default 50, clamp 500).
     let bar_len: u16 = 5;
-    let rows = visible_procs.iter().enumerate().map(|(local_idx, p)| {
-        let row_idx = scroll_offset + local_idx;
+    let rows = procs.iter().enumerate().map(|(row_idx, p)| {
         // CPU is stored raw (per-core); normalize for display via the `g` toggle.
         let cpu_disp = app.cpu_display(p.cpu_pct);
         let cpu_color = usage_color(cpu_disp);
@@ -326,27 +330,10 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
     f.render_stateful_widget(table, area, &mut app.proc_table_state);
 
     // ── Viewport indicator (mini scrollbar) ──
-    if total_procs > visible_height {
-        render_scroll_indicator(f, inner, scroll_offset, total_procs, visible_height);
+    if total_procs > viewport {
+        let offset = app.proc_table_state.offset();
+        render_scroll_indicator(f, inner, offset, total_procs, viewport);
     }
-}
-
-/// Calculate the scroll offset so the selected item is always visible.
-fn calculate_scroll_offset(selected: usize, total: usize, viewport: usize) -> usize {
-    if total <= viewport {
-        return 0;
-    }
-    // Keep selected item visible with 1-row margin at top/bottom
-    let offset = if selected < 1 {
-        0
-    } else if selected >= total.saturating_sub(1) {
-        total.saturating_sub(viewport)
-    } else if selected < viewport {
-        0
-    } else {
-        selected.saturating_sub(viewport / 2)
-    };
-    offset.min(total.saturating_sub(viewport))
 }
 
 /// Render a minimal vertical scroll indicator on the right edge.
@@ -655,4 +642,64 @@ fn render_tree_view(f: &mut Frame, app: &mut App, area: Rect) {
     }
 
     f.render_widget(Paragraph::new(lines), inner);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::backend::TestBackend;
+    use ratatui::layout::Constraint;
+    use ratatui::widgets::{Row, Table, TableState};
+    use ratatui::Terminal;
+
+    /// Regression test for the "scroll jumps to the top" bug (fix #4).
+    ///
+    /// Root cause: `render_process_table` used to slice the process list to
+    /// the visible viewport and pass that small slice to the stateful `Table`.
+    /// ratatui's `Table::render` then ran:
+    ///
+    /// ```ignore
+    /// if state.selected.is_some_and(|s| s >= self.rows.len()) {
+    ///     state.select(Some(self.rows.len().saturating_sub(1)));
+    /// }
+    /// ```
+    ///
+    /// so as soon as the cursor moved past the first viewport (selected >=
+    /// viewport height), it was silently rewritten back to the last row of the
+    /// slice — snapping the view to the top on the next frame.
+    ///
+    /// The fix passes the FULL row list (so `rows.len() == total`) and lets
+    /// `TableState::offset` manage scrolling. This test pins that invariant:
+    /// with the full list, a `selected` far beyond the viewport must survive
+    /// a render unchanged.
+    #[test]
+    fn full_row_list_keeps_selection_stable_past_viewport() {
+        // A tall list (40 rows) in a short viewport (5 rows).
+        let total = 40usize;
+        let rows = (0..total).map(|i| Row::new([format!("row {}", i)]));
+        let table = Table::new(rows, [Constraint::Length(10)]);
+
+        let backend = TestBackend::new(20, 8);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        for selected in [0usize, 4, 5, 19, 25, 39] {
+            let mut state = TableState::default();
+            state.select(Some(selected));
+
+            terminal
+                .draw(|f| {
+                    f.render_stateful_widget(table.clone(), f.area(), &mut state);
+                })
+                .unwrap();
+
+            // The selection must be exactly what we set — NOT clamped back to
+            // `viewport - 1` (the old bug) nor altered in any way.
+            assert_eq!(
+                state.selected(),
+                Some(selected),
+                "selection changed after render for selected={} (viewport bug regressed)",
+                selected
+            );
+        }
+    }
 }

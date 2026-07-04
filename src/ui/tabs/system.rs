@@ -358,6 +358,42 @@ fn hardware_lines(app: &App, max_w: usize) -> Vec<Line<'static>> {
             lines.push(kv_line("F/M/S", fms, overlay()));
         }
         if !c.flags.is_empty() {
+            // C: at-a-glance feature highlights — the capabilities most people
+            // actually look for, mapped from the raw flag tokens to friendly
+            // names. Shown ABOVE the raw flags wall as a one-line summary.
+            let has = |tok: &str| c.flags.iter().any(|f| f == tok);
+            let mut hl: Vec<&str> = Vec::new();
+            if has("vmx") {
+                hl.push("VT-x");
+            }
+            if has("svm") {
+                hl.push("AMD-V");
+            }
+            if has("aes") {
+                hl.push("AES-NI");
+            }
+            if has("avx512") {
+                hl.push("AVX-512");
+            } else if has("avx2") {
+                hl.push("AVX2");
+            } else if has("avx") {
+                hl.push("AVX");
+            }
+            if has("sha") {
+                hl.push("SHA");
+            }
+            if has("amx") {
+                hl.push("AMX");
+            }
+            if has("smt") {
+                hl.push("SMT");
+            }
+            if has("lm") {
+                hl.push("64-bit");
+            }
+            if !hl.is_empty() {
+                lines.push(kv_line("Features", &hl.join(" · "), green()));
+            }
             let flags_text = fit_str(&c.flags.join(" "), max_w.saturating_sub(8));
             lines.push(kv_line("Flags", &flags_text, sky()));
         }
@@ -395,6 +431,20 @@ fn hardware_lines(app: &App, max_w: usize) -> Vec<Line<'static>> {
                     Style::default().fg(overlay()),
                 ));
             }
+            // B: PCI slot (e.g. "01:00.0") + device type (VGA/3D/Display) to
+            // disambiguate multi-GPU systems and identify the device class.
+            if let Some(ref slot) = gpu.pci_slot {
+                gpu_spans.push(Span::styled(
+                    format!(" ({})", slot),
+                    Style::default().fg(overlay()),
+                ));
+            }
+            if !gpu.dev_type.is_empty() {
+                gpu_spans.push(Span::styled(
+                    format!(" {}", gpu.dev_type),
+                    Style::default().fg(overlay()),
+                ));
+            }
             lines.push(Line::from(gpu_spans));
         }
     }
@@ -402,16 +452,37 @@ fn hardware_lines(app: &App, max_w: usize) -> Vec<Line<'static>> {
     // ── Storage (block devices) ───────────────────────────────────────────
     if !hw.storage.is_empty() {
         lines.push(section_divider("Storage", max_w));
+        // D: aggregate capacity across all block devices, as a one-line summary
+        // at the top of the section.
+        let total_bytes: u64 = hw.storage.iter().map(|d| d.size_bytes).sum();
+        let n = hw.storage.len();
+        lines.push(kv_line(
+            "Total",
+            &format!(
+                "{} across {} device{}",
+                crate::ui::helpers::format_bytes(total_bytes),
+                n,
+                if n == 1 { "" } else { "s" }
+            ),
+            yellow(),
+        ));
         for d in &hw.storage {
             let label = d.name.clone();
+            // A: include the serial number (when present) so individual drives
+            // can be identified — e.g. "NVMe 500.0 GB Samsung ... [NVMe] SN:...".
             let val = format!(
-                "{} {} {}{}",
+                "{} {} {}{}{}",
                 d.dev_type,
                 crate::ui::helpers::format_bytes(d.size_bytes),
                 d.model.as_deref().unwrap_or(""),
                 d.interface
                     .as_ref()
                     .map(|i| format!(" [{}]", i))
+                    .unwrap_or_default(),
+                d.serial
+                    .as_ref()
+                    .filter(|s| !s.is_empty())
+                    .map(|s| format!(" SN:{}", s))
                     .unwrap_or_default(),
             );
             let val = fit_str(&val, max_w.saturating_sub(label.len() + 4));

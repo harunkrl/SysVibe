@@ -12,7 +12,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::state::PanelFocus;
+use crate::app::state::{PanelFocus, SensorReading};
 use crate::app::App;
 use crate::ui::helpers::*;
 use crate::ui::icons;
@@ -298,7 +298,7 @@ fn render_memory_section(f: &mut Frame, app: &App, area: Rect) {
         green()
     };
 
-    // Layout: title · 4 mem bars (with gaps) · mem info · spacer · Swap
+    // Layout: title · 4 mem bars (with gaps) · gap · mem info · spacer · Swap
     // heading · swap bar · swap info. The Min(0) spacer sits between the
     // memory info and the swap section so the swap section is pinned to the
     // bottom of the panel instead of floating right under the memory bars.
@@ -313,6 +313,7 @@ fn render_memory_section(f: &mut Frame, app: &App, area: Rect) {
             Constraint::Length(1), // Cache
             Constraint::Length(1), // gap
             Constraint::Length(1), // Free
+            Constraint::Length(1), // gap (separates footer from free bar)
             Constraint::Length(1), // mem info footer
             Constraint::Min(0),    // spacer (pushes swap to the bottom)
             Constraint::Length(1), // Swap heading
@@ -407,8 +408,8 @@ fn render_memory_section(f: &mut Frame, app: &App, area: Rect) {
             ),
             Span::styled(pressure, Style::default().fg(pressure_color)),
         ]))
-        .alignment(Alignment::Right),
-        rows[8],
+        .alignment(Alignment::Left),
+        rows[9],
     );
 
     // Swap section: "Swap" heading (like "Memory" above), then bar + info.
@@ -418,7 +419,7 @@ fn render_memory_section(f: &mut Frame, app: &App, area: Rect) {
                 "Swap",
                 Style::default().fg(sapphire()).add_modifier(Modifier::BOLD),
             ))),
-            rows[10],
+            rows[11],
         );
         f.render_widget(
             Paragraph::new(mk_bar(
@@ -427,7 +428,7 @@ fn render_memory_section(f: &mut Frame, app: &App, area: Rect) {
                 mem.swap_used_bytes,
                 sapphire(),
             )),
-            rows[11],
+            rows[12],
         );
         f.render_widget(
             Paragraph::new(Line::from(Span::styled(
@@ -439,7 +440,7 @@ fn render_memory_section(f: &mut Frame, app: &App, area: Rect) {
                 Style::default().fg(sapphire()),
             )))
             .alignment(Alignment::Right),
-            rows[12],
+            rows[13],
         );
     }
 }
@@ -688,6 +689,58 @@ fn render_network(f: &mut Frame, app: &App, area: Rect, focused: bool) {
 
 // ─── Temperatures ──────────────────────────────────────────────────
 
+/// Strip a trailing ` N` disambiguation suffix from a sensor label so that
+/// "NVMe", "NVMe 2", "NVMe 3" all collapse to the base category "NVMe".
+fn temp_base_category(label: &str) -> String {
+    let trimmed = label.trim();
+    if let Some(idx) = trimmed.rfind(' ') {
+        let suffix = &trimmed[idx + 1..];
+        if !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit()) {
+            return trimmed[..idx].trim().to_string();
+        }
+    }
+    trimmed.to_string()
+}
+
+/// Display priority for a temperature category. Lower sorts first.
+/// Matches the user's requested order: CPU → GPU → NVMe → WiFi → ACPI,
+/// with a sensible tail for the rest.
+fn temp_category_priority(base: &str) -> u8 {
+    match base.to_ascii_lowercase().as_str() {
+        "cpu" => 0,
+        "gpu" => 1,
+        "nvme" => 2,
+        "wifi" => 3,
+        "acpi" => 4,
+        "ssd" => 5,
+        "hdd" => 6,
+        "chipset" => 7,
+        "battery" => 8,
+        _ => 9,
+    }
+}
+
+/// Collapse `temps` to one reading per hardware category (keeping the FIRST /
+/// primary sensor — typically the canonical "composite" reading) and sort the
+/// result by [`temp_category_priority`]. Returns `(reading, base_label)` pairs
+/// where `base_label` is the deduplicated category name used for display.
+fn collapsed_temperatures(temps: &[SensorReading]) -> Vec<(&SensorReading, String)> {
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut out: Vec<(&SensorReading, String)> = Vec::new();
+    for s in temps.iter() {
+        let base = temp_base_category(&s.label);
+        if seen.insert(base.clone()) {
+            out.push((s, base));
+        }
+    }
+    out.sort_by(|a, b| {
+        temp_category_priority(&a.1)
+            .cmp(&temp_category_priority(&b.1))
+            .then_with(|| a.1.to_ascii_lowercase().cmp(&b.1.to_ascii_lowercase()))
+    });
+    out
+}
+
 fn render_temperatures(f: &mut Frame, app: &App, area: Rect, focused: bool) {
     let title = icons::titled(app, icons::TEMP, icons::fallback::TEMP, "Temperatures");
     let block = panel_block_themed(&title, focused, peach());
@@ -699,9 +752,15 @@ fn render_temperatures(f: &mut Frame, app: &App, area: Rect, focused: bool) {
     }
 
     let temps = app.temperatures();
-    // Show ALL detected temperature sensors (not just cpu/gpu/disk) so the
-    // panel reflects the real sensor count and doesn't look empty. Readings
-    // are already deduped + correctly labelled by the hwmon collector.
+    // Collapse to one reading per hardware category and present them in a
+    // fixed, predictable order. The hwmon collector disambiguates multiple
+    // sensors/drives that share a class into distinct labels (e.g. three NVMe
+    // entries become "NVMe", "NVMe 2", "NVMe 3"), so they slip past its
+    // label-based dedup. Here we strip the trailing " N" suffix to recover the
+    // base category, keep only the FIRST (primary/"composite") sensor per
+    // category, and sort by a sensible priority: CPU → GPU → NVMe → WiFi →
+    // ACPI → …
+    let display = collapsed_temperatures(temps);
     // Each bar takes 2 rows (data + a gap); fit as many as the panel allows.
     let bar_width = inner.width.saturating_sub(15).max(3);
     let unit = if app.temp_celsius { "°C" } else { "°F" };
@@ -710,8 +769,8 @@ fn render_temperatures(f: &mut Frame, app: &App, area: Rect, focused: bool) {
 
     // 1 leading pad + 2 rows per sensor.
     let max_sensors = inner.height.saturating_sub(1) as usize / 2;
-    for s in temps.iter().take(max_sensors) {
-        let label_padded = truncate_str(&s.label, 6).to_string();
+    for (s, base_label) in display.iter().take(max_sensors) {
+        let label_padded = truncate_str(base_label, 6).to_string();
         let temp_val = s.temp_c as f64;
         let display = if app.temp_celsius {
             temp_val
@@ -1016,5 +1075,53 @@ mod tests {
         assert_eq!(s.chars().count(), 20);
         assert!(s.starts_with("Discharging"));
         assert!(s.ends_with("3.2 W"));
+    }
+
+    // ── Temperature collapse / reorder (fix #3) ──
+    fn sensor(label: &str, temp_c: f32) -> SensorReading {
+        SensorReading {
+            label: label.to_string(),
+            temp_c,
+            history: std::collections::VecDeque::new(),
+        }
+    }
+
+    #[test]
+    fn temp_base_category_strips_numeric_suffix() {
+        assert_eq!(temp_base_category("NVMe"), "NVMe");
+        assert_eq!(temp_base_category("NVMe 2"), "NVMe");
+        assert_eq!(temp_base_category("NVMe 3"), "NVMe");
+        assert_eq!(temp_base_category("GPU"), "GPU");
+        assert_eq!(temp_base_category("CPU"), "CPU");
+        // Non-numeric suffixes are NOT stripped (e.g. a label ending in a word).
+        assert_eq!(temp_base_category("Composite"), "Composite");
+        // A trailing number IS stripped even after words ("Package id 0" -> "Package id").
+        assert_eq!(temp_base_category("Package id 0"), "Package id");
+        assert_eq!(temp_base_category(""), "");
+    }
+
+    #[test]
+    fn collapsed_temperatures_dedups_and_keeps_primary() {
+        // Three NVMe entries collapse to a single "NVMe" keeping the FIRST
+        // (primary/composite) sensor — not the warmest.
+        let temps = vec![
+            sensor("WiFi", 45.0),
+            sensor("GPU", 50.0),
+            sensor("CPU", 60.0),
+            sensor("NVMe", 40.0), // primary — must be kept
+            sensor("NVMe 2", 70.0),
+            sensor("NVMe 3", 55.0),
+            sensor("ACPI", 35.0),
+        ];
+        let out = collapsed_temperatures(&temps);
+        let labels: Vec<&str> = out.iter().map(|(_, b)| b.as_str()).collect();
+        assert_eq!(labels, vec!["CPU", "GPU", "NVMe", "WiFi", "ACPI"]);
+        // The kept NVMe is the primary (40.0), not the warmest (70.0).
+        let nvme = out
+            .iter()
+            .find(|(_, b)| b == "NVMe")
+            .map(|(s, _)| s.temp_c)
+            .unwrap();
+        assert_eq!(nvme, 40.0);
     }
 }

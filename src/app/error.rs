@@ -6,7 +6,6 @@
 
 /// Unified error type for all SysVibe operations.
 #[derive(Debug, thiserror::Error)]
-#[allow(dead_code)]
 pub enum AppError {
     /// An I/O error (file not found, permission denied, etc.).
     #[error("I/O error: {0}")]
@@ -27,22 +26,13 @@ pub enum AppError {
     #[error("Config error: {0}")]
     Config(String),
 
-    /// Theme loading errors.
-    #[error("Theme error: {0}")]
-    Theme(String),
-
     /// Data collection / parsing errors (e.g., malformed sysfs output).
     #[error("Data error: {0}")]
     Data(String),
-
-    /// A generic / fallback error.
-    #[error("{0}")]
-    Other(String),
 }
 
 impl AppError {
     /// Create a command error from a failed process.
-    #[allow(dead_code)]
     pub fn command(cmd: &'static str, reason: impl Into<String>) -> Self {
         Self::Command {
             command: cmd,
@@ -51,19 +41,18 @@ impl AppError {
     }
 
     /// Create an export error.
-    #[allow(dead_code)]
     pub fn export(msg: impl Into<String>) -> Self {
         Self::Export(msg.into())
     }
 
     /// Create a config error.
-    #[allow(dead_code)]
+    #[allow(dead_code)] // intentionally retained as public API (no call sites yet)
     pub fn config(msg: impl Into<String>) -> Self {
         Self::Config(msg.into())
     }
 
     /// Create a data parsing error.
-    #[allow(dead_code)]
+    #[allow(dead_code)] // intentionally retained as public API (no call sites yet)
     pub fn data(msg: impl Into<String>) -> Self {
         Self::Data(msg.into())
     }

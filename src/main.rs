@@ -357,7 +357,7 @@ fn spawn_collector_tasks(
             );
             log_collector.set_scope(scope);
             if log_reset
-                .swap(false, std::sync::atomic::Ordering::Relaxed)
+                .swap(false, std::sync::atomic::Ordering::Acquire)
             {
                 log_collector.reset();
             }

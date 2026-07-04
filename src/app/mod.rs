@@ -841,7 +841,7 @@ impl App {
         self.log_scope
             .store(next.as_u8(), std::sync::atomic::Ordering::Relaxed);
         self.log_reset
-            .store(true, std::sync::atomic::Ordering::Relaxed);
+            .store(true, std::sync::atomic::Ordering::Release);
         self.log_collector.set_scope(next);
         self.set_status(format!("Log scope: {}", next.label()));
         // Return to following so the re-fetched tail is visible.
@@ -855,7 +855,7 @@ impl App {
 
     pub fn toggle_tree_view(&mut self) {
         self.tree_view = !self.tree_view;
-        self.tree_dirty = true;
+        self.set_tree_dirty();
         // Reset selection when toggling view mode
         self.proc_table_state.select(Some(0));
         let state = if self.tree_view { "Tree" } else { "Flat" };
@@ -877,7 +877,6 @@ impl App {
     }
 
     /// Mark that tree cache needs rebuild.
-    #[allow(dead_code)]
     pub fn set_tree_dirty(&mut self) {
         self.tree_dirty = true;
     }
@@ -1183,7 +1182,7 @@ impl App {
             }
 
             self.filtered_processes_dirty = true;
-            self.tree_dirty = true;
+            self.set_tree_dirty();
             self.processes_initialized = true;
         }
     }
@@ -1197,14 +1196,14 @@ impl App {
             self.sort_dir,
         );
         self.filtered_processes_dirty = true;
-        self.tree_dirty = true;
+        self.set_tree_dirty();
     }
 
     /// Toggle showing only space-marked processes.
     pub fn toggle_show_selected_only(&mut self) {
         self.show_selected_only = !self.show_selected_only;
         self.filtered_processes_dirty = true;
-        self.tree_dirty = true;
+        self.set_tree_dirty();
         let state = if self.show_selected_only {
             "Marked only"
         } else {
@@ -1220,7 +1219,7 @@ impl App {
     /// Force the filtered-process + tree caches to rebuild on the next render.
     pub fn mark_filtered_dirty(&mut self) {
         self.filtered_processes_dirty = true;
-        self.tree_dirty = true;
+        self.set_tree_dirty();
     }
 
     pub fn has_pending_processes(&self) -> bool {
@@ -1718,11 +1717,6 @@ impl App {
             self.cached_partitions = collectors::disk::enumerate_partitions(&self.sys, &disks);
             self.last_partition_refresh = now;
         }
-    }
-
-    #[allow(dead_code)]
-    pub fn needs_refresh(&self, interval_ms: u64) -> bool {
-        self.last_refresh.elapsed().as_millis() >= interval_ms as u128
     }
 
     // ═════════════════════════════════════════════════════════════════

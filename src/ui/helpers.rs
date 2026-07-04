@@ -146,10 +146,6 @@ pub fn usage_bar_spans(width: u16, ratio: f64, color: Color) -> Vec<Span<'static
 
 /// Convenience wrapper returning the bar as a single `Line`.
 #[allow(dead_code)]
-pub fn usage_bar(width: u16, ratio: f64, color: Color) -> Line<'static> {
-    Line::from(usage_bar_spans(width, ratio, color))
-}
-
 /// Fractional block glyphs for sub-cell-smooth bars: `▏▎▍▌▋▊▉█`.
 const FRAC_BLOCKS: [&str; 8] = [
     "\u{258F}", "\u{258E}", "\u{258D}", "\u{258C}", "\u{258B}", "\u{258A}", "\u{2589}", "\u{2588}",
@@ -372,18 +368,6 @@ pub fn format_bytes(bytes: u64) -> String {
     } else {
         format!("{} B", bytes)
     }
-}
-
-/// Create a compact key-value span pair for inline use.
-#[allow(dead_code)]
-pub fn kv_span(key: &str, val: &str, key_color: Color) -> Span<'static> {
-    Span::styled(format!("{}:{}", key, val), Style::default().fg(key_color))
-}
-
-/// Create a styled value span.
-#[allow(dead_code)]
-pub fn val_span(val: &str, color: Color) -> Span<'static> {
-    Span::styled(val.to_string(), Style::default().fg(color))
 }
 
 // ═══════════════════════════════════════════════════════════════════════

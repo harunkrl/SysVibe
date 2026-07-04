@@ -18,7 +18,7 @@ use crate::app::App;
 
 /// Separator dot between keybinds.
 fn sep() -> Span<'static> {
-    Span::styled("  ·  ", Style::default().fg(surface1()))
+    Span::styled(" · ", Style::default().fg(surface1()))
 }
 
 /// Styled key label: `[key]` in OVERLAY.
@@ -32,6 +32,21 @@ fn key_desc(key: &str, description: &str) -> Vec<Span<'static>> {
         key_label(key),
         Span::styled(format!(" {}", description), Style::default().fg(subtext())),
     ]
+}
+
+/// Append the universal, always-available keybindings to `s`. These work in
+/// every tab, so showing them once per tab keeps the hint line accurate without
+/// repeating the full set in each arm: switch tabs (`1`-`6` / `Tab`), open the
+/// command line (`:`), cycle theme (`T`), and quit (`q`).
+fn push_universal(s: &mut Vec<Span<'static>>) {
+    s.push(sep());
+    s.extend(key_desc("1-6", "Tab"));
+    s.push(sep());
+    s.extend(key_desc(":", "Cmd"));
+    s.push(sep());
+    s.extend(key_desc("T", "Theme"));
+    s.push(sep());
+    s.extend(key_desc("q", "Quit"));
 }
 
 /// Render the footer bar with mode-appropriate keybindings, status, and alerts.
@@ -87,58 +102,39 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
         AppMode::Normal => {
             let mut s = Vec::new();
 
-            // Contextual keybinds based on current tab
+            // Contextual keybinds based on current tab, each followed by the
+            // universal suffix (tab switch / command / theme / quit).
             match app.tab {
                 AppTab::Dashboard => {
                     s.extend(key_desc("h", "Help"));
                     s.push(sep());
                     s.extend(key_desc("g", "CPU mode"));
-                    s.push(sep());
-                    s.extend(key_desc("q", "Quit"));
+                    push_universal(&mut s);
                 }
                 AppTab::System | AppTab::Hardware => {
                     s.extend(key_desc("h", "Help"));
                     s.push(sep());
-                    s.extend(key_desc("t", "Temp unit"));
+                    s.extend(key_desc("t", "Temp"));
                     s.push(sep());
-                    s.extend(key_desc("q", "Quit"));
+                    s.extend(key_desc("g", "CPU mode"));
                     s.push(sep());
-                    s.extend(key_desc("[/]", "Focus panel"));
+                    s.extend(key_desc("[ ]", "Panel"));
+                    push_universal(&mut s);
                 }
                 AppTab::Processes => {
+                    // Dense tab: show the primary process-management actions; the
+                    // full key set (incl. Space mark, r refresh, S dir, m marked)
+                    // is documented on the Help screen (h).
                     s.extend(key_desc("h", "Help"));
                     s.push(sep());
                     s.extend(key_desc("/", "Filter"));
                     s.push(sep());
                     s.extend(key_desc("s", "Sort"));
                     s.push(sep());
-                    s.extend(key_desc("S", "Dir"));
-                    s.push(sep());
                     s.extend(key_desc("p", if app.tree_view() { "Flat" } else { "Tree" }));
                     s.push(sep());
-                    s.extend(key_desc(
-                        "g",
-                        if app.cpu_normalized() {
-                            "Norm"
-                        } else {
-                            "Per-Core"
-                        },
-                    ));
-                    s.push(sep());
-                    s.extend(key_desc("r", "Refresh"));
-                    s.push(sep());
-                    s.extend(key_desc(
-                        "m",
-                        if app.show_selected_only() {
-                            "All"
-                        } else {
-                            "Marked"
-                        },
-                    ));
-                    s.push(sep());
                     s.extend(key_desc("x", "Kill"));
-                    s.push(sep());
-                    s.extend(key_desc("q", "Quit"));
+                    push_universal(&mut s);
 
                     // Show filter state if active
                     if !app.filter_input().is_empty() {
@@ -155,49 +151,33 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
                     }
                 }
                 AppTab::Logs => {
+                    // Level toggles collapsed into one hint (each letter toggles
+                    // its level). Scope (s) and Refresh (r) also work but are
+                    // omitted to keep the line within width; documented in Help.
                     s.extend(key_desc("h", "Help"));
                     s.push(sep());
                     s.extend(key_desc("/", "Filter"));
                     s.push(sep());
                     s.extend(key_desc(
                         "f",
-                        if app.log_follow() {
-                            "Follow ✓"
-                        } else {
-                            "Follow"
-                        },
+                        if app.log_follow() { "Follow ✓" } else { "Follow" },
                     ));
                     s.push(sep());
-                    s.extend(key_desc("↑↓", "Scroll"));
-                    s.push(sep());
-                    s.extend(key_desc("r", "Refresh"));
-                    s.push(sep());
-                    s.extend(key_desc("s", "Scope"));
-                    s.push(sep());
-                    s.extend(key_desc("e", "Err"));
-                    s.push(sep());
-                    s.extend(key_desc("w", "Wrn"));
-                    s.push(sep());
-                    s.extend(key_desc("i", "Inf"));
-                    s.push(sep());
-                    s.extend(key_desc("n", "Ntc"));
-                    s.push(sep());
-                    s.extend(key_desc("d", "Dbg"));
-                    s.push(sep());
-                    s.extend(key_desc("q", "Quit"));
+                    s.extend(key_desc("ewind", "Levels"));
+                    push_universal(&mut s);
                 }
                 AppTab::Gpu => {
                     s.extend(key_desc("h", "Help"));
                     s.push(sep());
-                    s.extend(key_desc("t", "Temp unit"));
+                    s.extend(key_desc("t", "Temp"));
                     s.push(sep());
-                    s.extend(key_desc("↑/↓", "Scroll GPU"));
-                    s.push(sep());
-                    s.extend(key_desc("q", "Quit"));
+                    s.extend(key_desc("↑/↓", "Scroll"));
+                    push_universal(&mut s);
                 }
             }
 
-            // Right-aligned process count for Processes tab
+            // Right-aligned process count for Processes tab (kept compact so
+            // it shares the line with the hints on wide terminals).
             if app.tab == AppTab::Processes {
                 let count = app.total_process_count();
                 s.push(Span::styled("   ", Style::default()));
@@ -207,11 +187,6 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
                 ));
             }
 
-            s.push(Span::styled("   ", Style::default()));
-            s.push(Span::styled(
-                format!("SysVibe v{}", env!("CARGO_PKG_VERSION")),
-                Style::default().fg(surface2()),
-            ));
             s
         }
         AppMode::Help => vec![Span::styled(
@@ -256,7 +231,7 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
     if *app.mode() == AppMode::Normal {
         let cols = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Min(0), Constraint::Length(14)])
+            .constraints([Constraint::Min(0), Constraint::Length(12)])
             .split(area);
         f.render_widget(Paragraph::new(Line::from(spans)), cols[0]);
         // Dot pager: one hollow circle per tab (○), the active tab filled (●).
@@ -290,5 +265,22 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
         );
     } else {
         f.render_widget(Paragraph::new(Line::from(spans)), area);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn universal_suffix_surfaces_tab_cmd_theme_quit() {
+        let mut s: Vec<Span<'static>> = Vec::new();
+        push_universal(&mut s);
+        let txt: String = s.iter().map(|sp| sp.content.as_ref()).collect();
+        assert!(txt.contains("1-6"), "tab numbers must surface: {txt}");
+        assert!(txt.contains("Tab"), "tab key must surface: {txt}");
+        assert!(txt.contains("Cmd"), "command mode must surface: {txt}");
+        assert!(txt.contains("Theme"), "theme must surface: {txt}");
+        assert!(txt.contains("Quit"), "quit must surface: {txt}");
     }
 }

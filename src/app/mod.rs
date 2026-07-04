@@ -886,10 +886,6 @@ impl App {
         self.tree_dirty
     }
 
-    pub fn cpu_normalized(&self) -> bool {
-        self.cpu_normalized
-    }
-
     /// Convert a raw per-core CPU% to the value shown in the process table:
     /// divided by the core count when normalized mode is on, unchanged when
     /// per-core mode is on. Process entries always store the raw value so the

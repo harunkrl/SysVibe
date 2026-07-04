@@ -23,6 +23,42 @@ pub fn collect_gpu_stats() -> Vec<GpuStats> {
     stats
 }
 
+/// Cheap, fast primary-GPU usage sample for the 1 Hz Dashboard trend. Reads
+/// only the busy-percent sysfs file of the FIRST AMD/Intel render node — a
+/// single file read, safe to call every tick. Returns `None` for NVIDIA
+/// (nvidia-smi is too heavy to spawn per-second); NVIDIA's trend advances at
+/// the 5 s sensor tier via [`set_gpu_stats`] instead, so this is a no-op there.
+pub fn sample_usage_fast() -> Option<f32> {
+    use std::fs;
+    let render_base = std::path::Path::new("/sys/class/drm");
+    let entries = fs::read_dir(render_base).ok()?;
+    // Scan card*/device for an AMD (0x1002) or Intel GPU and read its
+    // gpu_busy_percent. Match the detection order in collect_amd/intel_stats.
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if !name.starts_with("card") || name.contains('-') {
+            continue;
+        }
+        let device = entry.path().join("device");
+        let vendor = fs::read_to_string(device.join("vendor"))
+            .ok()
+            .map(|s| s.trim().to_string());
+        let is_amd = vendor.as_deref() == Some("0x1002");
+        let is_intel = matches!(vendor.as_deref(), Some("0x8086" | "0x8087"));
+        if !is_amd && !is_intel {
+            continue;
+        }
+        // AMD: card*/device/gpu_busy_percent. Intel: card*/gpu_busy_percent
+        // (i915) — try both.
+        let busy = fs::read_to_string(device.join("gpu_busy_percent"))
+            .or_else(|_| fs::read_to_string(entry.path().join("gpu_busy_percent")))
+            .ok()?;
+        return busy.trim().parse::<f32>().ok();
+    }
+    None
+}
+
 /// Collect NVIDIA GPU stats via `nvidia-smi`.
 fn collect_nvidia_stats() -> Vec<GpuStats> {
     // Append `uuid` to the query so per-process data (from

@@ -1105,13 +1105,25 @@ impl App {
     }
 
     pub fn set_gpu_stats(&mut self, stats: Vec<GpuStats>) {
-        // Advance the primary-GPU usage trend whenever fresh stats arrive (the
-        // GPU collector's cadence — typically the 5 s sensor tier). Track the
-        // PRIMARY GPU (first) only, matching the hero card and the dashboard
-        // panel. When there is no GPU we leave the history untouched rather
-        // than pushing a 0.
+        // Advance the primary-GPU usage trend. The fast (1 Hz) sysfs sampler in
+        // Tier 1 (`refresh_data`) already feeds the trend for AMD/Intel GPUs —
+        // a single file read per tick. NVIDIA has no cheap per-tick source
+        // (nvidia-smi spawns a process), so its trend advances HERE at the
+        // 5 s sensor cadence instead. To avoid double-pushing for AMD/Intel,
+        // only push when the primary GPU is NVIDIA (or the vendor is unknown,
+        // which can't be sampled via sysfs).
         if let Some(primary) = stats.first() {
-            helpers::push_history(&mut self.gpu_history, primary.usage_pct.round() as u64);
+            use crate::app::state::GpuVendor;
+            match primary.vendor {
+                GpuVendor::Nvidia | GpuVendor::Unknown => {
+                    helpers::push_history(
+                        &mut self.gpu_history,
+                        primary.usage_pct.round() as u64,
+                    );
+                }
+                // AMD/Intel: trend fed by the 1 Hz sysfs sampler in Tier 1.
+                GpuVendor::Amd | GpuVendor::Intel => {}
+            }
         }
         self.gpu_stats = stats;
     }
@@ -1643,6 +1655,13 @@ impl App {
             &mut self.cpu_freq_max_mhz,
         );
         self.sys.refresh_memory();
+
+        // GPU usage trend (1 Hz, matching the CPU trend). For AMD/Intel this is
+        // a single cheap sysfs read per tick; NVIDIA returns None here and its
+        // trend advances at the 5 s sensor tier inside set_gpu_stats instead.
+        if let Some(usage) = collectors::gpu::sample_usage_fast() {
+            helpers::push_history(&mut self.gpu_history, usage.round() as u64);
+        }
 
         // ══ Tier 2: Network + Disk I/O (every tick, cheap deltas) ═
         self.networks.refresh(false);

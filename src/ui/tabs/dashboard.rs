@@ -291,39 +291,60 @@ fn render_hero_row(f: &mut Frame, app: &App, area: Rect, nf: bool) {
         alert: false,
     });
 
-    // Temperature (max, if sensors present)
+    // Temperature: stacked CPU + GPU readings ("cpu - XX°" / "gpu - YY°")
+    // rather than a single max value. Falls back to the max sensor when a
+    // CPU/GPU reading can't be identified, so the card is never empty.
     let temps = app.temperatures();
-    let max_t = temps
-        .iter()
-        .map(|s| s.temp_c)
-        .fold(None::<f32>, |a, v| Some(a.map_or(v, |x| x.max(v))));
-    if let Some(mt) = max_t {
-        let disp = if app.temp_celsius {
-            mt
-        } else {
-            mt * 9.0 / 5.0 + 32.0
+    let find_temp = |needles: &[&str]| -> Option<f32> {
+        temps
+            .iter()
+            .find(|s| {
+                let l = s.label.to_ascii_lowercase();
+                needles.iter().any(|n| l.contains(n))
+            })
+            .map(|s| s.temp_c)
+    };
+    let cpu_t = find_temp(&["cpu", "package", "tctl", "core"]);
+    let gpu_t = find_temp(&["gpu", "graphics"])
+        .or_else(|| app.gpu_stats().first().map(|g| g.temperature));
+    let conv = |t: f32| if app.temp_celsius { t } else { t * 9.0 / 5.0 + 32.0 };
+    let unit = if app.temp_celsius { "°C" } else { "°F" };
+
+    if cpu_t.is_some() || gpu_t.is_some() || !temps.is_empty() {
+        // Display value: stacked lines (cpu / gpu), or the max sensor fallback.
+        let value = match (cpu_t, gpu_t) {
+            (Some(c), Some(g)) => {
+                format!("cpu - {:.0}{}\ngpu - {:.0}{}", conv(c), unit, conv(g), unit)
+            }
+            (Some(c), None) => format!("cpu - {:.0}{}", conv(c), unit),
+            (None, Some(g)) => format!("gpu - {:.0}{}", conv(g), unit),
+            (None, None) => {
+                // No CPU/GPU label — show the hottest sensor as a fallback.
+                let mt = temps.iter().map(|s| s.temp_c).fold(
+                    None::<f32>,
+                    |a, v| Some(a.map_or(v, |x| x.max(v))),
+                );
+                mt.map(|t| format!("{:.0}{}", conv(t), unit))
+                    .unwrap_or_default()
+            }
         };
-        let unit = if app.temp_celsius {
-            "\u{00B0}C"
-        } else {
-            "\u{00B0}F"
-        };
+        // Sub line: sensor count + the max (for alert colouring).
+        let max_t = temps
+            .iter()
+            .map(|s| s.temp_c)
+            .fold(None::<f32>, |a, v| Some(a.map_or(v, |x| x.max(v))));
         cards.push(HeroCard {
             label: "TEMP",
-            icon: if nf {
-                icons::TEMP
-            } else {
-                icons::fallback::TEMP
-            },
-            value: format!("{:.0}{}", disp, unit),
+            icon: if nf { icons::TEMP } else { icons::fallback::TEMP },
+            value,
             sub: format!("{} sensors", temps.len()),
-            color: temp_color(mt),
+            color: max_t.map(temp_color).unwrap_or_else(subtext),
             spark: None,
             ratio: None,
             alert: app
                 .config()
                 .temperature_alert_threshold
-                .map(|t| mt >= t)
+                .and_then(|t| max_t.map(|mt| mt >= t))
                 .unwrap_or(false),
         });
     }
@@ -411,12 +432,15 @@ fn render_stat_card(f: &mut Frame, area: Rect, card: &HeroCard) {
     }
     lines.push(Line::from(r0));
 
-    // Row 1: big value
+    // Row 1: big value (may span multiple lines when the value contains '\n',
+    // e.g. the TEMP card's stacked "cpu - XX°" / "gpu - YY°" readings).
     if inner.height >= 3 {
-        lines.push(Line::from(Span::styled(
-            card.value.clone(),
-            Style::default().fg(card.color).add_modifier(Modifier::BOLD),
-        )));
+        for vline in card.value.split('\n') {
+            lines.push(Line::from(Span::styled(
+                vline.to_string(),
+                Style::default().fg(card.color).add_modifier(Modifier::BOLD),
+            )));
+        }
     }
 
     // Row 2: gradient meter (only when the card carries a ratio).
@@ -617,10 +641,40 @@ fn render_cpu_freq(f: &mut Frame, area: Rect, app: &App) {
     let mn = app.cpu_freq_min_mhz;
     let h = area.height as usize;
 
-    let current = Line::from(vec![Span::styled(
-        ghz(cur),
-        Style::default().fg(green()).add_modifier(Modifier::BOLD),
-    )]);
+    // CPU temperature, shown just LEFT of the current frequency on the headline
+    // row. Matched from the temperature sensors by label ("CPU", "Package",
+    // "Core", or AMD's "Tctl"). Honours the °C/°F toggle.
+    let cpu_temp = app
+        .temperatures()
+        .iter()
+        .find(|s| {
+            let l = s.label.to_ascii_lowercase();
+            l.contains("cpu")
+                || l.contains("package")
+                || l.contains("tctl")
+                || l.contains("core")
+        })
+        .map(|s| s.temp_c);
+    let temp_span = |t: f32| {
+        let disp = if app.temp_celsius {
+            t
+        } else {
+            t * 9.0 / 5.0 + 32.0
+        };
+        Span::styled(format!("{:.0}°  ", disp), Style::default().fg(temp_color(t)))
+    };
+
+    let current = Line::from({
+        let mut spans: Vec<Span> = Vec::new();
+        if let Some(t) = cpu_temp {
+            spans.push(temp_span(t));
+        }
+        spans.push(Span::styled(
+            ghz(cur),
+            Style::default().fg(green()).add_modifier(Modifier::BOLD),
+        ));
+        spans
+    });
 
     let lines: Vec<Line> = if h >= 3 {
         vec![
@@ -649,10 +703,7 @@ fn render_cpu_freq(f: &mut Frame, area: Rect, app: &App) {
         vec![current]
     };
 
-    f.render_widget(
-        Paragraph::new(lines).alignment(Alignment::Right),
-        area,
-    );
+    f.render_widget(Paragraph::new(lines).alignment(Alignment::Right), area);
 }
 
 /// X-axis start label for the CPU history window (e.g. "-60s", "-2m").

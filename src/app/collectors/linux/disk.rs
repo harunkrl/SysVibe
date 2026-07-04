@@ -207,8 +207,7 @@ fn parent_block_dev(partition_dev: &str) -> Option<String> {
     // Simplest robust rule: trim trailing digits only if the prefix is a
     // single lowercase-letter run with NO inner digits (classic sdX base).
     let trimmed = partition_dev.trim_end_matches(|c: char| c.is_ascii_digit());
-    let looks_like_sd_base = !trimmed.is_empty()
-        && trimmed.chars().all(|c| c.is_ascii_lowercase());
+    let looks_like_sd_base = !trimmed.is_empty() && trimmed.chars().all(|c| c.is_ascii_lowercase());
     if looks_like_sd_base && trimmed != partition_dev {
         return Some(trimmed.to_string());
     }

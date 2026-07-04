@@ -5,7 +5,7 @@
 //! for sparkline rendering.
 
 use super::super::helpers::push_history;
-use super::super::state::{HISTORY_LEN, NetworkStats};
+use super::super::state::{NetworkStats, HISTORY_LEN};
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::net::UdpSocket;
@@ -119,9 +119,15 @@ mod tests {
 
     #[test]
     fn validate_valid_ipv4() {
-        assert_eq!(validate_public_ip("203.0.113.42"), Some("203.0.113.42".into()));
+        assert_eq!(
+            validate_public_ip("203.0.113.42"),
+            Some("203.0.113.42".into())
+        );
         // Trims surrounding whitespace (curl output may have a newline).
-        assert_eq!(validate_public_ip("  203.0.113.42\n"), Some("203.0.113.42".into()));
+        assert_eq!(
+            validate_public_ip("  203.0.113.42\n"),
+            Some("203.0.113.42".into())
+        );
     }
 
     #[test]

@@ -371,7 +371,10 @@ mod tests {
         // algo, which is UTC-based — verify it parses to July.)
         let s = format_timestamp_us(1_751_366_000_000_000);
         assert!(s.starts_with("Jul"), "expected July, got: {s}");
-        assert!(s.len() == 15, "expected 'Mon DD HH:MM:SS' (15 chars), got: {s}");
+        assert!(
+            s.len() == 15,
+            "expected 'Mon DD HH:MM:SS' (15 chars), got: {s}"
+        );
     }
 
     #[test]
@@ -408,7 +411,10 @@ mod tests {
     #[test]
     fn detect_log_level_keywords() {
         assert_eq!(detect_log_level("Failed to start service"), LogLevel::Error);
-        assert_eq!(detect_log_level("temperature above threshold: WARNING"), LogLevel::Warning);
+        assert_eq!(
+            detect_log_level("temperature above threshold: WARNING"),
+            LogLevel::Warning
+        );
         assert_eq!(detect_log_level("a debug trace line"), LogLevel::Debug);
         assert_eq!(detect_log_level("something happened"), LogLevel::Info); // default
     }

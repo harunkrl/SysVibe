@@ -14,6 +14,7 @@ use sysinfo::{Components, Networks, System};
 
 use ratatui::widgets::TableState;
 
+use crate::app::state;
 use crate::app::state::{
     AppMode, AppTab, BatteryStatus, CpuDetails, DiskIoStats, DiskPartitionInfo, FanReading,
     GpuInfo, GpuStats, HardwareData, LogEntry, LogLevel, LogLevelFilter, MotherboardInfo,
@@ -21,7 +22,6 @@ use crate::app::state::{
     SortDir, StorageDevice, SystemInfo,
 };
 use crate::app::{Config, HISTORY_LEN};
-use crate::app::state as state;
 
 /// Generate a smooth, realistic sample history (used for sparklines/graphs).
 /// Sum of sines at different frequencies (no `.max(0)` rectification, so no
@@ -64,12 +64,42 @@ fn sample_log_entries() -> VecDeque<LogEntry> {
     };
     let base = 1_751_366_000_000_000; // arbitrary fixed epoch (us)
     let mut dq = VecDeque::new();
-    dq.push_back(mk(LogLevel::Info, base, "systemd", "Started Session 12 of user lenovo."));
-    dq.push_back(mk(LogLevel::Notice, base + 60_000_000, "NetworkManager", "device (wlp0s20f3): Activation successful"));
-    dq.push_back(mk(LogLevel::Warning, base + 120_000_000, "kernel", "thermal thermal_zone0: temperature above threshold"));
-    dq.push_back(mk(LogLevel::Error, base + 180_000_000, "audit", "AVC apparmor=\"DENIED\" operation=\"capable\""));
-    dq.push_back(mk(LogLevel::Info, base + 240_000_000, "kernel", "EXT4-fs (nvme0n1p2): mounted filesystem with ordered data mode."));
-    dq.push_back(mk(LogLevel::Warning, base + 300_000_000, "fwupd", "Failed to load SMBIOS table 0x7"));
+    dq.push_back(mk(
+        LogLevel::Info,
+        base,
+        "systemd",
+        "Started Session 12 of user lenovo.",
+    ));
+    dq.push_back(mk(
+        LogLevel::Notice,
+        base + 60_000_000,
+        "NetworkManager",
+        "device (wlp0s20f3): Activation successful",
+    ));
+    dq.push_back(mk(
+        LogLevel::Warning,
+        base + 120_000_000,
+        "kernel",
+        "thermal thermal_zone0: temperature above threshold",
+    ));
+    dq.push_back(mk(
+        LogLevel::Error,
+        base + 180_000_000,
+        "audit",
+        "AVC apparmor=\"DENIED\" operation=\"capable\"",
+    ));
+    dq.push_back(mk(
+        LogLevel::Info,
+        base + 240_000_000,
+        "kernel",
+        "EXT4-fs (nvme0n1p2): mounted filesystem with ordered data mode.",
+    ));
+    dq.push_back(mk(
+        LogLevel::Warning,
+        base + 300_000_000,
+        "fwupd",
+        "Failed to load SMBIOS table 0x7",
+    ));
     dq
 }
 

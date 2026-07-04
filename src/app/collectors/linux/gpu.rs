@@ -6,7 +6,7 @@
 //!
 //! All collection is best-effort — gracefully fails if unsupported.
 
-use crate::app::state::GpuStats;
+use crate::app::state::{GpuStats, GpuVendor, VramKind};
 use std::fs;
 use std::process::Command;
 
@@ -75,6 +75,9 @@ fn collect_nvidia_stats() -> Vec<GpuStats> {
             power_w,
             fan_speed_pct,
             clock_mhz,
+            vram_kind: VramKind::Dedicated,
+            vendor: GpuVendor::Nvidia,
+            processes: Vec::new(),
         });
     }
 
@@ -193,6 +196,9 @@ fn collect_amd_stats() -> Vec<GpuStats> {
             power_w: None,
             fan_speed_pct: None,
             clock_mhz,
+            vram_kind: VramKind::Dedicated,
+            vendor: GpuVendor::Amd,
+            processes: Vec::new(),
         });
     }
 
@@ -326,6 +332,9 @@ fn collect_intel_stats() -> Vec<GpuStats> {
             power_w: None,
             fan_speed_pct: None,
             clock_mhz,
+            vram_kind: VramKind::Shared,
+            vendor: GpuVendor::Intel,
+            processes: Vec::new(),
         });
     }
 

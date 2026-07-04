@@ -2066,6 +2066,9 @@ impl App {
                 power_w: Some(132.0),
                 fan_speed_pct: Some(48.0),
                 clock_mhz: Some(1920),
+                vram_kind: crate::app::state::VramKind::Dedicated,
+                vendor: crate::app::state::GpuVendor::Nvidia,
+                processes: Vec::new(),
             }],
             gpu_scroll: 0,
             fans: vec![

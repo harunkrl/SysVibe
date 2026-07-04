@@ -323,6 +323,36 @@ pub enum LogLevel {
     Unknown,
 }
 
+/// Whether a GPU exposes dedicated VRAM or shares system RAM.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
+pub enum VramKind {
+    #[default]
+    Dedicated,
+    Shared,
+}
+
+
+/// GPU vendor, used to drive vendor-specific UI (e.g. NVIDIA process list).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
+pub enum GpuVendor {
+    Nvidia,
+    Amd,
+    Intel,
+    #[default]
+    Unknown,
+}
+
+
+/// A process using the GPU (NVIDIA-only data path via nvidia-smi).
+#[derive(Debug, Clone)]
+pub struct GpuProcess {
+    pub pid: u32,
+    pub name: String,
+    pub vram_mb: u64,
+}
+
 /// GPU usage and VRAM statistics.
 #[allow(dead_code)]
 #[derive(Debug, Clone, Default)]
@@ -335,6 +365,12 @@ pub struct GpuStats {
     pub power_w: Option<f32>,
     pub fan_speed_pct: Option<f32>,
     pub clock_mhz: Option<u32>,
+    /// Dedicated (discrete) vs shared (iGPU/APU) memory model.
+    pub vram_kind: VramKind,
+    /// Detected vendor.
+    pub vendor: GpuVendor,
+    /// Processes consuming the GPU (NVIDIA only; empty otherwise).
+    pub processes: Vec<GpuProcess>,
 }
 
 /// Log level filter mask (bitflags for toggleable filtering).
@@ -676,5 +712,33 @@ mod tests {
     fn test_app_mode_default() {
         let mode = AppMode::default();
         assert_eq!(mode, AppMode::Normal);
+    }
+
+    #[test]
+    fn gpu_stats_carries_new_fields() {
+        let g = GpuStats {
+            name: "x".into(),
+            usage_pct: 0.0,
+            vram_used_mb: 0,
+            vram_total_mb: 0,
+            temperature: 0.0,
+            power_w: None,
+            fan_speed_pct: None,
+            clock_mhz: None,
+            vram_kind: VramKind::Shared,
+            vendor: GpuVendor::Amd,
+            processes: Vec::new(),
+        };
+        assert_eq!(g.vram_kind, VramKind::Shared);
+        assert_eq!(g.vendor, GpuVendor::Amd);
+        assert!(g.processes.is_empty());
+    }
+
+    #[test]
+    fn vram_kind_and_vendor_are_copy() {
+        // Render code reads these out of a borrowed GpuStats without cloning.
+        fn _assert_copy<T: Copy>() {}
+        _assert_copy::<VramKind>();
+        _assert_copy::<GpuVendor>();
     }
 }

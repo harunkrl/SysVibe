@@ -8,7 +8,7 @@
 use std::fs;
 use std::process::Command;
 
-use crate::app::state::GpuStats;
+use crate::app::state::{GpuStats, GpuVendor, VramKind};
 
 /// Attempt to collect GPU stats on Android.
 /// Returns a vec of GpuStats (may be empty if no GPU data is accessible).
@@ -66,6 +66,9 @@ fn collect_adreno_stats() -> Option<Vec<GpuStats>> {
         power_w: None,
         fan_speed_pct: None,
         clock_mhz,
+        vram_kind: VramKind::Dedicated,
+        vendor: GpuVendor::Unknown,
+        processes: Vec::new(),
     }])
 }
 
@@ -128,6 +131,9 @@ fn collect_devfreq_stats() -> Option<Vec<GpuStats>> {
             power_w: None,
             fan_speed_pct: None,
             clock_mhz: cur_freq,
+            vram_kind: VramKind::Dedicated,
+            vendor: GpuVendor::Unknown,
+            processes: Vec::new(),
         }]);
     }
 

@@ -1,4 +1,4 @@
-//! SysVibe — Data collection modules.
+//! Vitalis — Data collection modules.
 //!
 //! Each sub-module gathers a specific category of system telemetry
 //! (CPU, network, disk, sensors, kernel logs).

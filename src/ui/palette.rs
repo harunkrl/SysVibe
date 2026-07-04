@@ -1,4 +1,4 @@
-//! SysVibe — Color palette (re-exported from theme system).
+//! Vitalis — Color palette (re-exported from theme system).
 //!
 //! For backwards compatibility, this module provides static color constants
 //! matching the Catppuccin Macchiato theme (the default).

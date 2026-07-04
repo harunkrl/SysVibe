@@ -1,4 +1,4 @@
-//! SysVibe — Event handling and key bindings.
+//! Vitalis — Event handling and key bindings.
 //!
 //! All keyboard and mouse input processing, organized by application mode.
 

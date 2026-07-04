@@ -1,4 +1,4 @@
-//! SysVibe — Sample data for the `svshot` preview tool (`preview` feature only).
+//! Vitalis — Sample data for the `svshot` preview tool (`preview` feature only).
 //!
 //! Builds an [`App`] populated with representative SAMPLE data, performing no
 //! collector I/O. Isolated here (out of `mod.rs`) so the ~400-line sample
@@ -445,7 +445,7 @@ impl super::App {
                 app: state::AppInfo {
                     version: env!("CARGO_PKG_VERSION").into(),
                     repo_url: env!("CARGO_PKG_REPOSITORY").into(),
-                    config_path: dirs::config_dir().map(|d| d.join("sysvibe/config.toml")).map(|p| p.to_string_lossy().to_string()),
+                    config_path: dirs::config_dir().map(|d| d.join("vitalis/config.toml")).map(|p| p.to_string_lossy().to_string()),
                     log_path: None,
                 },
             },

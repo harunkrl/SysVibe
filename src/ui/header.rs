@@ -1,4 +1,4 @@
-//! SysVibe — Header rendering.
+//! Vitalis — Header rendering.
 //!
 //! Title line (wordmark + clock) and a pill-shaped tab bar.
 //!
@@ -120,7 +120,7 @@ pub fn render_header(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled(
-                "SysVibe ",
+                "Vitalis ",
                 Style::default().fg(text()).add_modifier(Modifier::BOLD),
             ),
             Span::styled(

@@ -1,4 +1,4 @@
-//! SysVibe — Kernel log collection via journalctl (JSON) / dmesg.
+//! Vitalis — Kernel log collection via journalctl (JSON) / dmesg.
 
 use crate::app::state::{LogEntry, LogLevel, MAX_LOG_LINES};
 use std::collections::VecDeque;

@@ -1,4 +1,4 @@
-//! SysVibe — Main UI orchestration.
+//! Vitalis — Main UI orchestration.
 //!
 //! Exposes the single `draw` entry point that routes rendering
 //! to the appropriate tab module based on the application state.

@@ -1,4 +1,4 @@
-//! SysVibe — Process management: listing, sorting, filtering, kill.
+//! Vitalis — Process management: listing, sorting, filtering, kill.
 
 use super::error::{AppError, AppResult};
 use super::state::{ProcessEntry, SortBy, SortDir};

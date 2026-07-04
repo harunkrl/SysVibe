@@ -1,4 +1,4 @@
-//! SysVibe — Static hardware data collector.
+//! Vitalis — Static hardware data collector.
 //!
 //! Fetches deep hardware details **once** on startup using Linux SysFS,
 //! `/proc/meminfo`, and command-line tools (`lspci`, `lshw`).

@@ -1,4 +1,4 @@
-//! SysVibe — Braille sparkline rendering engine.
+//! Vitalis — Braille sparkline rendering engine.
 //!
 //! Provides graph types:
 //! - `braille_graph`: Two-line full sparkline for panels

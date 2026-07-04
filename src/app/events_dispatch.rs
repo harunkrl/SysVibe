@@ -1,4 +1,4 @@
-//! SysVibe — App::events_dispatch — Event dispatching — top-level key routing into the events module.
+//! Vitalis — App::events_dispatch — Event dispatching — top-level key routing into the events module.
 //!
 //! Split out of `app/mod.rs` for maintainability. All methods here are
 //! inherent methods on [`App`] (via `impl super::App`), so they keep direct

@@ -1,4 +1,4 @@
-//! SysVibe — Logs tab rendering.
+//! Vitalis — Logs tab rendering.
 
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},

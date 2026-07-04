@@ -1,4 +1,4 @@
-//! SysVibe — Android log collector.
+//! Vitalis — Android log collector.
 //!
 //! 3-layer fallback strategy:
 //!   1. `su -c "logcat -d -v time"` (root — full log access)

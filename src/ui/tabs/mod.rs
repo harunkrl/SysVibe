@@ -1,4 +1,4 @@
-//! SysVibe — Tab-specific UI rendering modules.
+//! Vitalis — Tab-specific UI rendering modules.
 
 pub mod dashboard;
 pub mod gpu;

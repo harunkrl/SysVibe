@@ -1,4 +1,4 @@
-//! SysVibe — Processes tab rendering.
+//! Vitalis — Processes tab rendering.
 //!
 //! Includes both flat list and hierarchical tree view (toggle with F5/p).
 

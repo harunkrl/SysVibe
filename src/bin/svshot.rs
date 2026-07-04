@@ -1,4 +1,4 @@
-//! svshot — render SysVibe tabs to SVG via the real `ui::draw` path and emit
+//! svshot — render Vitalis tabs to SVG via the real `ui::draw` path and emit
 //! an HTML gallery for side-by-side UI/UX review.
 //!
 //! Build & run: `cargo run --bin svshot --features preview`
@@ -10,11 +10,11 @@ use std::fs;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
 
-use sysvibe::app::state::AppTab;
-use sysvibe::app::App;
-use sysvibe::config::Config;
-use sysvibe::ui::palette;
-use sysvibe::ui::preview::render_app_to_svg;
+use vitalis::app::state::AppTab;
+use vitalis::app::App;
+use vitalis::config::Config;
+use vitalis::ui::palette;
+use vitalis::ui::preview::render_app_to_svg;
 
 const TABS: [(AppTab, &str); 6] = [
     (AppTab::Dashboard, "dashboard"),
@@ -121,7 +121,7 @@ fn panic_message(p: &Box<dyn std::any::Any + Send>) -> String {
 fn render_index_html(gallery: &[(String, String)], failures: &[(String, String)]) -> String {
     let mut html = String::from(
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n\
-         <title>SysVibe — Preview Gallery</title>\n<style>\n\
+         <title>Vitalis — Preview Gallery</title>\n<style>\n\
          body{background:#1e1e2e;color:#cdd6f4;font-family:system-ui,sans-serif;margin:24px}\n\
          h1{color:#cba6f7}\n\
          figure{margin:18px 0}\n\
@@ -131,7 +131,7 @@ fn render_index_html(gallery: &[(String, String)], failures: &[(String, String)]
          .fails h2{color:#f38ba8;margin:0 0 8px}\n\
          .fails li{color:#f9e2af;font-family:monospace;margin:4px 0}\n\
          .fail-reason{color:#a6adc8}\n\
-         </style>\n</head>\n<body>\n<h1>SysVibe — Preview Gallery</h1>\n",
+         </style>\n</head>\n<body>\n<h1>Vitalis — Preview Gallery</h1>\n",
     );
     if !failures.is_empty() {
         html.push_str("<div class=\"fails\"><h2>⚠ Render failures (panics)</h2><ul>\n");

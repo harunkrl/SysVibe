@@ -1,4 +1,4 @@
-//! SysVibe — Network I/O data collection.
+//! Vitalis — Network I/O data collection.
 //!
 //! Computes per-interface receive/transmit speeds, cumulative session
 //! totals, local IP resolution, and maintains rolling history buffers

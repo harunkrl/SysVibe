@@ -1,4 +1,4 @@
-//! SysVibe — Footer rendering.
+//! Vitalis — Footer rendering.
 //!
 //! Mode-aware keybinding hints and transient status messages.
 

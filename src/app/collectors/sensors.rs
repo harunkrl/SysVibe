@@ -1,4 +1,4 @@
-//! SysVibe — Temperature sensor and battery data collection.
+//! Vitalis — Temperature sensor and battery data collection.
 
 use crate::app::helpers;
 use crate::app::state::{FanReading, SensorReading, HISTORY_LEN};

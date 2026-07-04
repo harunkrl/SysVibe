@@ -1,4 +1,4 @@
-//! SysVibe — Android (Termux) platform-specific collectors.
+//! Vitalis — Android (Termux) platform-specific collectors.
 //!
 //! Each sub-module gathers data using Android-specific APIs and tools,
 //! with a 3-layer fallback strategy:

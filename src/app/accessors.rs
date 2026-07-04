@@ -1,4 +1,4 @@
-//! SysVibe — App::accessors — Public read-only accessors (data the UI renders).
+//! Vitalis — App::accessors — Public read-only accessors (data the UI renders).
 //!
 //! Split out of `app/mod.rs` for maintainability. All methods here are
 //! inherent methods on [`App`] (via `impl super::App`), so they keep direct
@@ -388,7 +388,7 @@ impl super::App {
                 version: env!("CARGO_PKG_VERSION").to_string(),
                 repo_url: env!("CARGO_PKG_REPOSITORY").to_string(),
                 config_path: dirs::config_dir()
-                    .map(|d| d.join("sysvibe/config.toml"))
+                    .map(|d| d.join("vitalis/config.toml"))
                     .filter(|p| p.exists())
                     .map(|p| p.to_string_lossy().to_string()),
                 log_path: None,

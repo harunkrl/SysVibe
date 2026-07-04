@@ -1,7 +1,7 @@
-//! SysVibe — Tests for the unified AppError type.
+//! Vitalis — Tests for the unified AppError type.
 
 use std::error::Error;
-use sysvibe::app::error::{AppError, AppResult};
+use vitalis::app::error::{AppError, AppResult};
 
 // ── Construction tests ──────────────────────────────────────────
 

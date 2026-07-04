@@ -1,9 +1,9 @@
-// Dev-only module (preview feature). Compiled into the main `sysvibe` bin
+// Dev-only module (preview feature). Compiled into the main `vitalis` bin
 // via `mod ui`, which never calls these functions — silence that expected
 // dead code so `cargo build --features preview` stays warning-free.
 #![allow(dead_code)]
 
-//! SysVibe — Preview rendering: converts a ratatui Buffer to SVG.
+//! Vitalis — Preview rendering: converts a ratatui Buffer to SVG.
 //!
 //! Gated behind the `preview` feature; used by the `svshot` dev tool.
 
@@ -117,7 +117,7 @@ pub fn buffer_to_svg(buffer: &Buffer) -> String {
 
 use crate::app::App;
 
-/// Render the live SysVibe UI for `app` at `width`×`height` to an SVG string,
+/// Render the live Vitalis UI for `app` at `width`×`height` to an SVG string,
 /// using a `TestBackend` (no terminal required). Uses the exact `ui::draw`
 /// code path — so the output is pixel-faithful to the real app.
 pub fn render_app_to_svg(app: &mut App, width: u16, height: u16) -> String {

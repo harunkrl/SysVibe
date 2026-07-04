@@ -1,4 +1,4 @@
-//! SysVibe — System tab rendering.
+//! Vitalis — System tab rendering.
 //!
 //! Displays static/slow-changing system info: OS, kernel, hostname,
 //! uptime, motherboard, static disk partitions, and battery health
@@ -227,7 +227,7 @@ fn identity_lines(app: &App, max_w: usize) -> Vec<Line<'static>> {
     lines.push(section_divider("About", max_w));
     lines.push(kv_line(
         "App",
-        &format!("SysVibe v{}", info.app.version),
+        &format!("Vitalis v{}", info.app.version),
         peach(),
     ));
     lines.push(kv_line("Repo", &info.app.repo_url, sky()));

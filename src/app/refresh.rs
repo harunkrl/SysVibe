@@ -1,4 +1,4 @@
-//! SysVibe — App::refresh — Heavy tiered data refresh (CPU/memory/processes/sensors/GPU/disk).
+//! Vitalis — App::refresh — Heavy tiered data refresh (CPU/memory/processes/sensors/GPU/disk).
 //!
 //! Split out of `app/mod.rs` for maintainability. All methods here are
 //! inherent methods on [`App`] (via `impl super::App`), so they keep direct

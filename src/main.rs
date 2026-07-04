@@ -1,4 +1,4 @@
-//! SysVibe — A visually striking system monitor for the terminal.
+//! Vitalis — A visually striking system monitor for the terminal.
 //!
 //! Entry point that sets up the terminal environment and runs the main
 //! event loop using an asynchronous architecture:
@@ -101,7 +101,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         match config::Config::generate_default_file() {
             Ok(path) => {
                 println!("✓ Default config written to: {}", path.display());
-                println!("  Edit this file to customize SysVibe.");
+                println!("  Edit this file to customize Vitalis.");
             }
             Err(e) => eprintln!("Error: {}", e),
         }
@@ -124,17 +124,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("  {} — (failed to load)", name);
             }
         }
-        println!("\nCustom themes can be placed in ~/.config/sysvibe/themes/<name>.toml");
+        println!("\nCustom themes can be placed in ~/.config/vitalis/themes/<name>.toml");
         return Ok(());
     }
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!(
-            "SysVibe v{} — A visually striking system monitor TUI",
+            "Vitalis v{} — A visually striking system monitor TUI",
             env!("CARGO_PKG_VERSION")
         );
         println!();
         println!("USAGE:");
-        println!("  sysvibe [OPTIONS]");
+        println!("  vitalis [OPTIONS]");
         println!();
         println!("OPTIONS:");
         println!("  --init-config      Generate default config file");

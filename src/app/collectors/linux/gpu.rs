@@ -1,4 +1,4 @@
-//! SysVibe — Live GPU metrics collector.
+//! Vitalis — Live GPU metrics collector.
 //!
 //! Attempts to collect live GPU usage/VRAM/temperature using:
 //! 1. NVIDIA: `nvidia-smi` CLI (no NVML binding needed)

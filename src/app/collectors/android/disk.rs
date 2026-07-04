@@ -1,4 +1,4 @@
-//! SysVibe — Android disk data collector.
+//! Vitalis — Android disk data collector.
 //!
 //! Uses `sysinfo::Disks` for partition enumeration (works on Android).
 //! Disk I/O stats: tries `su -c cat /proc/diskstats` first (root),

@@ -1,4 +1,4 @@
-//! SysVibe — Dashboard tab rendering.
+//! Vitalis — Dashboard tab rendering.
 
 use ratatui::{
     Frame,

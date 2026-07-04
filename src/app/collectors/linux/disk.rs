@@ -1,4 +1,4 @@
-//! SysVibe — Disk I/O data collection.
+//! Vitalis — Disk I/O data collection.
 //!
 //! Reads aggregate sector counts from `/proc/diskstats` for speed/IOPS,
 //! uses sysinfo `Disks` for partition enumeration, and extracts hardware

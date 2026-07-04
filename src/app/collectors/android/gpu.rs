@@ -1,4 +1,4 @@
-//! SysVibe — Android GPU stats collector.
+//! Vitalis — Android GPU stats collector.
 //!
 //! 3-layer fallback strategy:
 //!   1. `su -c cat /sys/class/kgsl/kgsl-3d0/gpu_busy_percentage` (Adreno, root)

@@ -1,6 +1,6 @@
 //! Tests for configuration loading and validation.
 
-use sysvibe::config::Config;
+use vitalis::config::Config;
 
 #[test]
 fn default_config_values() {
@@ -72,7 +72,7 @@ fn config_generate_default_file_creates_file() {
     let path = Config::generate_default_file().expect("should generate config");
     assert!(path.exists());
     let content = std::fs::read_to_string(&path).expect("should read");
-    assert!(content.contains("SysVibe Configuration"));
+    assert!(content.contains("Vitalis Configuration"));
     assert!(content.contains("catppuccin-macchiato"));
     assert!(content.contains("dashboard"));
     // Clean up

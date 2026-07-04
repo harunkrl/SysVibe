@@ -1,4 +1,4 @@
-//! SysVibe — Nerd Font icon constants with ASCII fallbacks.
+//! Vitalis — Nerd Font icon constants with ASCII fallbacks.
 //!
 //! All icons are defined here so they can be swapped for ASCII/emoji
 //! alternatives when a Nerd Font is not detected.

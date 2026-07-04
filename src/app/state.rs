@@ -1,4 +1,4 @@
-//! SysVibe — Application state types and constants.
+//! Vitalis — Application state types and constants.
 //!
 //! Contains all shared enums, data-transfer structs, and constants
 //! consumed by the rest of the application.

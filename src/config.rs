@@ -1,4 +1,4 @@
-//! SysVibe — Configuration module.
+//! Vitalis — Configuration module.
 //!
 //! Config loading from XDG-compliant TOML file with validation.
 //! Supports pluggable themes and auto-generation of default config.
@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-/// Application configuration loaded from `~/.config/sysvibe/config.toml`.
+/// Application configuration loaded from `~/.config/vitalis/config.toml`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub ui_tick_rate: u64,
@@ -191,9 +191,9 @@ impl Config {
 
         // Add comments
         let commented = format!(
-            "# SysVibe Configuration\n\
+            "# Vitalis Configuration\n\
              # Generated automatically — modify as needed.\n\
-             # Place at ~/.config/sysvibe/config.toml\n\
+             # Place at ~/.config/vitalis/config.toml\n\
              #\n\
              # Available themes: catppuccin-macchiato, catppuccin-mocha,\n\
              #   dracula, nord, gruvbox, tokyo-night, one-dark\n\
@@ -287,7 +287,7 @@ impl Config {
     pub fn config_path() -> PathBuf {
         dirs::config_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("sysvibe")
+            .join("vitalis")
             .join("config.toml")
     }
 }

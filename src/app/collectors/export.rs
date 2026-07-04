@@ -1,7 +1,7 @@
-//! SysVibe — Export system data to CSV or JSON.
+//! Vitalis — Export system data to CSV or JSON.
 //!
 //! Reads current application state and writes a snapshot to
-//! `$XDG_DATA_DIR/sysvibe/exports/` in either CSV or JSON format.
+//! `$XDG_DATA_DIR/vitalis/exports/` in either CSV or JSON format.
 //! Manual CSV generation (no extra crate dependency).
 
 use std::fs;
@@ -232,19 +232,19 @@ pub fn export_to_file(snapshot: &ExportSnapshot, format: ExportFormat) -> AppRes
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
-/// Ensure `$XDG_DATA_DIR/sysvibe/exports/` exists.
+/// Ensure `$XDG_DATA_DIR/vitalis/exports/` exists.
 fn ensure_export_dir() -> AppResult<PathBuf> {
     let base =
         dirs::data_dir().ok_or_else(|| AppError::export("Cannot determine XDG data directory"))?;
-    let export_dir = base.join("sysvibe").join("exports");
+    let export_dir = base.join("vitalis").join("exports");
     fs::create_dir_all(&export_dir)?;
     Ok(export_dir)
 }
 
-/// Build filename: `sysvibe_export_YYYYMMDD_HHMMSS.ext`
+/// Build filename: `vitalis_export_YYYYMMDD_HHMMSS.ext`
 fn format_timestamped_filename(ext: &str) -> String {
     let now = chrono::Local::now();
-    format!("sysvibe_export_{}.{}", now.format("%Y%m%d_%H%M%S"), ext)
+    format!("vitalis_export_{}.{}", now.format("%Y%m%d_%H%M%S"), ext)
 }
 
 /// Manual CSV serialization (no csv crate).

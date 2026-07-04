@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to SysVibe are documented in this file.
+All notable changes to Vitalis are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -68,7 +68,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Process CPU percentages exceeding 100% on multi-core systems (e.g. Brave showing 300%)
-- SysVibe consuming 11-15% CPU due to per-tick `refresh_processes`
+- Vitalis consuming 11-15% CPU due to per-tick `refresh_processes`
 - RAM details missing when `lshw` not installed — now falls back through 4 detection tiers
 - No `/proc/diskstats` double-read per tick
 

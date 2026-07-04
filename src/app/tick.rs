@@ -1,4 +1,4 @@
-//! SysVibe — App::tick — Lightweight per-tick update (UI animations, status expiry).
+//! Vitalis — App::tick — Lightweight per-tick update (UI animations, status expiry).
 //!
 //! Split out of `app/mod.rs` for maintainability. All methods here are
 //! inherent methods on [`App`] (via `impl super::App`), so they keep direct

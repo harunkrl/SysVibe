@@ -1,8 +1,8 @@
 //! Tests for process management functions.
 
 use sysinfo::System;
-use sysvibe::app::processes::{build_process_list, kill_process, kill_process_force};
-use sysvibe::app::state::SortBy;
+use vitalis::app::processes::{build_process_list, kill_process, kill_process_force};
+use vitalis::app::state::SortBy;
 
 fn create_test_system() -> System {
     let mut sys = System::new_all();

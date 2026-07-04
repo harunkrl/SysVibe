@@ -1,10 +1,10 @@
-//! SysVibe — Unified error types.
+//! Vitalis — Unified error types.
 //!
 //! Replaces ad-hoc `Result<T, String>` and `Box<dyn Error>` with a single,
 //! well-typed error enum. All public APIs that can fail should return
 //! `Result<T, AppError>`.
 
-/// Unified error type for all SysVibe operations.
+/// Unified error type for all Vitalis operations.
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
     /// An I/O error (file not found, permission denied, etc.).

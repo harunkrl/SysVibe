@@ -2,11 +2,11 @@
 preview = ["dep:unicode-width"]
 
 [lib]
-name = "sysvibe"
+name = "vitalis"
 path = "src/lib.rs"
 
 [[bin]]
-name = "sysvibe"
+name = "vitalis"
 path = "src/main.rs"
 
 [[bin]]
@@ -15,13 +15,13 @@ path = "src/bin/svshot.rs"
 required-features = ["preview"]
 
 [package]
-name = "sysvibe"
+name = "vitalis"
 version = "0.5.0"
 edition = "2024"
 description = "A modern, zero-flicker system monitor TUI for Linux & Android (Termux)"
-authors = ["SysVibe Team"]
+authors = ["Vitalis Team"]
 license = "MIT"
-repository = "https://github.com/harunkrl/SysVibe"
+repository = "https://github.com/harunkrl/Vitalis"
 keywords = ["system-monitor", "tui", "linux", "terminal"]
 categories = ["command-line-utilities"]
 

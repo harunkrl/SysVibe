@@ -1,4 +1,4 @@
-//! SysVibe — CPU data collection.
+//! Vitalis — CPU data collection.
 //!
 //! Refreshes global and per-core CPU usage history from `sysinfo`, and tracks
 //! the package frequency envelope (current mean + session min/max of the peak

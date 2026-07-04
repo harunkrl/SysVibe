@@ -1,4 +1,4 @@
-# SysVibe
+# Vitalis
 
 <p align="center">
   <strong>A modern, zero-flicker system monitor TUI for Linux &amp; Android (Termux)</strong>
@@ -31,8 +31,8 @@
 ### Option A — install script (recommended)
 
 ```bash
-git clone https://github.com/harunkrl/SysVibe.git
-cd SysVibe
+git clone https://github.com/harunkrl/Vitalis.git
+cd Vitalis
 ./install.sh
 ```
 
@@ -43,18 +43,18 @@ on Linux desktops, and generates a default config if one doesn't exist.
 
 ```bash
 cargo install --path .
-sysvibe --init-config      # write ~/.config/sysvibe/config.toml (optional)
+vitalis --init-config      # write ~/.config/vitalis/config.toml (optional)
 ```
 
 ### Android / Termux
 
-SysVibe builds and runs under Termux. The UI auto-switches to a compact stacked
+Vitalis builds and runs under Termux. The UI auto-switches to a compact stacked
 layout on narrow terminals and labels the Logs tab **Logcat**.
 
 ```bash
 pkg install rust           # or: pkg install clang && cargo ...
 cargo install --path .
-sysvibe
+vitalis
 ```
 
 > `nerd_fonts` defaults to `true`; on Termux (no Nerd Font) set `nerd_fonts = false`
@@ -65,12 +65,12 @@ sysvibe
 ## Usage
 
 ```bash
-sysvibe                          # run with default settings
-sysvibe --init-config            # create/edit the config file, then exit
-sysvibe --list-themes            # list available themes, then exit
+vitalis                          # run with default settings
+vitalis --init-config            # create/edit the config file, then exit
+vitalis --list-themes            # list available themes, then exit
 ```
 
-The first run writes a default config to `~/.config/sysvibe/config.toml` (XDG).
+The first run writes a default config to `~/.config/vitalis/config.toml` (XDG).
 Edit it to change theme, refresh rates, alert thresholds, and more.
 
 ---
@@ -147,7 +147,7 @@ Type to fuzzy-match; arrow keys navigate, `Enter` runs, `Esc` cancels, `Ctrl+U` 
 
 ## Configuration
 
-Config lives at `~/.config/sysvibe/config.toml` (XDG). Run `sysvibe --init-config`
+Config lives at `~/.config/vitalis/config.toml` (XDG). Run `vitalis --init-config`
 to (re)generate it with comments. Key fields:
 
 | Field | Default | Description |
@@ -191,7 +191,7 @@ Seven built-in themes, switchable live with `T` or set in config:
 
 `catppuccin-macchiato` · `catppuccin-mocha` · `dracula` · `nord` · `gruvbox` · `tokyo-night` · `one-dark`
 
-Run `sysvibe --list-themes` to preview the names. Custom themes can be provided as a
+Run `vitalis --list-themes` to preview the names. Custom themes can be provided as a
 TOML file passed to the theme loader.
 
 ---
@@ -245,8 +245,8 @@ src/
 Requires Rust 1.88+ (edition 2024, uses let-chains).
 
 ```bash
-git clone https://github.com/harunkrl/SysVibe.git
-cd SysVibe
+git clone https://github.com/harunkrl/Vitalis.git
+cd Vitalis
 cargo run --release
 ```
 

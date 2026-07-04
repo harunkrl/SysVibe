@@ -1,4 +1,4 @@
-//! SysVibe — GPU tab rendering.
+//! Vitalis — GPU tab rendering.
 //!
 //! Displays real-time GPU metrics for all detected GPUs:
 //! Usage, VRAM, Temperature, Power draw, Fan speed, Clock speed.

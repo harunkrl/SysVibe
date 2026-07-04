@@ -1,11 +1,11 @@
-//! SysVibe — Tests for StateUpdate channel mechanics and EventStream logic.
+//! Vitalis — Tests for StateUpdate channel mechanics and EventStream logic.
 //!
 //! These tests validate that the lightweight instantaneous-value payload
 //! works correctly with the App's push_history mechanism.
 
 use std::collections::VecDeque;
-use sysvibe::app::helpers::push_history;
-use sysvibe::app::state::HISTORY_LEN;
+use vitalis::app::helpers::push_history;
+use vitalis::app::state::HISTORY_LEN;
 
 // ── push_history correctness ────────────────────────────────────
 

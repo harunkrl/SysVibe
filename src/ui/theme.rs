@@ -1,4 +1,4 @@
-//! SysVibe — Pluggable color theme system.
+//! Vitalis — Pluggable color theme system.
 //!
 //! Defines a `Theme` struct containing all color tokens used by the UI.
 //! Ships with 7 built-in themes and supports TOML-based custom themes.
@@ -97,7 +97,7 @@ impl Theme {
             return theme;
         }
 
-        // Try loading from ~/.config/sysvibe/themes/{name}.toml
+        // Try loading from ~/.config/vitalis/themes/{name}.toml
         if let Some(theme) = Self::load_from_file(name) {
             return theme;
         }
@@ -108,7 +108,7 @@ impl Theme {
 
     fn load_from_file(name: &str) -> Option<Self> {
         let path = dirs::config_dir()?
-            .join("sysvibe")
+            .join("vitalis")
             .join("themes")
             .join(format!("{}.toml", name));
 

@@ -1,4 +1,4 @@
-//! SysVibe — App::state_update — Async state setters — apply StateUpdate messages from the collector threads.
+//! Vitalis — App::state_update — Async state setters — apply StateUpdate messages from the collector threads.
 //!
 //! Split out of `app/mod.rs` for maintainability. All methods here are
 //! inherent methods on [`App`] (via `impl super::App`), so they keep direct

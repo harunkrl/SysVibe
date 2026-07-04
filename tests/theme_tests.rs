@@ -1,6 +1,6 @@
 //! Tests for the theme system.
 
-use sysvibe::ui::theme::Theme;
+use vitalis::ui::theme::Theme;
 
 #[test]
 fn load_builtin_macchiato() {
@@ -93,7 +93,7 @@ fn all_themes_have_unique_base_colors() {
 #[test]
 fn color_def_to_color() {
     use ratatui::style::Color;
-    use sysvibe::ui::theme::ColorDef;
+    use vitalis::ui::theme::ColorDef;
 
     let cd = ColorDef::rgb(100, 150, 200);
     assert_eq!(cd.to_color(), Color::Rgb(100, 150, 200));

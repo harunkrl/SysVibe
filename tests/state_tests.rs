@@ -1,6 +1,6 @@
 //! Tests for application state types and enums.
 
-use sysvibe::app::state::{AppMode, AppTab, LogLevel, LogLevelFilter, PanelFocus, SortBy};
+use vitalis::app::state::{AppMode, AppTab, LogLevel, LogLevelFilter, PanelFocus, SortBy};
 
 // ═══════════════════════════════════════════════════════════════════
 // AppTab

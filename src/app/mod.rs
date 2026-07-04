@@ -1,4 +1,4 @@
-//! SysVibe - Application state management and data orchestration.
+//! Vitalis - Application state management and data orchestration.
 //!
 //! The `App` struct owns all runtime state and coordinates data collection
 //! from the various collector modules.
@@ -360,7 +360,7 @@ mod events_dispatch;
 // ═══════════════════════════════════════════════════════════════════════
 // Preview-only: deterministic sample-data builder for the `svshot` tool.
 // (Dev-only, feature-gated. `allow(dead_code)` mirrors `ui/preview.rs` so the
-// main `sysvibe` bin — which compiles this via `mod app` but never calls it —
+// main `vitalis` bin — which compiles this via `mod app` but never calls it —
 // stays warning-free under `--features preview`.)
 // ═══════════════════════════════════════════════════════════════════════
 

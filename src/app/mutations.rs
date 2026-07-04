@@ -1,4 +1,4 @@
-//! SysVibe — App::mutations — State mutations driven by the events module (key handling).
+//! Vitalis — App::mutations — State mutations driven by the events module (key handling).
 //!
 //! Split out of `app/mod.rs` for maintainability. All methods here are
 //! inherent methods on [`App`] (via `impl super::App`), so they keep direct

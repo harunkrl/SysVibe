@@ -1,4 +1,4 @@
-//! SysVibe — Hardware tab rendering.
+//! Vitalis — Hardware tab rendering.
 //!
 //! Live monitoring: per-core CPU, memory/battery breakdown, network I/O
 //! and disk I/O (both as btop-style mirrored up/down charts), temperatures.

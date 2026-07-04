@@ -1,4 +1,4 @@
-//! SysVibe — Integration and unit tests.
+//! Vitalis — Integration and unit tests.
 
 mod config_tests;
 mod error_tests;

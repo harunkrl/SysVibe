@@ -1,4 +1,4 @@
-//! SysVibe — Application helper utilities.
+//! Vitalis — Application helper utilities.
 //!
 //! Common utility functions shared across the app module,
 //! primarily for managing fixed-length history buffers.

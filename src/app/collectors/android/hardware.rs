@@ -1,4 +1,4 @@
-//! SysVibe — Android hardware data collector.
+//! Vitalis — Android hardware data collector.
 //!
 //! Fetches device information via `getprop` and `/proc/cpuinfo`.
 //! No root required — all data sources are readable on stock Android.

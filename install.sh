@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# SysVibe — installer
+# Vitalis — installer
 #
 # Builds via `cargo install`, generates a default config if none exists, and
 # (on Linux desktops) creates an application-menu shortcut. Termux/Android is
@@ -9,7 +9,7 @@
 set -euo pipefail
 
 echo "========================================="
-echo "   Installing SysVibe System Monitor"
+echo "   Installing Vitalis System Monitor"
 echo "========================================="
 
 # 0. Detect Termux / Android
@@ -27,18 +27,18 @@ if ! command -v cargo >/dev/null 2>&1; then
 fi
 
 # 2. Build & install
-echo "--> Compiling and installing SysVibe via Cargo..."
+echo "--> Compiling and installing Vitalis via Cargo..."
 cargo install --path .
 CARGO_BIN="${CARGO_HOME:-$HOME/.cargo}/bin"
-BIN="$CARGO_BIN/sysvibe"
+BIN="$CARGO_BIN/vitalis"
 
 # 3. Default config (if missing)
-CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/sysvibe"
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/vitalis"
 CONFIG_FILE="$CONFIG_DIR/config.toml"
 if [ ! -f "$CONFIG_FILE" ] && [ -x "$BIN" ]; then
 	echo "--> Generating default config at $CONFIG_FILE ..."
 	"$BIN" --init-config >/dev/null 2>&1 ||
-		echo "    (run 'sysvibe --init-config' later to create it)"
+		echo "    (run 'vitalis --init-config' later to create it)"
 fi
 
 # 4. Desktop entry (Linux desktop only — skip on Termux/Android)
@@ -46,11 +46,11 @@ if [ "$IS_TERMUX" -eq 0 ] && [ -n "${HOME:-}" ]; then
 	echo "--> Creating application menu shortcut..."
 	DESKTOP_DIR="$HOME/.local/share/applications"
 	mkdir -p "$DESKTOP_DIR"
-	cat >"$DESKTOP_DIR/sysvibe.desktop" <<'EOF'
+	cat >"$DESKTOP_DIR/vitalis.desktop" <<'EOF'
 [Desktop Entry]
-Name=SysVibe
+Name=Vitalis
 Comment=A modern system monitor TUI for Linux
-Exec=sysvibe
+Exec=vitalis
 Icon=utilities-system-monitor
 Terminal=true
 Type=Application
@@ -65,8 +65,8 @@ fi
 echo "========================================="
 echo " Installation Complete!"
 echo "========================================="
-echo "Run    : sysvibe"
-echo "Themes : sysvibe --list-themes"
+echo "Run    : vitalis"
+echo "Themes : vitalis --list-themes"
 echo "Config : $CONFIG_FILE"
 if [ "$IS_TERMUX" -eq 1 ]; then
 	echo "Termux : set 'nerd_fonts = false' in the config for clean fallback icons."

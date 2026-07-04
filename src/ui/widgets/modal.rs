@@ -1,4 +1,4 @@
-//! SysVibe — Modal overlay widgets.
+//! Vitalis — Modal overlay widgets.
 //!
 //! Help panel and Kill Confirmation popup overlays.
 
@@ -34,7 +34,7 @@ pub fn render_help_modal(f: &mut Frame, area: Rect) {
     f.render_widget(Clear, popup);
 
     let keys = vec![
-        ("[q] / [Esc]", "Quit SysVibe"),
+        ("[q] / [Esc]", "Quit Vitalis"),
         ("[h] / [?]", "Toggle this help panel"),
         ("[Tab]", "Next tab"),
         ("[Shift+Tab]", "Previous tab"),
@@ -144,7 +144,7 @@ pub fn palette_commands() -> &'static [PaletteCommand] {
         },
         PaletteCommand {
             label: "Quit",
-            desc: "exit SysVibe",
+            desc: "exit Vitalis",
         },
     ]
 }

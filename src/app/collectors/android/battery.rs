@@ -1,4 +1,4 @@
-//! SysVibe — Android battery data collector.
+//! Vitalis — Android battery data collector.
 //!
 //! 3-layer fallback strategy:
 //!   1. `termux-battery-status` (if Termux:API is installed)

@@ -1,4 +1,4 @@
-//! SysVibe — Library crate for system monitoring.
+//! Vitalis — Library crate for system monitoring.
 //!
 //! Re-exports core modules for integration testing.
 

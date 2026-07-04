@@ -1,4 +1,4 @@
-//! SysVibe — UI helper functions and shared widget constructors.
+//! Vitalis — UI helper functions and shared widget constructors.
 //!
 //! Common utilities used across all UI tabs: panel blocks, color
 //! functions, layout helpers, and text formatting.

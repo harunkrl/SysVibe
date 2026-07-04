@@ -1,4 +1,4 @@
-//! SysVibe — Reusable UI widgets.
+//! Vitalis — Reusable UI widgets.
 
 pub mod modal;
 pub mod sparkline;

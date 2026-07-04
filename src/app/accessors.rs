@@ -211,7 +211,7 @@ impl super::App {
     }
 
     /// Rebuild the filtered process cache. Called when processes or filter changes.
-    pub(crate) fn rebuild_filtered_cache(&mut self) {
+    pub(super) fn rebuild_filtered_cache(&mut self) {
         let query = self.filter_input.to_lowercase();
         let text_active = self.filter_active && !self.filter_input.is_empty();
         let marked_only = self.show_selected_only;
@@ -322,7 +322,7 @@ impl super::App {
     }
 
     /// Rebuild SystemInfo from scratch (called every ~10s or on demand).
-    pub(crate) fn build_system_info(&self) -> SystemInfo {
+    pub(super) fn build_system_info(&self) -> SystemInfo {
         let secs = System::uptime();
         let days = secs / 86400;
         let hours = (secs % 86400) / 3600;
@@ -531,7 +531,7 @@ impl super::App {
     }
 
     /// Returns the number of items in the current process view (flat or tree).
-    pub(crate) fn process_list_len(&self) -> usize {
+    pub(super) fn process_list_len(&self) -> usize {
         if self.tree_view {
             self.cached_tree_rows.len()
         } else {

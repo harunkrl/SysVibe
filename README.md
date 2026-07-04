@@ -31,7 +31,7 @@
 ### Option A — install script (recommended)
 
 ```bash
-git clone https://github.com/<you>/SysVibe.git
+git clone https://github.com/harunkrl/SysVibe.git
 cd SysVibe
 ./install.sh
 ```

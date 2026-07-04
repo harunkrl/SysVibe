@@ -109,6 +109,10 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
                     s.extend(key_desc("h", "Help"));
                     s.push(sep());
                     s.extend(key_desc("g", "CPU mode"));
+                    s.push(sep());
+                    s.extend(key_desc("s", "Sort"));
+                    s.push(sep());
+                    s.extend(key_desc("S", "Dir"));
                     push_universal(&mut s);
                 }
                 AppTab::System | AppTab::Hardware => {

@@ -774,6 +774,22 @@ fn render_memory_panel(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: P
     f.render_widget(Paragraph::new(lines), inner);
 }
 
+/// Sort-direction arrow for the Smart Process List header: `▲` for the
+/// active ascending column, `▼` for descending, and `""` for inactive
+/// columns. Pure (testable): reads the app's sort state for a given column.
+fn smart_sort_arrow(app: &App, col: crate::app::state::SortBy) -> &'static str {
+    use crate::app::state::SortDir;
+    if app.sort_by == col {
+        if matches!(app.sort_dir, SortDir::Ascending) {
+            "▲"
+        } else {
+            "▼"
+        }
+    } else {
+        ""
+    }
+}
+
 fn render_top_processes(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: PanelFocus) {
     let title = " Smart Process List ".to_string();
     let block = panel_block_themed(&title, focus.is_focused(PanelFocus::Panel3), pink());
@@ -786,24 +802,26 @@ fn render_top_processes(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: 
 
     let procs = app.filtered_processes();
 
-    // Header
+    // Header — the active sort column is highlighted (focus colour + bold)
+    // and carries a ▲/▼ direction arrow, mirroring the Processes tab table.
+    use crate::app::state::SortBy;
+    let header_idle = Style::default().fg(subtext()).add_modifier(Modifier::BOLD);
+    let header_active = Style::default()
+        .fg(focus_border())
+        .add_modifier(Modifier::BOLD);
+    let cell = |label: &str, col: SortBy| -> Cell<'_> {
+        let style = if app.sort_by == col {
+            header_active
+        } else {
+            header_idle
+        };
+        Cell::from(Span::styled(format!("{}{}", label, smart_sort_arrow(app, col)), style))
+    };
     let header_cells = vec![
-        Cell::from(Span::styled(
-            "PID",
-            Style::default().fg(subtext()).add_modifier(Modifier::BOLD),
-        )),
-        Cell::from(Span::styled(
-            "NAME",
-            Style::default().fg(subtext()).add_modifier(Modifier::BOLD),
-        )),
-        Cell::from(Span::styled(
-            "CPU%",
-            Style::default().fg(subtext()).add_modifier(Modifier::BOLD),
-        )),
-        Cell::from(Span::styled(
-            "MEM%",
-            Style::default().fg(subtext()).add_modifier(Modifier::BOLD),
-        )),
+        cell("PID", SortBy::Pid),
+        cell("NAME", SortBy::Name),
+        cell("CPU%", SortBy::Cpu),
+        cell("MEM%", SortBy::Mem),
     ];
     let header = Row::new(header_cells)
         .style(Style::default().bg(surface0()))
@@ -858,6 +876,19 @@ fn render_top_processes(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: 
         .constraints([Constraint::Length(1), Constraint::Min(0)])
         .split(inner);
 
+    // Sort-state caption: shows the active column + direction so there is
+    // immediate visual feedback after pressing s/S (the header arrows are the
+    // primary indicator; this caption reinforces it for the current sort).
+    let sort_caption = format!(
+        "{} {}",
+        match app.sort_by {
+            SortBy::Cpu => "CPU%",
+            SortBy::Mem => "MEM%",
+            SortBy::Pid => "PID",
+            SortBy::Name => "NAME",
+        },
+        smart_sort_arrow(app, app.sort_by),
+    );
     f.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled(
@@ -866,7 +897,7 @@ fn render_top_processes(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: 
             ),
             Span::styled(" processes", Style::default().fg(subtext())),
             Span::styled("   sort: ", Style::default().fg(subtext())),
-            Span::styled("CPU%", Style::default().fg(peach()).add_modifier(Modifier::BOLD)),
+            Span::styled(sort_caption, Style::default().fg(peach()).add_modifier(Modifier::BOLD)),
         ])),
         layout[0],
     );
@@ -1096,5 +1127,24 @@ mod tests {
             "dedicated should show a percent: {}",
             gpu_vram_fragment(&g)
         );
+    }
+
+    #[test]
+    #[cfg(feature = "preview")]
+    fn smart_sort_arrow_marks_active_column_and_direction() {
+        use crate::app::state::{SortBy, SortDir};
+        use crate::config::Config;
+        // Active ascending -> up arrow (set explicitly; default is Descending).
+        let mut app_asc = App::new_sample(Config::default());
+        app_asc.sort_by = SortBy::Cpu;
+        app_asc.sort_dir = SortDir::Ascending;
+        assert_eq!(smart_sort_arrow(&app_asc, SortBy::Cpu), "▲");
+        // Descending -> down arrow.
+        let mut app_desc = App::new_sample(Config::default());
+        app_desc.sort_dir = SortDir::Descending;
+        app_desc.sort_by = SortBy::Cpu;
+        assert_eq!(smart_sort_arrow(&app_desc, SortBy::Cpu), "▼");
+        // Inactive column -> empty.
+        assert_eq!(smart_sort_arrow(&app_asc, SortBy::Mem), "");
     }
 }

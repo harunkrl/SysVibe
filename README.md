@@ -22,8 +22,8 @@
 | 🔔 | **Alerts & toasts** | Configurable CPU/Mem/Temp/Disk thresholds with a prominent toast banner |
 | 🪟 | **Compact mode** | Narrow terminals (Android/Termux portrait) auto-stack to a single column |
 | ⚡ | **Low CPU overhead** | Async event loop + background `std::thread` collectors + tiered refresh |
-| 🐧 | **Deep hardware** | CPU clusters, RAM/battery breakdown, temps, disk I/O, NVIDIA/AMD/Intel GPU |
-| 📜 | **Log viewer** | `journalctl`/`dmesg` on Linux, `logcat` on Android, with severity filters |
+| 🐧 | **Deep hardware** | CPU caches/microcode/flags, RAM/battery breakdown, storage devices, network interfaces, temps, disk I/O, NVIDIA/AMD/Intel GPU |
+| 📜 | **Log viewer** | `journalctl -o json` / `dmesg` (Linux), `logcat` (Android) — accurate timestamps/levels/sources, kernel/system scope, severity filters, scrollable |
 | 🖱️ | **Mouse + keyboard** | Click tabs, scroll lists, *and* full vim-style keyboard control |
 
 ---
@@ -79,11 +79,11 @@ Edit it to change theme, refresh rates, alert thresholds, and more.
 
 ## 🗂️ Tabs
 
-- **1 · Dashboard** — hero stat cards + CPU history graph + memory bars + system/network overview + top processes.
-- **2 · System** — OS/kernel/host/uptime, motherboard/BIOS, RAM DIMMs, GPU, disks, desktop session.
-- **3 · Hardware** — per-core CPU clusters, memory & battery breakdown (power/health/cycles), network RX↑/TX↓ graph, temperature sensors, disk I/O graphs.
-- **4 · Processes** — sort/filter, multi-select, tree view, and kill (with confirmation modal).
-- **5 · Logs** — real-time `journalctl`/`dmesg` (or `logcat` on Android), level filters, follow mode.
+- **1 · Dashboard** — hero stat cards + CPU history graph (load avg in the CPU Info panel) + memory bars + system/network overview + top processes.
+- **2 · System** — two-column inventory: identity (OS/kernel/host, motherboard/BIOS, session, **boot/security/locale**, app-about) and hardware (CPU caches/microcode/flags, RAM, storage devices, network interfaces, GPUs). Theme-coloured panels.
+- **3 · Hardware** — per-core CPU clusters, memory & swap breakdown, battery charge + **power-draw trend graph** (1 s sampling, 0–30 W scale), network RX↑/TX↓ graph, **all temperature sensors** (accurate hwmon labels) + fan/power-profile, disk I/O graphs.
+- **4 · Processes** — **frozen table** (refresh on `r`), sort + direction, name/PID/cmdline filter, multi-select + **marked-only** view, USER column (root highlighted), gradient bars, tree view, and kill via sysinfo (with confirmation modal).
+- **5 · Logs** — real-time `journalctl -o json` (accurate timestamps/levels/sources) or `dmesg` (`logcat` on Android), kernel/system scope toggle, scrollable history, level filters, follow mode.
 - **6 · GPU** — usage, VRAM, temperature, power, fan, clock per GPU (NVIDIA/AMD/Intel).
 
 > Tabs shrink to a single stacked column when the terminal is narrow (`< 90` cols).
@@ -119,8 +119,12 @@ Edit it to change theme, refresh rates, alert thresholds, and more.
 | Key | Action |
 |---|---|
 | `s` | Cycle sort (CPU → Mem → PID → Name) |
-| `r` | Refresh |
+| `S` | Toggle sort direction (asc / desc) |
+| `g` | Toggle CPU view: per-core (raw) / normalized |
+| `r` | Refresh (the table is otherwise **frozen** so browsing isn't disrupted) |
+| `/` | Filter by name, PID, or command line |
 | `Space` | Toggle select |
+| `m` | Toggle **marked-only** view (show just space-selected processes) |
 | `x` | Kill selected (confirm) |
 | `p` / `F5` | Toggle tree view |
 | `c` | Clear selection |
@@ -131,7 +135,10 @@ Edit it to change theme, refresh rates, alert thresholds, and more.
 | Key | Action |
 |---|---|
 | `f` | Toggle follow |
+| `↑` / `↓` · `PgUp` / `PgDn` · `Home` / `End` | Scroll the log view |
+| `s` | Toggle scope: kernel-only ↔ full system journal |
 | `e` / `w` / `i` | Toggle Error / Warning / Info level filter |
+| `n` / `d` | Toggle Notice / Debug level filter |
 | `r` | Refresh |
 
 ### Command palette (`:`)
@@ -151,11 +158,11 @@ to (re)generate it with comments. Key fields:
 | `default_tab` | `dashboard` | Startup tab |
 | `nerd_fonts` | `true` | Nerd Font icons; `false` → geometric fallback (Termux-friendly) |
 | `data_refresh_rate` | `1000` | Fast metrics refresh interval (ms) |
-| `process_refresh_rate` | `2000` | Process list refresh (ms) |
+| `process_refresh_rate` | `2000` | Background process refresh (ms); the table only updates the display on `r` |
 | `sensor_refresh_rate` | `5000` | Temperature/sensor refresh (ms) |
 | `max_processes` | `50` | Max processes shown |
 | `temperature_unit` | `celsius` | `celsius` or `fahrenheit` |
-| `log_source` | `journalctl` | `journalctl`, `dmesg`, or `logcat` |
+| `log_source` | `auto` | `journalctl`, `dmesg`, `logcat`, or `auto` (kernel/system scope also toggles live with `s`) |
 | `log_max_lines` | `1000` | Log buffer size |
 | `show_gpu` | `true` | Show GPU tab/card |
 | `show_battery` | `true` | Show battery panel/card |
@@ -205,8 +212,9 @@ src/
 │   ├── error.rs         # typed errors (thiserror)
 │   └── collectors/
 │       ├── mod.rs
-│       ├── cpu.rs memory.rs network.rs sensors.rs     # cross-platform
+│       ├── cpu.rs memory.rs network.rs sensors.rs disk.rs  # cross-platform
 │       └── linux/  android/                            # platform backends
+│           (linux: battery, logs(journalctl -o json), gpu, hardware, sensors)
 ├── config.rs            # XDG TOML config + validation + auto-generation
 └── ui/
     ├── mod.rs           # draw: header / tabs / footer / toast / modals
@@ -216,8 +224,10 @@ src/
 ```
 
 - **Data flow:** background `std::thread` collectors (fast metrics, processes,
-  sensors, GPU, logs) push `StateUpdate` messages over an mpsc channel; the main
-  async loop applies them. Heavy blocking I/O never stalls the render loop.
+  sensors+fans+power-profile, GPU, logs) push `StateUpdate` messages over an mpsc
+  channel; the main async loop applies them. Heavy blocking I/O never stalls the
+  render loop. The process table is intentionally **frozen** (refresh on `r`) and
+  the battery power-draw graph samples at 1 s alongside the fast metrics.
 - **Theming:** pluggable `Theme` with a thread-local palette accessor.
 
 ---

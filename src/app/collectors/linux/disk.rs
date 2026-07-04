@@ -16,45 +16,17 @@ pub fn read_disk_bytes() -> (u64, u64) {
         Ok(c) => c,
         Err(_) => return (0, 0),
     };
-
-    let mut total_read: u64 = 0;
-    let mut total_write: u64 = 0;
-
-    for line in content.lines() {
-        let fields: Vec<&str> = line.split_whitespace().collect();
-        if fields.len() < 10 {
-            continue;
-        }
-        let major = fields[0].parse::<u64>().unwrap_or(0);
-        if major == 7 || major == 1 {
-            continue;
-        }
-        let name = fields[2];
-        if name.contains('p') && name.chars().last().is_some_and(|c| c.is_ascii_digit()) {
-            continue;
-        }
-        let sectors_read: u64 = fields
-            .get(5)
-            .and_then(|v| v.parse::<u64>().ok())
-            .unwrap_or(0);
-        let sectors_written: u64 = fields
-            .get(9)
-            .and_then(|v| v.parse::<u64>().ok())
-            .unwrap_or(0);
-        total_read += sectors_read * 512;
-        total_write += sectors_written * 512;
-    }
-    (total_read, total_write)
+    let (read, write, _, _) = parse_diskstats(&content);
+    (read, write)
 }
 
-/// Read disk stats from `/proc/diskstats` in a single pass.
-/// Returns (read_bytes, write_bytes, read_ops, write_ops).
-fn read_diskstats() -> (u64, u64, Option<u64>, Option<u64>) {
-    let content = match fs::read_to_string("/proc/diskstats") {
-        Ok(c) => c,
-        Err(_) => return (0, 0, None, None),
-    };
-
+/// Pure parser for `/proc/diskstats` content. Sums sector-based bytes
+/// (× 512) across whole disks, skipping loop/ram devices (major 7/1) and
+/// partition slices (names like `nvme0n1p1`). Returns byte totals and, when
+/// IOPS fields are present, completed read/write op counts.
+///
+/// Extracted from the I/O so the sector/partition logic is unit-testable.
+fn parse_diskstats(content: &str) -> (u64, u64, Option<u64>, Option<u64>) {
     let mut total_read_bytes: u64 = 0;
     let mut total_write_bytes: u64 = 0;
     let mut total_reads: u64 = 0;
@@ -74,7 +46,7 @@ fn read_diskstats() -> (u64, u64, Option<u64>, Option<u64>) {
         if name.contains('p') && name.chars().last().is_some_and(|c| c.is_ascii_digit()) {
             continue;
         }
-        // Bytes from sectors
+        // Bytes from sectors (512 B/sector).
         let sectors_read: u64 = fields
             .get(5)
             .and_then(|v| v.parse::<u64>().ok())
@@ -85,7 +57,7 @@ fn read_diskstats() -> (u64, u64, Option<u64>, Option<u64>) {
             .unwrap_or(0);
         total_read_bytes += sectors_read * 512;
         total_write_bytes += sectors_written * 512;
-        // IOPS
+        // IOPS (fields 3 and 7).
         if let Some(r) = fields.get(3).and_then(|v| v.parse::<u64>().ok()) {
             total_reads += r;
             found_ops = true;
@@ -102,6 +74,16 @@ fn read_diskstats() -> (u64, u64, Option<u64>, Option<u64>) {
         if found_ops { Some(total_reads) } else { None },
         if found_ops { Some(total_writes) } else { None },
     )
+}
+
+/// Read disk stats from `/proc/diskstats` in a single pass.
+/// Returns (read_bytes, write_bytes, read_ops, write_ops).
+fn read_diskstats() -> (u64, u64, Option<u64>, Option<u64>) {
+    let content = match fs::read_to_string("/proc/diskstats") {
+        Ok(c) => c,
+        Err(_) => return (0, 0, None, None),
+    };
+    parse_diskstats(&content)
 }
 
 /// Refresh disk I/O stats: speed, IOPS, and history.
@@ -279,4 +261,83 @@ pub fn enumerate_partitions(_sys: &System, disks: &Disks) -> Vec<DiskPartitionIn
 
     partitions.sort_by(|a, b| a.mount_point.cmp(&b.mount_point));
     partitions
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Minimal realistic /proc/diskstats line:
+    //   major minor name reads_completed reads_merged sectors_read ms_read
+    //   writes_completed writes_merged sectors_written ms_written ...
+    fn stats_line(major: u64, name: &str, sectors_read: u64, sectors_written: u64) -> String {
+        // field indices: [0]=major [1]=minor [2]=name [3]=reads [4]=reads_merged
+        // [5]=sectors_read ... [7]=writes [8]=writes_merged [9]=sectors_written ...
+        format!("{major} 0 {name} 100 0 {sectors_read} 50 200 0 {sectors_written} 60 0 0 0 0 0")
+    }
+
+    #[test]
+    fn parse_diskstats_sums_sectors_x_512() {
+        // Two real disks (major 8 = SCSI/SATA), 10 sectors each.
+        let content = format!(
+            "{}\n{}\n",
+            stats_line(8, "sda", 10, 20),
+            stats_line(8, "sdb", 10, 20)
+        );
+        let (read, write, reads, writes) = parse_diskstats(&content);
+        assert_eq!(read, 2 * 10 * 512); // 20 sectors * 512
+        assert_eq!(write, 2 * 20 * 512);
+        assert_eq!(reads, Some(2 * 100)); // 2 lines × 100 reads
+        assert_eq!(writes, Some(2 * 200));
+    }
+
+    #[test]
+    fn parse_diskstats_skips_loop_and_ram() {
+        // major 7 (loop) and major 1 (ram) must be excluded.
+        let content = format!(
+            "{}\n{}\n{}\n",
+            stats_line(7, "loop0", 999, 999),
+            stats_line(1, "ram0", 999, 999),
+            stats_line(8, "sda", 5, 5)
+        );
+        let (read, _, _, _) = parse_diskstats(&content);
+        assert_eq!(read, 5 * 512); // only sda counts
+    }
+
+    #[test]
+    fn parse_diskstats_skips_partitions() {
+        // "sda1" (name contains 'p'? no — sda1 has no 'p'. The partition skip
+        // rule is name.contains('p') && ends-with-digit, e.g. nvme0n1p1).
+        // nvme0n1p1 → skipped; nvme0n1 → counted.
+        let content = format!(
+            "{}\n{}\n",
+            stats_line(259, "nvme0n1p1", 999, 999),
+            stats_line(259, "nvme0n1", 7, 7)
+        );
+        let (read, _, _, _) = parse_diskstats(&content);
+        assert_eq!(read, 7 * 512);
+    }
+
+    #[test]
+    fn parse_diskstats_short_lines_ignored() {
+        let content = "8 0 sda\n"; // only 4 fields (< 10) → skipped
+        let (read, write, reads, writes) = parse_diskstats(&content);
+        assert_eq!((read, write, reads, writes), (0, 0, None, None));
+    }
+
+    #[test]
+    fn parse_diskstats_empty_content() {
+        let (read, write, reads, writes) = parse_diskstats("");
+        assert_eq!((read, write, reads, writes), (0, 0, None, None));
+    }
+
+    #[test]
+    fn read_disk_bytes_consistent_with_diskstats() {
+        // read_disk_bytes should be a pure subset (bytes only) of read_diskstats.
+        // Both read the same real /proc/diskstats, so their byte counts match.
+        let (rb, wb) = read_disk_bytes();
+        let (rb2, wb2, _, _) = read_diskstats();
+        assert_eq!(rb, rb2);
+        assert_eq!(wb, wb2);
+    }
 }

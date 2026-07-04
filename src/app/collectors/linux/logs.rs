@@ -352,3 +352,130 @@ fn parse_dmesg_line(line: &str) -> LogEntry {
         message,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── format_timestamp_us / civil_from_days ────────────────────────────
+    #[test]
+    fn timestamp_epoch_midnight() {
+        // 1970-01-01 00:00:00 UTC (0 us).
+        assert_eq!(format_timestamp_us(0), "Jan 01 00:00:00");
+    }
+
+    #[test]
+    fn timestamp_known_value() {
+        // 1_751_366_000_000_000 us = 2025-07-01 ~ ... ; just assert the month/day shape
+        // and that the H:00 rounding is stable. (Exact hh depends on TZ offset in the
+        // algo, which is UTC-based — verify it parses to July.)
+        let s = format_timestamp_us(1_751_366_000_000_000);
+        assert!(s.starts_with("Jul"), "expected July, got: {s}");
+        assert!(s.len() == 15, "expected 'Mon DD HH:MM:SS' (15 chars), got: {s}");
+    }
+
+    #[test]
+    fn civil_from_days_epoch() {
+        // 1970-01-01 is day 0.
+        assert_eq!(civil_from_days(0), (1970, 1, 1));
+    }
+
+    #[test]
+    fn civil_from_days_known_date() {
+        // 2025-01-01 is 20089 days after epoch.
+        assert_eq!(civil_from_days(20089), (2025, 1, 1));
+    }
+
+    // ── level_from_priority ──────────────────────────────────────────────
+    #[test]
+    fn level_from_priority_mapping() {
+        assert_eq!(level_from_priority(Some("0")), LogLevel::Error); // emerg
+        assert_eq!(level_from_priority(Some("3")), LogLevel::Error); // err
+        assert_eq!(level_from_priority(Some("4")), LogLevel::Warning);
+        assert_eq!(level_from_priority(Some("5")), LogLevel::Notice);
+        assert_eq!(level_from_priority(Some("6")), LogLevel::Info);
+        assert_eq!(level_from_priority(Some("7")), LogLevel::Debug);
+    }
+
+    #[test]
+    fn level_from_priority_garbage_is_unknown() {
+        assert_eq!(level_from_priority(None), LogLevel::Unknown);
+        assert_eq!(level_from_priority(Some("not-a-number")), LogLevel::Unknown);
+        assert_eq!(level_from_priority(Some("99")), LogLevel::Unknown);
+    }
+
+    // ── detect_log_level ─────────────────────────────────────────────────
+    #[test]
+    fn detect_log_level_keywords() {
+        assert_eq!(detect_log_level("Failed to start service"), LogLevel::Error);
+        assert_eq!(detect_log_level("temperature above threshold: WARNING"), LogLevel::Warning);
+        assert_eq!(detect_log_level("a debug trace line"), LogLevel::Debug);
+        assert_eq!(detect_log_level("something happened"), LogLevel::Info); // default
+    }
+
+    #[test]
+    fn detect_log_level_case_insensitive() {
+        assert_eq!(detect_log_level("ERROR: critical fault"), LogLevel::Error);
+    }
+
+    // ── parse_journal_json ───────────────────────────────────────────────
+    #[test]
+    fn parse_journal_json_full_entry() {
+        let line = r#"{"MESSAGE":"ext4 mount ok","__REALTIME_TIMESTAMP":"1751366000000000","PRIORITY":"6","SYSLOG_IDENTIFIER":"kernel"}"#;
+        let e = parse_journal_json(line).expect("valid entry");
+        assert_eq!(e.message, "ext4 mount ok");
+        assert_eq!(e.level, LogLevel::Info);
+        assert_eq!(e.source.as_deref(), Some("kernel"));
+        assert!(e.timestamp_us > 0);
+    }
+
+    #[test]
+    fn parse_journal_json_missing_priority_falls_back_to_detect() {
+        // No PRIORITY; MESSAGE contains "error" → detect_log_level → Error.
+        let line = r#"{"MESSAGE":"disk read error","__REALTIME_TIMESTAMP":"1751366000000000"}"#;
+        let e = parse_journal_json(line).unwrap();
+        assert_eq!(e.level, LogLevel::Error);
+    }
+
+    #[test]
+    fn parse_journal_json_empty_message_is_none() {
+        let line = r#"{"MESSAGE":"","__REALTIME_TIMESTAMP":"1751366000000000"}"#;
+        assert!(parse_journal_json(line).is_none());
+    }
+
+    #[test]
+    fn parse_journal_json_empty_string_is_none() {
+        assert!(parse_journal_json("").is_none());
+    }
+
+    #[test]
+    fn parse_journal_json_malformed_json_is_none() {
+        assert!(parse_journal_json("{not valid json").is_none());
+    }
+
+    #[test]
+    fn parse_journal_json_missing_message_is_none() {
+        let line = r#"{"__REALTIME_TIMESTAMP":"1751366000000000","PRIORITY":"6"}"#;
+        assert!(parse_journal_json(line).is_none());
+    }
+
+    // ── LogScope round-trip ──────────────────────────────────────────────
+    #[test]
+    fn log_scope_round_trip() {
+        for s in [LogScope::Kernel, LogScope::System] {
+            assert_eq!(LogScope::from_u8(s.as_u8()), s);
+        }
+    }
+
+    #[test]
+    fn log_scope_is_kernel() {
+        assert!(LogScope::Kernel.is_kernel());
+        assert!(!LogScope::System.is_kernel());
+    }
+
+    #[test]
+    fn log_scope_labels() {
+        assert!(!LogScope::Kernel.label().is_empty());
+        assert!(!LogScope::System.label().is_empty());
+    }
+}

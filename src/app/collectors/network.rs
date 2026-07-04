@@ -31,8 +31,16 @@ pub fn resolve_public_ip() -> Option<String> {
     }
 
     let ip = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    validate_public_ip(&ip)
+}
+
+/// Validate a raw public-IP string (from an external lookup). Accepts a trimmed
+/// IPv4 or IPv6 (≤ 45 chars — the longest IPv6 representation) that parses as
+/// a valid `IpAddr`. Pure (no I/O) so it can be unit-tested against curl output.
+pub fn validate_public_ip(raw: &str) -> Option<String> {
+    let ip = raw.trim();
     if ip.len() <= 45 && ip.parse::<std::net::IpAddr>().is_ok() {
-        Some(ip)
+        Some(ip.to_string())
     } else {
         None
     }
@@ -103,4 +111,43 @@ pub fn refresh_network(
     }
 
     *stats = new_stats;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_valid_ipv4() {
+        assert_eq!(validate_public_ip("203.0.113.42"), Some("203.0.113.42".into()));
+        // Trims surrounding whitespace (curl output may have a newline).
+        assert_eq!(validate_public_ip("  203.0.113.42\n"), Some("203.0.113.42".into()));
+    }
+
+    #[test]
+    fn validate_valid_ipv6() {
+        let v6 = "2001:0db8:85a3:0000:0000:8a2e:0370:7334";
+        assert_eq!(validate_public_ip(v6), Some(v6.into()));
+    }
+
+    #[test]
+    fn validate_rejects_garbage() {
+        assert_eq!(validate_public_ip("not an ip"), None);
+        assert_eq!(validate_public_ip(""), None);
+        assert_eq!(validate_public_ip("999.999.999.999"), None);
+    }
+
+    #[test]
+    fn validate_rejects_html_error_page() {
+        // If the endpoint returns an HTML error page, it must not pass as an IP.
+        assert_eq!(validate_public_ip("<html>Service Unavailable</html>"), None);
+    }
+
+    #[test]
+    fn validate_rejects_overlong() {
+        // > 45 chars but happens to look IP-ish — rejected on length first.
+        let long = "2001:0db8:85a3:0000:0000:8a2e:0370:7334:9999"; // 44... force >45
+        let too_long = format!("{long}{}", "1".repeat(10));
+        assert_eq!(validate_public_ip(&too_long), None);
+    }
 }

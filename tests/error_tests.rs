@@ -33,12 +33,6 @@ fn app_error_data_constructor() {
     assert!(err.to_string().contains("Data error"));
 }
 
-#[test]
-fn app_error_other_variant() {
-    let err = AppError::Other("something went wrong".into());
-    assert_eq!(err.to_string(), "something went wrong");
-}
-
 // ── From conversions ────────────────────────────────────────────
 
 #[test]
@@ -96,9 +90,7 @@ fn app_error_display_all_variants() {
         },
         AppError::Export("exp".into()),
         AppError::Config("cfg".into()),
-        AppError::Theme("thm".into()),
         AppError::Data("dat".into()),
-        AppError::Other("oth".into()),
     ];
     for err in &errors {
         let _ = format!("{err}");

@@ -44,44 +44,33 @@ fn collect_nvidia_stats() -> Vec<GpuStats> {
         if parts.len() < 4 {
             continue;
         }
-
-        let name = parts[0].to_string();
-        let usage_pct = parts
-            .get(1)
-            .and_then(|v| v.parse::<f32>().ok())
-            .unwrap_or(0.0);
-        let vram_used_mb = parts
-            .get(2)
-            .and_then(|v| v.parse::<u64>().ok())
-            .unwrap_or(0);
-        let vram_total_mb = parts
-            .get(3)
-            .and_then(|v| v.parse::<u64>().ok())
-            .unwrap_or(0);
-        let temperature = parts
-            .get(4)
-            .and_then(|v| v.parse::<f32>().ok())
-            .unwrap_or(0.0);
-        let power_w = parts.get(5).and_then(|v| v.parse::<f32>().ok());
-        let fan_speed_pct = parts.get(6).and_then(|v| v.parse::<f32>().ok());
-        let clock_mhz = parts.get(7).and_then(|v| v.parse::<u32>().ok());
-
-        results.push(GpuStats {
-            name,
-            usage_pct,
-            vram_used_mb,
-            vram_total_mb,
-            temperature,
-            power_w,
-            fan_speed_pct,
-            clock_mhz,
-            vram_kind: VramKind::Dedicated,
-            vendor: GpuVendor::Nvidia,
-            processes: Vec::new(),
-        });
+        results.push(nvidia_stats_from_row(line));
     }
 
     results
+}
+
+/// Parse one `nvidia-smi --query-gpu=...` CSV row into [`GpuStats`]. Exposed as
+/// a pure function so the per-row parsing is unit-testable independently of
+/// nvidia-smi being installed. Rows shorter than 4 fields yield a zeroed but
+/// still-valid [`GpuStats`] (the caller already skips such rows).
+fn nvidia_stats_from_row(line: &str) -> GpuStats {
+    let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+    let parse_f = |i: usize| parts.get(i).and_then(|v| v.parse::<f32>().ok());
+    let parse_u = |i: usize| parts.get(i).and_then(|v| v.parse::<u64>().ok());
+    GpuStats {
+        name: parts.first().map(|s| s.to_string()).unwrap_or_default(),
+        usage_pct: parse_f(1).unwrap_or(0.0),
+        vram_used_mb: parse_u(2).unwrap_or(0),
+        vram_total_mb: parse_u(3).unwrap_or(0),
+        temperature: parse_f(4).unwrap_or(0.0),
+        power_w: parse_f(5),
+        fan_speed_pct: parse_f(6),
+        clock_mhz: parts.get(7).and_then(|v| v.parse::<u32>().ok()),
+        vram_kind: VramKind::Dedicated,
+        vendor: GpuVendor::Nvidia,
+        processes: Vec::new(),
+    }
 }
 
 /// Collect AMD GPU stats via SysFS.
@@ -187,22 +176,87 @@ fn collect_amd_stats() -> Vec<GpuStats> {
                 .unwrap_or_else(|| "AMD GPU".to_string())
         };
 
-        results.push(GpuStats {
-            name: gpu_name,
+        // APU/iGPU heuristic (refined in a later commit to use power/fan):
+        // discrete AMD cards expose ≥ ~1 GiB of real VRAM; APUs report a small
+        // GTT carveout. Mark small-carveout GPUs as Shared so the UI doesn't
+        // show a misleading near-full VRAM gauge.
+        let is_apu = vram_total_mb < 1024;
+        results.push(amd_stats_from_raw(
+            &gpu_name,
             usage_pct,
             vram_used_mb,
             vram_total_mb,
             temperature,
-            power_w: None,
-            fan_speed_pct: None,
+            None,
+            None,
             clock_mhz,
-            vram_kind: VramKind::Dedicated,
-            vendor: GpuVendor::Amd,
-            processes: Vec::new(),
-        });
+            is_apu,
+        ));
     }
 
     results
+}
+
+/// Build an AMD [`GpuStats`] from already-parsed primitives. `is_apu` flags
+/// shared-memory APUs whose VRAM sysfs reports the GTT carveout (near-full,
+/// misleading), so the UI can render them as "Shared RAM" instead of a gauge.
+#[allow(clippy::too_many_arguments)]
+fn amd_stats_from_raw(
+    name: &str,
+    usage_pct: f32,
+    vram_used_mb: u64,
+    vram_total_mb: u64,
+    temperature: f32,
+    power_w: Option<f32>,
+    fan_speed_pct: Option<f32>,
+    clock_mhz: Option<u32>,
+    is_apu: bool,
+) -> GpuStats {
+    GpuStats {
+        name: name.to_string(),
+        usage_pct,
+        vram_used_mb,
+        vram_total_mb,
+        temperature,
+        power_w,
+        fan_speed_pct,
+        clock_mhz,
+        vram_kind: if is_apu {
+            VramKind::Shared
+        } else {
+            VramKind::Dedicated
+        },
+        vendor: GpuVendor::Amd,
+        processes: Vec::new(),
+    }
+}
+
+/// Build an Intel iGPU [`GpuStats`]. Intel iGPUs always share system RAM, so
+/// `vram_kind` is always [`VramKind::Shared`].
+#[allow(clippy::too_many_arguments)]
+fn intel_stats_from_raw(
+    name: &str,
+    usage_pct: f32,
+    vram_used_mb: u64,
+    vram_total_mb: u64,
+    temperature: f32,
+    power_w: Option<f32>,
+    fan_speed_pct: Option<f32>,
+    clock_mhz: Option<u32>,
+) -> GpuStats {
+    GpuStats {
+        name: name.to_string(),
+        usage_pct,
+        vram_used_mb,
+        vram_total_mb,
+        temperature,
+        power_w,
+        fan_speed_pct,
+        clock_mhz,
+        vram_kind: VramKind::Shared,
+        vendor: GpuVendor::Intel,
+        processes: Vec::new(),
+    }
 }
 
 /// Collect Intel GPU stats via SysFS.
@@ -323,20 +377,55 @@ fn collect_intel_stats() -> Vec<GpuStats> {
         };
 
         // Intel iGPUs share system RAM — report 0/0 to indicate shared memory
-        results.push(GpuStats {
-            name: gpu_name,
+        results.push(intel_stats_from_raw(
+            &gpu_name,
             usage_pct,
-            vram_used_mb: 0,
-            vram_total_mb: 0,
+            0,
+            0,
             temperature,
-            power_w: None,
-            fan_speed_pct: None,
+            None,
+            None,
             clock_mhz,
-            vram_kind: VramKind::Shared,
-            vendor: GpuVendor::Intel,
-            processes: Vec::new(),
-        });
+        ));
     }
 
     results
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::state::{GpuVendor, VramKind};
+
+    #[test]
+    fn nvidia_builder_parses_csv_row() {
+        let g = nvidia_stats_from_row("GeForce RTX 3060, 12, 2000, 12288, 55, 120.5, 40, 1800");
+        assert_eq!(g.name, "GeForce RTX 3060");
+        assert_eq!(g.vendor, GpuVendor::Nvidia);
+        assert_eq!(g.vram_kind, VramKind::Dedicated);
+        assert_eq!(g.vram_total_mb, 12288);
+        assert_eq!(g.power_w, Some(120.5));
+        assert!(g.processes.is_empty());
+    }
+
+    #[test]
+    fn amd_apu_carveout_is_marked_shared() {
+        // APU VRAM carveout (small, near-full) -> Shared.
+        let g = amd_stats_from_raw("AMD 680M", 0.0, 498, 512, 44.0, None, None, None, true);
+        assert_eq!(g.vendor, GpuVendor::Amd);
+        assert_eq!(g.vram_kind, VramKind::Shared);
+    }
+
+    #[test]
+    fn amd_discrete_is_marked_dedicated() {
+        let g = amd_stats_from_raw("AMD RX 6700", 30.0, 4000, 12288, 60.0, None, None, None, false);
+        assert_eq!(g.vram_kind, VramKind::Dedicated);
+    }
+
+    #[test]
+    fn intel_builder_is_shared() {
+        let g = intel_stats_from_raw("Intel Iris", 5.0, 0, 0, 45.0, None, None, None);
+        assert_eq!(g.vendor, GpuVendor::Intel);
+        assert_eq!(g.vram_kind, VramKind::Shared);
+    }
 }

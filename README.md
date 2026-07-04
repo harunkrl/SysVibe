@@ -31,8 +31,8 @@
 ### Option A — install script (recommended)
 
 ```bash
-git clone https://github.com/harunkrl/Vitalis.git
-cd Vitalis
+git clone https://github.com/harunkrl/vitalis.git
+cd vitalis
 ./install.sh
 ```
 
@@ -245,8 +245,8 @@ src/
 Requires Rust 1.88+ (edition 2024, uses let-chains).
 
 ```bash
-git clone https://github.com/harunkrl/Vitalis.git
-cd Vitalis
+git clone https://github.com/harunkrl/vitalis.git
+cd vitalis
 cargo run --release
 ```
 

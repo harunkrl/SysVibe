@@ -25,9 +25,12 @@ pub fn collect_gpu_stats() -> Vec<GpuStats> {
 
 /// Collect NVIDIA GPU stats via `nvidia-smi`.
 fn collect_nvidia_stats() -> Vec<GpuStats> {
+    // Append `uuid` to the query so per-process data (from
+    // --query-compute-apps) can be attached to the correct GPU in multi-GPU
+    // systems.
     let output = match Command::new("nvidia-smi")
         .args([
-            "--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw,fan.speed,clocks.current.sm",
+            "--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw,fan.speed,clocks.current.sm,uuid",
             "--format=csv,noheader,nounits",
         ])
         .output()
@@ -37,6 +40,8 @@ fn collect_nvidia_stats() -> Vec<GpuStats> {
     };
 
     let text = String::from_utf8_lossy(&output.stdout);
+    // Map of gpu_uuid -> processes, used to attach per-process attribution.
+    let procs_by_uuid = collect_nvidia_processes();
     let mut results = Vec::new();
 
     for line in text.lines() {
@@ -44,10 +49,68 @@ fn collect_nvidia_stats() -> Vec<GpuStats> {
         if parts.len() < 4 {
             continue;
         }
-        results.push(nvidia_stats_from_row(line));
+        let mut g = nvidia_stats_from_row(line);
+        // The uuid is the 9th CSV field (index 8); nvidia_stats_from_row
+        // ignores it, so capture it here to look up this GPU's processes.
+        if let Some(uuid) = parts.get(8).map(|s| s.trim().to_string())
+            && let Some(list) = procs_by_uuid.get(&uuid) {
+                g.processes = list.clone();
+            }
+        results.push(g);
     }
 
     results
+}
+
+/// Parse `nvidia-smi --query-compute-apps=gpu_uuid,pid,process_name,used_memory`
+/// CSV output (used_memory in MiB, nounits) into a map of `gpu_uuid -> Vec<GpuProcess>`.
+/// Rows missing any of the 4 fields, or with a non-numeric pid/used_memory, are
+/// silently skipped (best-effort: never panics on malformed input).
+fn parse_nvidia_compute_apps(
+    csv: &str,
+) -> std::collections::HashMap<String, Vec<crate::app::state::GpuProcess>> {
+    use crate::app::state::GpuProcess;
+    let mut map: std::collections::HashMap<String, Vec<GpuProcess>> =
+        std::collections::HashMap::new();
+    for line in csv.lines() {
+        let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+        if parts.len() < 4 {
+            continue;
+        }
+        let uuid = parts[0].to_string();
+        let Some(pid) = parts[1].parse::<u32>().ok() else {
+            continue;
+        };
+        let Some(vram_mb) = parts[3].parse::<u64>().ok() else {
+            continue;
+        };
+        map.entry(uuid)
+            .or_default()
+            .push(GpuProcess {
+                pid,
+                name: parts[2].to_string(),
+                vram_mb,
+            });
+    }
+    map
+}
+
+/// Query `nvidia-smi` for the processes currently using each GPU. Returns an
+/// empty map on any failure (e.g. nvidia-smi absent, or no compute apps), so
+/// non-NVIDIA systems and idle GPUs degrade gracefully to an empty process list.
+fn collect_nvidia_processes() -> std::collections::HashMap<String, Vec<crate::app::state::GpuProcess>>
+{
+    let output = match Command::new("nvidia-smi")
+        .args([
+            "--query-compute-apps=gpu_uuid,pid,process_name,used_memory",
+            "--format=csv,noheader,nounits",
+        ])
+        .output()
+    {
+        Ok(o) if o.status.success() => o,
+        _ => return std::collections::HashMap::new(),
+    };
+    parse_nvidia_compute_apps(&String::from_utf8_lossy(&output.stdout))
 }
 
 /// Parse one `nvidia-smi --query-gpu=...` CSV row into [`GpuStats`]. Exposed as
@@ -498,5 +561,31 @@ mod amd_sysfs_tests {
     fn microwatts_to_watts_parses() {
         assert_eq!(parse_microwatts_to_w("4238000"), Some(4.238));
         assert_eq!(parse_microwatts_to_w("nope"), None);
+    }
+}
+
+#[cfg(test)]
+mod nvidia_proc_tests {
+    use super::*;
+
+    #[test]
+    fn nvidia_compute_apps_parse_per_uuid() {
+        // --query-compute-apps=gpu_uuid,pid,process_name,used_memory (MiB, nounits)
+        let csv = "GPU-aaaa,1234,blender,2100\nGPU-bbbb,55,glxgears,120\n";
+        let map = parse_nvidia_compute_apps(csv);
+        assert_eq!(map.len(), 2);
+        let a = map.get("GPU-aaaa").unwrap();
+        assert_eq!(a.len(), 1);
+        assert_eq!(a[0].pid, 1234);
+        assert_eq!(a[0].name, "blender");
+        assert_eq!(a[0].vram_mb, 2100);
+    }
+
+    #[test]
+    fn nvidia_compute_apps_skips_malformed_rows() {
+        // Rows with non-numeric pid/vram are dropped, not panicked.
+        let map = parse_nvidia_compute_apps("GPU-x,abc,foo,notnum\nGPU-y,7,bar,300\n");
+        assert_eq!(map.len(), 1);
+        assert_eq!(map["GPU-y"][0].pid, 7);
     }
 }

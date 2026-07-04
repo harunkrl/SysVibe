@@ -71,10 +71,7 @@ impl super::App {
             use crate::app::state::GpuVendor;
             match primary.vendor {
                 GpuVendor::Nvidia | GpuVendor::Unknown => {
-                    helpers::push_history(
-                        &mut self.gpu_history,
-                        primary.usage_pct.round() as u64,
-                    );
+                    helpers::push_history(&mut self.gpu_history, primary.usage_pct.round() as u64);
                 }
                 // AMD/Intel: trend fed by the 1 Hz sysfs sampler in Tier 1.
                 GpuVendor::Amd | GpuVendor::Intel => {}
@@ -104,11 +101,7 @@ impl super::App {
         // browsing aren't disrupted by auto-refresh — it buffers to
         // `pending_top_processes` and applies conditionally below.
         self.live_processes = processes.clone();
-        processes::sort_process_entries_dir(
-            &mut self.live_processes,
-            &self.sort_by,
-            self.sort_dir,
-        );
+        processes::sort_process_entries_dir(&mut self.live_processes, &self.sort_by, self.sort_dir);
 
         self.pending_top_processes = Some(processes);
         self.pending_total = total;
@@ -129,11 +122,7 @@ impl super::App {
                 .selected()
                 .and_then(|idx| self.top_processes.get(idx).map(|p| p.pid));
 
-            processes::sort_process_entries_dir(
-                &mut processes,
-                &self.sort_by,
-                self.sort_dir,
-            );
+            processes::sort_process_entries_dir(&mut processes, &self.sort_by, self.sort_dir);
             self.top_processes = processes;
             self.total_process_count_fresh = self.pending_total;
 
@@ -141,7 +130,12 @@ impl super::App {
             let len = self.top_processes.len();
             let new_idx = selected_pid
                 .and_then(|pid| self.top_processes.iter().position(|p| p.pid == pid))
-                .unwrap_or_else(|| self.proc_table_state.selected().unwrap_or(0).min(len.saturating_sub(1)));
+                .unwrap_or_else(|| {
+                    self.proc_table_state
+                        .selected()
+                        .unwrap_or(0)
+                        .min(len.saturating_sub(1))
+                });
             if len > 0 {
                 self.proc_table_state.select(Some(new_idx.min(len - 1)));
             }
@@ -155,11 +149,7 @@ impl super::App {
     /// Re-sort the currently-displayed process list in place (used when the
     /// sort column/direction changes while the table is frozen).
     pub fn resort_displayed_processes(&mut self) {
-        processes::sort_process_entries_dir(
-            &mut self.top_processes,
-            &self.sort_by,
-            self.sort_dir,
-        );
+        processes::sort_process_entries_dir(&mut self.top_processes, &self.sort_by, self.sort_dir);
         self.filtered_processes_dirty = true;
         self.set_tree_dirty();
     }
@@ -210,4 +200,3 @@ impl super::App {
         self.cached_swap_total = swap_total;
     }
 }
-

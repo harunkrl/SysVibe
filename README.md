@@ -245,7 +245,7 @@ src/
 Requires Rust 1.88+ (edition 2024, uses let-chains).
 
 ```bash
-git clone https://github.com/<you>/SysVibe.git
+git clone https://github.com/harunkrl/SysVibe.git
 cd SysVibe
 cargo run --release
 ```

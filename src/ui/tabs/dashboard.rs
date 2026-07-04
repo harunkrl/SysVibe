@@ -35,23 +35,25 @@ pub fn render_dashboard_tab(f: &mut Frame, app: &App, area: Rect) {
         render_hero_row(f, app, h, nf);
     }
 
-    // Layout: left column = CPU graph (top) + processes (bottom, fill);
-    //          right column = memory + disk (compact) + network trend (fill).
+    // Layout: left column = CPU info (top) + GPU info (bottom, fill);
+    //          right column = memory + disk + smart processes (bottom, fill).
+    //          (The network trend panel was removed; the hero NET card and
+    //          the Hardware tab's Network panel cover network detail.)
     if is_compact(content.width) {
         // Narrow (Android/Termux portrait): stack every panel full-width.
         let rows = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Percentage(28),
-                Constraint::Length(9),
-                Constraint::Length(6),
-                Constraint::Length(6),
-                Constraint::Min(0),
+                Constraint::Length(7), // CPU info
+                Constraint::Length(7), // GPU info
+                Constraint::Length(9), // memory
+                Constraint::Length(6), // disk
+                Constraint::Min(0),    // smart processes (fill)
             ])
             .split(content);
         render_cpu_graph(f, app, rows[0], nf, focus);
-        render_memory_panel(f, app, rows[1], nf, focus);
-        render_network_panel(f, app, rows[2], nf, focus);
+        render_gpu_info(f, app, rows[1], nf, focus);
+        render_memory_panel(f, app, rows[2], nf, focus);
         render_disk_panel(f, app, rows[3], nf, focus);
         render_top_processes(f, app, rows[4], nf, focus);
     } else {
@@ -60,13 +62,13 @@ pub fn render_dashboard_tab(f: &mut Frame, app: &App, area: Rect) {
             .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
             .split(content);
 
-        // Left: CPU graph on top, processes fill the bottom.
+        // Left: CPU info on top, GPU info fills the bottom.
         let left_rows = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Percentage(58), Constraint::Min(0)])
             .split(cols[0]);
 
-        // Right: memory + disk (compact) on top, network trend fills below.
+        // Right: memory + disk on top, smart processes fills below.
         // Memory is Length(9) so the swap bar (RAM label+bar+legend + swap
         // label+bar) all fit inside the border (inner = 9-2 = 7 rows).
         let right_rows = Layout::default()
@@ -79,11 +81,21 @@ pub fn render_dashboard_tab(f: &mut Frame, app: &App, area: Rect) {
             .split(cols[1]);
 
         render_cpu_graph(f, app, left_rows[0], nf, focus);
-        render_top_processes(f, app, left_rows[1], nf, focus);
+        render_gpu_info(f, app, left_rows[1], nf, focus);
         render_memory_panel(f, app, right_rows[0], nf, focus);
         render_disk_panel(f, app, right_rows[1], nf, focus);
-        render_network_panel(f, app, right_rows[2], nf, focus);
+        render_top_processes(f, app, right_rows[2], nf, focus);
     }
+}
+
+/// GPU Info panel — CPU-Info-style: braille usage trend + Power/Temp/Clock
+/// detail rows. Body is filled in by the follow-up commit; this placeholder
+/// renders an empty titled block so the grid layout is verifiable first.
+/// Reuses the freed `Panel4` focus slot (previously the Network panel).
+fn render_gpu_info(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: PanelFocus) {
+    let title = icons::titled(app, icons::GPU, icons::fallback::GPU, "GPU Info");
+    let block = panel_block_themed(&title, focus.is_focused(PanelFocus::Panel4), mauve());
+    f.render_widget(block, area);
 }
 
 struct HeroCard {
@@ -771,6 +783,10 @@ fn render_top_processes(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: 
     // Filter bar removed — unused; the table now fills the panel.
 }
 
+/// Network trend panel — REMOVED from the Dashboard grid (the hero NET card
+/// and the Hardware tab's Network panel cover network detail). Retained for
+/// potential re-use; suppress the resulting dead-code warning.
+#[allow(dead_code)]
 fn render_network_panel(f: &mut Frame, app: &App, area: Rect, nf: bool, focus: PanelFocus) {
     let title = icons::titled(app, icons::NETWORK, icons::fallback::NETWORK, "Network");
     let block = panel_block_themed(&title, focus.is_focused(PanelFocus::Panel4), sapphire());
@@ -871,6 +887,7 @@ fn render_network_panel(f: &mut Frame, app: &App, area: Rect, nf: bool, focus: P
 }
 
 /// Format an absolute byte count compactly (B / KB / MB / GB / TB).
+#[allow(dead_code)]
 pub fn fmt_bytes(bytes: u64) -> String {
     const KB: f64 = 1024.0;
     const MB: f64 = KB * 1024.0;

@@ -1,326 +1,306 @@
 //! Vitalis — GPU tab rendering.
 //!
-//! Displays real-time GPU metrics for all detected GPUs:
-//! Usage, VRAM, Temperature, Power draw, Fan speed, Clock speed.
-//! Supports multi-GPU systems with scroll navigation.
+//! Master-detail layout: a selectable GPU list (left, when >1 GPU) plus a
+//! focused detail panel (right) that adapts to fill the available space.
+//! The detail panel renders gradient gauges (usage/temp/VRAM) and a braille
+//! usage trend that grows to absorb any leftover height, eliminating the
+//! large empty-space problem the old fixed card layout had.
 
 use ratatui::{
-    layout::{Constraint, Direction, Layout, Rect},
-    style::{Modifier, Style},
-    text::{Line, Span},
-    widgets::{Gauge, Paragraph},
     Frame,
+    layout::{Constraint, Layout, Rect},
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{List, ListItem, Paragraph},
 };
 
-use crate::app::state::PanelFocus;
 use crate::app::App;
 use crate::ui::helpers::*;
 use crate::ui::icons;
 use crate::ui::palette::*;
+use crate::ui::widgets::sparkline;
 
 // ═══════════════════════════════════════════════════════════════════════
 // Public entry point
 // ═══════════════════════════════════════════════════════════════════════
 
 pub fn render_gpu_tab(f: &mut Frame, app: &App, area: Rect) {
-    let focus = app.panel_focus();
     let gpus = app.gpu_stats();
-
     if gpus.is_empty() {
         render_no_gpu(f, area, app);
         return;
     }
-
-    // Multi-GPU layout: one panel per visible GPU
-    // Show up to 2 GPUs side by side; scroll for more
-    let scroll = app.gpu_scroll();
-    let visible_count = gpus
-        .len()
-        .saturating_sub(scroll)
-        .min(if is_compact(area.width) { 1 } else { 2 });
-    let visible_gpus: Vec<_> = gpus.iter().skip(scroll).take(visible_count).collect();
-
-    if visible_gpus.is_empty() {
-        render_no_gpu(f, area, app);
+    let selected = app.gpu_scroll().min(gpus.len() - 1);
+    // 1 GPU or compact width: a single full-width detail panel (no list).
+    if gpus.len() == 1 || is_compact(area.width) {
+        render_gpu_detail(f, app, area, &gpus[selected], gpus.len() > 1);
         return;
     }
-
-    // Build horizontal layout for visible GPUs
-    let constraints: Vec<Constraint> = (0..visible_count)
-        .map(|_| Constraint::Percentage(100 / visible_count as u16))
-        .collect();
-
-    let columns = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints(constraints)
-        .split(area);
-
-    for (i, gpu) in visible_gpus.iter().enumerate() {
-        let panel_focus = match i {
-            0 => focus == PanelFocus::Panel1,
-            1 => focus == PanelFocus::Panel2,
-            _ => false,
-        };
-        render_gpu_card(f, columns[i], app, gpu, scroll + i, gpus.len(), panel_focus);
-    }
+    // Master-detail: list | detail.
+    let [list_area, detail_area] =
+        Layout::horizontal([Constraint::Length(22), Constraint::Min(0)]).areas(area);
+    render_gpu_list(f, app, list_area, gpus, selected);
+    render_gpu_detail(f, app, detail_area, &gpus[selected], true);
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// Single GPU card — full metrics panel
+// GPU list (master) — themed selectable list of detected GPUs
 // ═══════════════════════════════════════════════════════════════════════
 
-fn render_gpu_card(
+fn render_gpu_list(
     f: &mut Frame,
-    area: Rect,
     app: &App,
-    gpu: &crate::app::state::GpuStats,
-    index: usize,
-    total: usize,
-    focused: bool,
+    area: Rect,
+    gpus: &[crate::app::state::GpuStats],
+    selected: usize,
 ) {
-    let gpu_title = if total > 1 {
-        format!("GPU {} — {}", index, gpu.name)
-    } else {
-        gpu.name.clone()
-    };
-    let title = icons::titled(app, icons::GPU, icons::fallback::GPU, &gpu_title);
-    let block = panel_block_focused(&title, focused);
-    let inner = block.inner(area);
+    let title = icons::titled(app, icons::GPU, icons::fallback::GPU, "GPU List");
+    let block = panel_block_themed(&title, false, pink());
+    let inner = panel_inner(area, &block);
     f.render_widget(block, area);
 
-    if inner.height < 4 || inner.width < 10 {
+    let items: Vec<ListItem> = gpus
+        .iter()
+        .enumerate()
+        .map(|(i, g)| {
+            let mark = if i == selected { "● " } else { "○ " };
+            let kind = if g.vram_kind == crate::app::state::VramKind::Shared {
+                "(iGPU)"
+            } else {
+                "(dGPU)"
+            };
+            let line = Line::from(vec![
+                Span::styled(
+                    mark,
+                    Style::default().fg(if i == selected {
+                        lavender()
+                    } else {
+                        surface1()
+                    }),
+                ),
+                Span::styled(truncate_str(&g.name, 15), Style::default().fg(text())),
+            ]);
+            let sub = Line::from(Span::styled(
+                format!("   {}", kind),
+                Style::default().fg(subtext()),
+            ));
+            ListItem::new(vec![line, sub])
+        })
+        .collect();
+    let list = List::new(items).highlight_style(Style::default().add_modifier(Modifier::BOLD));
+    f.render_widget(list, inner);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// GPU detail panel — adaptive, braille trend fills remaining space
+// ═══════════════════════════════════════════════════════════════════════
+
+fn render_gpu_detail(
+    f: &mut Frame,
+    app: &App,
+    area: Rect,
+    gpu: &crate::app::state::GpuStats,
+    focused: bool,
+) {
+    use crate::app::state::VramKind;
+
+    let title = icons::titled(app, icons::GPU, icons::fallback::GPU, &gpu.name);
+    let block = panel_block_themed(&title, focused, maroon());
+    let inner = panel_inner(area, &block);
+    f.render_widget(block, area);
+
+    if inner.width < 12 || inner.height < 5 {
         return;
     }
 
-    // Shared-memory GPUs (iGPU/APU) have no meaningful dedicated VRAM gauge —
-    // their sysfs reports a near-full GTT carveout. Render a label instead.
-    use crate::app::state::VramKind;
     let is_dedicated = gpu.vram_kind == VramKind::Dedicated && gpu.vram_total_mb > 0;
-    // NVIDIA GPUs may carry a per-process list; reserve space for it when so.
     let has_procs = gpu.vendor == crate::app::state::GpuVendor::Nvidia && !gpu.processes.is_empty();
-
-    // Split the card into a metrics area and (optionally) a process-list area
-    // so the two never overlap.
     let proc_rows = if has_procs {
         (gpu.processes.len() as u16 + 2).min(8) // header + blank + capped rows
     } else {
         0
     };
-    let [metrics_area, proc_area] =
-        Layout::vertical([Constraint::Min(4), Constraint::Length(proc_rows)]).areas(inner);
 
-    // ── Build dynamic constraints based on available GPU info ──
-    let has_power = gpu.power_w.is_some();
-    let has_fan = gpu.fan_speed_pct.is_some();
-    let has_clock = gpu.clock_mhz.is_some();
-
-    let mut constraints: Vec<Constraint> = vec![
-        Constraint::Length(1), // Usage label
-        Constraint::Length(1), // Usage gauge
-        Constraint::Length(1), // Spacing
-    ];
+    // Dynamic vertical constraints: fixed header + gauges, then a Min(3)
+    // braille trend that absorbs any leftover height (no empty space), then
+    // the optional detail row and process list.
+    let mut c: Vec<Constraint> = Vec::new();
+    c.push(Constraint::Length(1)); // header (vendor · type)
+    c.push(Constraint::Length(1)); // Usage gauge
+    if gpu.temperature > 0.0 {
+        c.push(Constraint::Length(1)); // Temp gauge
+    }
     if is_dedicated {
-        constraints.push(Constraint::Length(1)); // VRAM label
-        constraints.push(Constraint::Length(1)); // VRAM gauge
+        c.push(Constraint::Length(1)); // VRAM gauge
     } else {
-        constraints.push(Constraint::Length(1)); // VRAM (shared) label only
+        c.push(Constraint::Length(1)); // Shared RAM label
     }
-    constraints.push(Constraint::Length(1)); // Spacing
-    constraints.push(Constraint::Length(1)); // Temperature
-    constraints.push(Constraint::Length(1)); // Spacing
-    if has_power {
-        constraints.push(Constraint::Length(1));
+    c.push(Constraint::Length(1)); // spacing
+    c.push(Constraint::Min(3)); // braille usage trend (fills space)
+    c.push(Constraint::Length(1)); // spacing
+    if gpu.power_w.is_some() || gpu.clock_mhz.is_some() || gpu.fan_speed_pct.is_some() {
+        c.push(Constraint::Length(1)); // detail row
     }
-    if has_fan {
-        constraints.push(Constraint::Length(1));
+    if proc_rows > 0 {
+        c.push(Constraint::Length(proc_rows));
     }
-    if has_clock {
-        constraints.push(Constraint::Length(1));
-    }
+    let secs = Layout::vertical(&c).split(inner);
+    let mut i = 0usize;
 
-    let sections = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints(&constraints)
-        .split(metrics_area);
-
-    let mut idx = 0;
-
-    // ── GPU Usage ──────────────────────────────────────────
-    let usage_ratio = (gpu.usage_pct as f64 / 100.0).clamp(0.0, 1.0);
-    let usage_color = usage_color(gpu.usage_pct);
-
-    f.render_widget(
-        Paragraph::new(Line::from(vec![Span::styled(
-            " Usage",
-            Style::default().fg(subtext()).add_modifier(Modifier::BOLD),
-        )])),
-        sections[idx],
-    );
-    idx += 1;
-
-    let usage_gauge = Gauge::default()
-        .gauge_style(Style::default().fg(usage_color).bg(surface0()))
-        .ratio(usage_ratio)
-        .label(Span::styled(
-            format!("{:.0}%", gpu.usage_pct),
-            Style::default().fg(text()).add_modifier(Modifier::BOLD),
-        ));
-    f.render_widget(usage_gauge, sections[idx]);
-    idx += 1;
-
-    // Spacing
-    idx += 1;
-
-    // ── VRAM ───────────────────────────────────────────────
-    if is_dedicated {
-        let vram_ratio = gpu.vram_used_mb as f64 / gpu.vram_total_mb as f64;
-        let vram_color = gauge_color(vram_ratio);
-
-        f.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::styled(
-                    " VRAM",
-                    Style::default().fg(blue()).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(
-                    format!("  {}", vram_display(gpu)),
-                    Style::default().fg(text()),
-                ),
-            ])),
-            sections[idx],
-        );
-        idx += 1;
-
-        let vram_gauge = Gauge::default()
-            .gauge_style(Style::default().fg(vram_color).bg(surface0()))
-            .ratio(vram_ratio.clamp(0.0, 1.0))
-            .label(Span::styled(
-                format!("{:.1}%", vram_ratio * 100.0),
-                Style::default().fg(text()).add_modifier(Modifier::BOLD),
-            ));
-        f.render_widget(vram_gauge, sections[idx]);
-        idx += 1;
-    } else {
-        // Shared-memory GPU: no misleading gauge, just an honest label.
-        f.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::styled(
-                    " VRAM",
-                    Style::default().fg(blue()).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(
-                    format!("  {}", vram_display(gpu)),
-                    Style::default().fg(overlay()),
-                ),
-            ])),
-            sections[idx],
-        );
-        idx += 1;
-    }
-
-    // Spacing
-    idx += 1;
-
-    // ── Temperature ────────────────────────────────────────
-    let temp_color = temp_color(gpu.temperature);
-    let temp_bar_ratio = (gpu.temperature / 105.0).clamp(0.0, 1.0);
-    let temp_filled = (temp_bar_ratio * 12.0_f32).round() as usize;
-    let temp_empty = 12usize.saturating_sub(temp_filled);
-
-    let temp_display = if app.temp_celsius {
-        format!("{:.0}°C", gpu.temperature)
-    } else {
-        format!("{:.0}°F", gpu.temperature * 9.0 / 5.0 + 32.0)
+    // Header: vendor · GPU kind badge.
+    let vendor_s = match gpu.vendor {
+        crate::app::state::GpuVendor::Nvidia => "NVIDIA",
+        crate::app::state::GpuVendor::Amd => "AMD",
+        crate::app::state::GpuVendor::Intel => "Intel",
+        crate::app::state::GpuVendor::Unknown => "GPU",
     };
-
+    let kind_s = if gpu.vram_kind == VramKind::Shared {
+        "iGPU"
+    } else {
+        "dGPU"
+    };
     f.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled(
-                " Temp  ",
-                Style::default().fg(peach()).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!("{:>6}", temp_display),
-                Style::default().fg(temp_color).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!(
-                    " [{}{}]",
-                    "\u{2588}".repeat(temp_filled),
-                    "\u{2591}".repeat(temp_empty),
-                ),
-                Style::default().fg(temp_color),
-            ),
+            Span::styled(format!(" {}", vendor_s), Style::default().fg(subtext())),
+            Span::styled(format!(" · {}", kind_s), Style::default().fg(overlay())),
         ])),
-        sections[idx],
+        secs[i],
     );
-    idx += 1;
+    i += 1;
 
-    // Spacing
-    idx += 1;
+    // Usage gauge (gradient).
+    f.render_widget(
+        Paragraph::new(gauge_line(
+            secs[i].width,
+            gpu.usage_pct as f64 / 100.0,
+            "Usage",
+            &format!("{:.0}%", gpu.usage_pct),
+            usage_color(gpu.usage_pct),
+        )),
+        secs[i],
+    );
+    i += 1;
 
-    // ── Optional sections ─────────────────────────────────
-    if let Some(power) = gpu.power_w {
-        f.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::styled(
-                    " Power",
-                    Style::default().fg(yellow()).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(format!("  {:.1} W", power), Style::default().fg(text())),
-            ])),
-            sections[idx],
-        );
-        idx += 1;
-    }
-
-    if let Some(fan) = gpu.fan_speed_pct {
-        let fan_color = if fan < 50.0 {
-            green()
-        } else if fan < 75.0 {
-            yellow()
+    // Temp gauge (only when a temperature is reported).
+    if gpu.temperature > 0.0 {
+        let t = if app.temp_celsius {
+            format!("{:.0}°C", gpu.temperature)
         } else {
-            red()
+            format!("{:.0}°F", gpu.temperature * 9.0 / 5.0 + 32.0)
         };
         f.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::styled(
-                    format!(
-                        " {}  ",
-                        icons::titled(app, icons::FAN, icons::fallback::FAN, "Fan").trim()
-                    ),
-                    Style::default().fg(teal()).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(format!("{:>5.0}%", fan), Style::default().fg(fan_color)),
-            ])),
-            sections[idx],
+            Paragraph::new(gauge_line(
+                secs[i].width,
+                ((gpu.temperature / 105.0) as f64).clamp(0.0, 1.0),
+                "Temp",
+                &t,
+                temp_color(gpu.temperature),
+            )),
+            secs[i],
         );
-        idx += 1;
+        i += 1;
     }
 
-    if let Some(clock) = gpu.clock_mhz {
+    // VRAM: gradient gauge (dedicated) or an honest shared-RAM label.
+    if is_dedicated {
+        let vr = gpu.vram_used_mb as f64 / gpu.vram_total_mb as f64;
+        let val = format!(
+            "{:.0}%  {}/{} MiB",
+            vr * 100.0,
+            gpu.vram_used_mb,
+            gpu.vram_total_mb
+        );
+        f.render_widget(
+            Paragraph::new(gauge_line(secs[i].width, vr, "VRAM", &val, gauge_color(vr))),
+            secs[i],
+        );
+    } else {
         f.render_widget(
             Paragraph::new(Line::from(vec![
-                Span::styled(
-                    " Clock",
-                    Style::default().fg(mauve()).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(format!("  {} MHz", clock), Style::default().fg(text())),
+                Span::styled("VRAM  ", Style::default().fg(subtext())),
+                Span::styled("Shared RAM (system memory)", Style::default().fg(overlay())),
             ])),
-            sections[idx],
+            secs[i],
         );
     }
+    i += 1;
+    i += 1; // spacing
 
-    // ── NVIDIA per-process list (only when present) ───────
-    if has_procs {
-        render_gpu_processes(f, proc_area, &gpu.processes);
+    // Braille usage trend — the main space-filler on every GPU.
+    let hist = app.gpu_usage_history(&gpu.id);
+    if hist.len() >= 2 {
+        sparkline::render_braille_smooth(f, secs[i], hist, "%", true, 50.0);
+    } else {
+        f.render_widget(
+            Paragraph::new(Span::styled(
+                format!(" {:.0}%", gpu.usage_pct),
+                Style::default()
+                    .fg(usage_color(gpu.usage_pct))
+                    .add_modifier(Modifier::BOLD),
+            )),
+            secs[i],
+        );
     }
+    i += 1;
+    i += 1; // spacing
+
+    // Detail row: Power · Clock · Fan (when present).
+    let mut d: Vec<Span> = Vec::new();
+    if let Some(p) = gpu.power_w {
+        d.push(Span::styled(
+            format!("Power {:.1}W", p),
+            Style::default().fg(yellow()),
+        ));
+        d.push(Span::raw(" · "));
+    }
+    if let Some(clk) = gpu.clock_mhz {
+        d.push(Span::styled(
+            format!("Clock {}MHz", clk),
+            Style::default().fg(mauve()),
+        ));
+        d.push(Span::raw(" · "));
+    }
+    if let Some(fan) = gpu.fan_speed_pct {
+        d.push(Span::styled(
+            format!("Fan {:.0}%", fan),
+            Style::default().fg(teal()),
+        ));
+    }
+    if !d.is_empty() {
+        f.render_widget(Paragraph::new(Line::from(d)), secs[i]);
+        i += 1;
+    }
+
+    // NVIDIA per-process list (only when present).
+    if proc_rows > 0 {
+        render_gpu_processes(f, secs[i], &gpu.processes);
+    }
+}
+
+/// Build a one-line gauge row: `LABEL ▕gradient bar▏  VALUE`.
+/// The label is a fixed-width prefix; `gradient_bar_spans` draws the
+/// positional green→red bar; the value is appended right-aligned in bold.
+fn gauge_line(width: u16, ratio: f64, label: &str, value: &str, color: Color) -> Line<'static> {
+    let label_w = 6usize;
+    let val_w = value.chars().count() + 2;
+    let bar_w = (width as usize).saturating_sub(label_w + val_w).max(4) as u16;
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    spans.push(Span::styled(
+        format!("{:<width$}", label, width = label_w),
+        Style::default().fg(subtext()),
+    ));
+    spans.extend(gradient_bar_spans(bar_w, ratio));
+    spans.push(Span::styled(
+        format!("  {}", value),
+        Style::default().fg(color).add_modifier(Modifier::BOLD),
+    ));
+    Line::from(spans)
 }
 
 /// Human-readable VRAM summary. Dedicated GPUs show a percent + MiB breakdown;
 /// shared-memory GPUs (iGPU/APU) show a label instead of a misleading gauge
 /// (their sysfs reports a near-full GTT carveout that doesn't reflect real app
-/// usage).
+/// usage). Reused by the Dashboard's GPU Info panel.
 pub(crate) fn vram_display(gpu: &crate::app::state::GpuStats) -> String {
     use crate::app::state::VramKind;
     match gpu.vram_kind {
@@ -466,8 +446,8 @@ mod tests {
     fn render_gpu_processes_draws_header_and_rows() {
         // Directly exercise the process-list renderer with a TestBackend so the
         // new render path is verified to actually paint (not just compile).
-        use ratatui::backend::TestBackend;
         use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
 
         let procs = vec![
             GpuProcess {
@@ -490,7 +470,6 @@ mod tests {
             .unwrap();
 
         let view = terminal.backend().buffer();
-        // Flatten the buffer into a string and assert key content is present.
         let mut s = String::new();
         for cell in view.content() {
             s.push_str(&cell.symbol());
@@ -499,5 +478,26 @@ mod tests {
         assert!(s.contains("blender"), "process name missing: {s}");
         assert!(s.contains("1234"), "pid missing: {s}");
         assert!(s.contains("2100"), "vram missing: {s}");
+    }
+
+    #[cfg(feature = "preview")]
+    #[test]
+    fn single_gpu_hides_list_and_fills_one_panel() {
+        // 1 GPU (or compact width) renders a single full-width detail panel
+        // with the Usage gauge label present (master-detail list is hidden).
+        use ratatui::{Terminal, backend::TestBackend};
+
+        let mut app = crate::app::App::new_sample(crate::config::Config::default());
+        app.set_tab(crate::app::state::AppTab::Gpu);
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|f| render_gpu_tab(f, &app, f.area()))
+            .unwrap();
+        let mut s = String::new();
+        for c in terminal.backend().buffer().content() {
+            s.push_str(c.symbol());
+        }
+        assert!(s.contains("Usage"), "usage label missing");
     }
 }

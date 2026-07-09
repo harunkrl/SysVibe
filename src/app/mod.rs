@@ -164,10 +164,12 @@ pub struct App {
     // Live GPU stats
     gpu_stats: Vec<GpuStats>,
 
-    /// Primary-GPU usage trend (0-100 per sample), fed at the GPU collector
-    /// cadence via [`set_gpu_stats`]. Drives the Dashboard GPU Info braille
-    /// trend, mirroring `cpu_history`.
-    gpu_history: std::collections::VecDeque<u64>,
+    /// Per-GPU usage history keyed by `GpuStats.id` (0-100 per sample), for the
+    /// GPU tab's per-card braille trend and the Dashboard's primary trend.
+    gpu_usage_history: HashMap<String, VecDeque<u64>>,
+    /// Zero-length fallback returned by accessors when a GPU id is not yet in
+    /// the map (e.g. before the first sample). Avoids allocating per frame.
+    gpu_history_empty: VecDeque<u64>,
 
     /// Hardware fan readings (RPM) from `/sys/class/hwmon`.
     fans: Vec<FanReading>,
@@ -244,7 +246,8 @@ impl App {
             mode: AppMode::Normal,
             should_quit: false,
             cpu_history: VecDeque::with_capacity(HISTORY_LEN),
-            gpu_history: VecDeque::with_capacity(HISTORY_LEN),
+            gpu_usage_history: HashMap::new(),
+            gpu_history_empty: VecDeque::new(),
             per_core_history: vec![VecDeque::with_capacity(HISTORY_LEN); num_cores],
             // Seed frequency trackers from the initial sample; the collector
             // updates them on each refresh. `min` starts at the current reading
@@ -531,12 +534,20 @@ mod preview_tests {
         assert!(!app.disk_partitions().is_empty(), "partitions should be filled");
     }
 
+    /// Test helper: an all-zero `GpuStats` (id Default = "", vendor Default =
+    /// Unknown). Used to build per-GPU history test fixtures without spelling
+    /// out every field.
+    fn zero_gpu() -> crate::app::state::GpuStats {
+        crate::app::state::GpuStats::default()
+    }
+
     #[test]
     fn set_gpu_stats_advances_history() {
         // set_gpu_stats is the live entry point; it must advance the primary-
-        // GPU usage trend, mirroring set_battery's power history.
+        // GPU usage trend, mirroring set_battery's power history. With the
+        // per-GPU history map, the primary GPU's entry advances.
         let mut app = App::new_sample(Config::default());
-        app.gpu_history.clear();
+        app.gpu_usage_history.clear();
         app.set_gpu_stats(vec![crate::app::state::GpuStats {
             id: String::new(),
             name: "x".into(),
@@ -551,10 +562,34 @@ mod preview_tests {
             vendor: crate::app::state::GpuVendor::Nvidia,
             processes: Vec::new(),
         }]);
-        assert_eq!(app.gpu_history.back().copied(), Some(42));
+        // Primary GPU (id "") trend advanced to 42; gpu_history() returns it.
+        assert_eq!(app.gpu_history().back().copied(), Some(42));
         // No GPU -> history must NOT advance (no panic, no 0 push).
         app.set_gpu_stats(Vec::new());
-        assert_eq!(app.gpu_history.back().copied(), Some(42));
+        assert_eq!(app.gpu_usage_history("").back().copied(), Some(42));
+    }
+
+    #[test]
+    fn per_gpu_history_kept_separately() {
+        let mut app = App::new_sample(Config::default());
+        app.gpu_usage_history.clear();
+        app.set_gpu_stats(vec![
+            crate::app::state::GpuStats {
+                id: "a".into(),
+                name: "A".into(),
+                usage_pct: 10.0,
+                ..zero_gpu()
+            },
+            crate::app::state::GpuStats {
+                id: "b".into(),
+                name: "B".into(),
+                usage_pct: 80.0,
+                ..zero_gpu()
+            },
+        ]);
+        // Primary (a) gets 10 pushed, b gets 80 pushed.
+        assert_eq!(app.gpu_usage_history("a").back().copied(), Some(10));
+        assert_eq!(app.gpu_usage_history("b").back().copied(), Some(80));
     }
 }
 

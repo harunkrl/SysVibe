@@ -23,17 +23,21 @@ pub fn collect_gpu_stats() -> Vec<GpuStats> {
     stats
 }
 
-/// Cheap, fast primary-GPU usage sample for the 1 Hz Dashboard trend. Reads
-/// only the busy-percent sysfs file of the FIRST AMD/Intel render node — a
-/// single file read, safe to call every tick. Returns `None` for NVIDIA
-/// (nvidia-smi is too heavy to spawn per-second); NVIDIA's trend advances at
-/// the 5 s sensor tier via [`set_gpu_stats`] instead, so this is a no-op there.
-pub fn sample_usage_fast() -> Option<f32> {
+/// Cheap, fast per-GPU usage sample for the 1 Hz Dashboard / GPU-tab trend.
+/// Reads only the busy-percent sysfs file of each AMD/Intel render node —
+/// single file reads, safe to call every tick. Returns `Vec<(id, usage)>`
+/// for all AMD/Intel cards found (empty when none). NVIDIA returns nothing
+/// here (nvidia-smi is too heavy to spawn per-second); NVIDIA's trend
+/// advances at the 5 s sensor tier via [`set_gpu_stats`] instead.
+pub fn sample_usage_fast() -> Vec<(String, f32)> {
     use std::fs;
     let render_base = std::path::Path::new("/sys/class/drm");
-    let entries = fs::read_dir(render_base).ok()?;
-    // Scan card*/device for an AMD (0x1002) or Intel GPU and read its
+    let Ok(entries) = fs::read_dir(render_base) else {
+        return Vec::new();
+    };
+    // Scan card*/device for AMD (0x1002) or Intel GPUs and read their
     // gpu_busy_percent. Match the detection order in collect_amd/intel_stats.
+    let mut out = Vec::new();
     for entry in entries.flatten() {
         let name = entry.file_name();
         let name = name.to_string_lossy();
@@ -51,12 +55,17 @@ pub fn sample_usage_fast() -> Option<f32> {
         }
         // AMD: card*/device/gpu_busy_percent. Intel: card*/gpu_busy_percent
         // (i915) — try both.
-        let busy = fs::read_to_string(device.join("gpu_busy_percent"))
+        if let Some(busy) = fs::read_to_string(device.join("gpu_busy_percent"))
             .or_else(|_| fs::read_to_string(entry.path().join("gpu_busy_percent")))
-            .ok()?;
-        return busy.trim().parse::<f32>().ok();
+            .ok()
+            .and_then(|s| s.trim().parse::<f32>().ok())
+        {
+            let id = read_pci_slot(&device)
+                .unwrap_or_else(|| format!("{}-{}", if is_amd { "amd" } else { "intel" }, name));
+            out.push((id, busy));
+        }
     }
-    None
+    out
 }
 
 /// Collect NVIDIA GPU stats via `nvidia-smi`.

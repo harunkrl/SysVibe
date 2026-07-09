@@ -26,11 +26,14 @@ impl super::App {
         );
         self.sys.refresh_memory();
 
-        // GPU usage trend (1 Hz, matching the CPU trend). For AMD/Intel this is
-        // a single cheap sysfs read per tick; NVIDIA returns None here and its
-        // trend advances at the 5 s sensor tier inside set_gpu_stats instead.
-        if let Some(usage) = collectors::gpu::sample_usage_fast() {
-            helpers::push_history(&mut self.gpu_history, usage.round() as u64);
+        // Per-GPU usage trend (1 Hz, AMD/Intel). NVIDIA/Unknown advance at the
+        // 5 s sensor tier inside set_gpu_stats.
+        for (id, usage) in collectors::gpu::sample_usage_fast() {
+            let h = self
+                .gpu_usage_history
+                .entry(id)
+                .or_insert_with(|| VecDeque::with_capacity(HISTORY_LEN));
+            helpers::push_history(h, usage.round() as u64);
         }
 
         // ══ Tier 2: Network + Disk I/O (every tick, cheap deltas) ═
@@ -90,4 +93,3 @@ impl super::App {
         }
     }
 }
-

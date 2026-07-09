@@ -127,7 +127,8 @@ impl super::App {
             mode: AppMode::Normal,
             should_quit: false,
             cpu_history: sample_wave(HISTORY_LEN, 10, 25),
-            gpu_history: sample_wave(HISTORY_LEN, 15, 40),
+            gpu_usage_history: HashMap::new(),
+            gpu_history_empty: VecDeque::new(),
             per_core_history: (0..num_cores)
                 .map(|i| sample_wave(HISTORY_LEN, 20 + i as u64 * 8, 25))
                 .collect(),

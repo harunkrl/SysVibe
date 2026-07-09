@@ -96,10 +96,11 @@ fn gpu_vram_fragment(gpu: &crate::app::state::GpuStats) -> String {
 }
 
 /// GPU Info panel — mirrors the CPU Info panel: a braille usage trend on top
-/// (from `gpu_history`) plus a compact Power/Temp/Clock/VRAM detail readout
-/// below. Renders a graceful "No GPU detected" state when there is no GPU.
-/// Non-empty for all vendors (NVIDIA / AMD / Intel); VRAM shows a percent only
-/// for dedicated GPUs (shared-memory GPUs show "Shared RAM").
+/// (from the primary GPU's per-GPU history) plus a compact
+/// Power/Temp/Clock/VRAM detail readout below. Renders a graceful "No GPU
+/// detected" state when there is no GPU. Non-empty for all vendors (NVIDIA /
+/// AMD / Intel); VRAM shows a percent only for dedicated GPUs (shared-memory
+/// GPUs show "Shared RAM").
 fn render_gpu_info(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: PanelFocus) {
     let title = icons::titled(app, icons::GPU, icons::fallback::GPU, "GPU Info");
     let block = panel_block_themed(&title, focus.is_focused(PanelFocus::Panel4), mauve());

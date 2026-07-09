@@ -29,10 +29,11 @@ pub fn collect_gpu_stats() -> Vec<GpuStats> {
 
 /// Fast per-tick GPU usage sample for the 1 Hz dashboard trend. On Android
 /// (Termux) the cheap sysfs paths require root and vary by vendor, so this
-/// returns `None` and the trend advances at the slower full-collection tier
-/// via `set_gpu_stats` instead. (A root-aware fast path can be added later.)
-pub fn sample_usage_fast() -> Option<f32> {
-    None
+/// returns an empty vec and the trend advances at the slower full-collection
+/// tier via `set_gpu_stats` instead. (A root-aware fast path can be added
+/// later.)
+pub fn sample_usage_fast() -> Vec<(String, f32)> {
+    Vec::new()
 }
 
 /// Try to read Adreno GPU stats via KGSL sysfs.

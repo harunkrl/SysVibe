@@ -178,11 +178,12 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
                     s.extend(key_desc("h", "Help"));
                     s.push(sep());
                     s.extend(key_desc("t", "Temp"));
-                    s.push(sep());
                     // Only show GPU navigation when there is more than one GPU.
+                    // No trailing sep() here: push_universal() adds the leading
+                    // separator before the [1-6] Tab hint.
                     if app.gpu_stats().len() > 1 {
-                        s.extend(key_desc("↑/↓", "GPU"));
                         s.push(sep());
+                        s.extend(key_desc("↑/↓", "GPU"));
                     }
                     push_universal(&mut s);
                 }

@@ -3,18 +3,18 @@
 //! Mode-aware keybinding hints and transient status messages.
 
 use ratatui::{
+    Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
-    Frame,
 };
 
 use super::header::TAB_ORDER;
 use super::icons;
 use super::palette::*;
-use crate::app::state::{AppMode, AppTab};
 use crate::app::App;
+use crate::app::state::{AppMode, AppTab};
 
 /// Separator dot between keybinds.
 fn sep() -> Span<'static> {
@@ -179,7 +179,11 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
                     s.push(sep());
                     s.extend(key_desc("t", "Temp"));
                     s.push(sep());
-                    s.extend(key_desc("↑/↓", "Scroll"));
+                    // Only show GPU navigation when there is more than one GPU.
+                    if app.gpu_stats().len() > 1 {
+                        s.extend(key_desc("↑/↓", "GPU"));
+                        s.push(sep());
+                    }
                     push_universal(&mut s);
                 }
             }

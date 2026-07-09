@@ -1,7 +1,7 @@
 //! Vitalis — Temperature sensor and battery data collection.
 
 use crate::app::helpers;
-use crate::app::state::{FanReading, SensorReading, HISTORY_LEN};
+use crate::app::state::{FanReading, HISTORY_LEN, SensorReading};
 
 /// Refresh temperature readings directly from `/sys/class/hwmon`.
 ///
@@ -25,16 +25,20 @@ pub fn read_temperatures(prev: &mut Vec<SensorReading>) {
                 .unwrap_or_default()
                 .trim()
                 .to_ascii_lowercase();
-            let Ok(sub) = std::fs::read_dir(dev.path()) else { continue };
+            let Ok(sub) = std::fs::read_dir(dev.path()) else {
+                continue;
+            };
             // collect this device's temp*_input files, sorted
             let mut temps: Vec<(String, i64)> = Vec::new();
             for f in sub.flatten() {
                 if let Some(fname) = f.file_name().to_str()
-                    && fname.starts_with("temp") && fname.ends_with("_input")
-                        && let Ok(v) = std::fs::read_to_string(f.path())
-                            && let Ok(mv) = v.trim().parse::<i64>() {
-                                temps.push((fname.to_string(), mv));
-                            }
+                    && fname.starts_with("temp")
+                    && fname.ends_with("_input")
+                    && let Ok(v) = std::fs::read_to_string(f.path())
+                    && let Ok(mv) = v.trim().parse::<i64>()
+                {
+                    temps.push((fname.to_string(), mv));
+                }
             }
             temps.sort_by(|a, b| a.0.cmp(&b.0));
             for (_fname, mv) in temps {
@@ -212,31 +216,30 @@ pub fn read_power_profile() -> String {
     }
     // Fall back to the Lenovo ideapad VPC `fan_mode` numeric code.
     // (These codes vary by model/firmware; map the common Lenovo values.)
-    if let Ok(raw) = std::fs::read_to_string(
-        "/sys/devices/platform/ideapad_acpi/fan_mode",
-    )
-        && let Ok(code) = raw.trim().parse::<u32>() {
-            return match code {
-                0 => "balanced".into(),
-                1 => "performance".into(),
-                2 => "quiet".into(),
-                _ => format!("mode {code}"),
-            };
-        }
+    if let Ok(raw) = std::fs::read_to_string("/sys/devices/platform/ideapad_acpi/fan_mode")
+        && let Ok(code) = raw.trim().parse::<u32>()
+    {
+        return match code {
+            0 => "balanced".into(),
+            1 => "performance".into(),
+            2 => "quiet".into(),
+            _ => format!("mode {code}"),
+        };
+    }
     // VPC2004 path (some ThinkBooks expose fan_mode here).
     if let Ok(raw) = std::fs::read_to_string(
         "/sys/devices/pci0000:00/0000:00:14.3/PNP0C09:00/VPC2004:00/fan_mode",
-    )
-        && let Ok(code) = raw.trim().parse::<u32>() {
-            // Lenovo VPC fan_mode: bit-encoded; low bits select the mode.
-            return match code & 0x0f {
-                0 => "performance".into(),
-                1 => "balanced".into(),
-                2 => "quiet".into(),
-                3 => "intelligent".into(),
-                _ => format!("mode {code}"),
-            };
-        }
+    ) && let Ok(code) = raw.trim().parse::<u32>()
+    {
+        // Lenovo VPC fan_mode: bit-encoded; low bits select the mode.
+        return match code & 0x0f {
+            0 => "performance".into(),
+            1 => "balanced".into(),
+            2 => "quiet".into(),
+            3 => "intelligent".into(),
+            _ => format!("mode {code}"),
+        };
+    }
     String::new()
 }
 

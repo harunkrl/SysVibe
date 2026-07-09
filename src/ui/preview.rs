@@ -121,7 +121,7 @@ use crate::app::App;
 /// using a `TestBackend` (no terminal required). Uses the exact `ui::draw`
 /// code path — so the output is pixel-faithful to the real app.
 pub fn render_app_to_svg(app: &mut App, width: u16, height: u16) -> String {
-    use ratatui::{backend::TestBackend, Terminal};
+    use ratatui::{Terminal, backend::TestBackend};
 
     let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend).expect("test backend must construct");
@@ -191,13 +191,7 @@ fn xterm_hex(i: u8) -> String {
     let r = i / 36;
     let g = (i / 6) % 6;
     let b = i % 6;
-    let to_byte = |v: u8| -> u8 {
-        if v == 0 {
-            0
-        } else {
-            55 + v * 40
-        }
-    };
+    let to_byte = |v: u8| -> u8 { if v == 0 { 0 } else { 55 + v * 40 } };
     format!("#{:02x}{:02x}{:02x}", to_byte(r), to_byte(g), to_byte(b))
 }
 

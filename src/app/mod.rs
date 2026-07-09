@@ -343,22 +343,20 @@ impl App {
 
         app
     }
-
 }
 
 // ── App method groups ────────────────────────────────────────────────
 // The implementation is split across submodules (each is an `impl App`
 // block in its own file) to keep mod.rs focused on the struct + ctor.
+mod accessors;
+mod events_dispatch;
+mod mutations;
+mod process_ops;
+mod refresh;
 #[cfg(feature = "preview")]
 mod sample;
-mod accessors;
 mod state_update;
-mod mutations;
 mod tick;
-mod refresh;
-mod process_ops;
-mod events_dispatch;
-
 
 // ═══════════════════════════════════════════════════════════════════════
 // Preview-only: deterministic sample-data builder for the `svshot` tool.
@@ -378,7 +376,15 @@ fn collect_boot_info() -> state::BootInfo {
         .map(|s| {
             // Keep it to a readable length.
             if s.len() > 120 {
-                format!("{}…", &s[..s.char_indices().take(120).last().map(|(i, _)| i).unwrap_or(120)])
+                format!(
+                    "{}…",
+                    &s[..s
+                        .char_indices()
+                        .take(120)
+                        .last()
+                        .map(|(i, _)| i)
+                        .unwrap_or(120)]
+                )
             } else {
                 s
             }
@@ -395,9 +401,7 @@ fn collect_boot_info() -> state::BootInfo {
                 .and_then(|o| String::from_utf8(o.stdout).ok())
                 .and_then(|s| s.lines().next().map(|l| l.to_string()))
         })
-        .or_else(|| {
-            (std::fs::metadata("/run/openrc").is_ok()).then_some("OpenRC".to_string())
-        });
+        .or_else(|| (std::fs::metadata("/run/openrc").is_ok()).then_some("OpenRC".to_string()));
 
     let boot_mode = if std::path::Path::new("/sys/firmware/efi").exists() {
         Some("UEFI".to_string())
@@ -405,22 +409,22 @@ fn collect_boot_info() -> state::BootInfo {
         Some("BIOS/Legacy".to_string())
     };
 
-    let secure_boot = fs::read_to_string("/sys/firmware/efi/efivars/SecureBoot-8be4df61-92ca-11d2-aa0d-00e098032b8c")
-        .ok()
-        .and_then(|b| b.as_bytes().last().copied())
-        .map(|v| v == 1);
+    let secure_boot = fs::read_to_string(
+        "/sys/firmware/efi/efivars/SecureBoot-8be4df61-92ca-11d2-aa0d-00e098032b8c",
+    )
+    .ok()
+    .and_then(|b| b.as_bytes().last().copied())
+    .map(|v| v == 1);
 
     let module_count = fs::read_to_string("/proc/modules")
         .ok()
         .map(|s| s.lines().count() as u32);
 
-    let kernel_built = fs::read_to_string("/proc/version")
-        .ok()
-        .and_then(|s| {
-            // /proc/version: "Linux version 6.x (...) (gcc...) #1 SMP ..."
-            // Pull the trailing build date portion after '#'.
-            s.split('#').nth(1).map(|p| p.trim().to_string())
-        });
+    let kernel_built = fs::read_to_string("/proc/version").ok().and_then(|s| {
+        // /proc/version: "Linux version 6.x (...) (gcc...) #1 SMP ..."
+        // Pull the trailing build date portion after '#'.
+        s.split('#').nth(1).map(|p| p.trim().to_string())
+    });
 
     state::BootInfo {
         cmdline,
@@ -504,12 +508,10 @@ fn collect_locale_info() -> state::LocaleInfo {
         .map(|s| s.trim().to_string())
         .or_else(|| {
             // Fallback: readlink /etc/localtime → .../zoneinfo/<Region>/<City>
-            fs::read_link("/etc/localtime")
-                .ok()
-                .and_then(|p| {
-                    let s = p.to_string_lossy().to_string();
-                    s.split("/zoneinfo/").nth(1).map(|t| t.to_string())
-                })
+            fs::read_link("/etc/localtime").ok().and_then(|p| {
+                let s = p.to_string_lossy().to_string();
+                s.split("/zoneinfo/").nth(1).map(|t| t.to_string())
+            })
         });
     let locale = std::env::var("LANG")
         .ok()
@@ -530,8 +532,14 @@ mod preview_tests {
         assert!(!app.cpu_history.is_empty(), "cpu history should be filled");
         assert_eq!(app.num_cores(), 8, "sample should model 8 cores");
         assert!(!app.gpu_stats().is_empty(), "gpu stats should be filled");
-        assert!(!app.temperatures().is_empty(), "temperatures should be filled");
-        assert!(!app.disk_partitions().is_empty(), "partitions should be filled");
+        assert!(
+            !app.temperatures().is_empty(),
+            "temperatures should be filled"
+        );
+        assert!(
+            !app.disk_partitions().is_empty(),
+            "partitions should be filled"
+        );
     }
 
     /// Test helper: an all-zero `GpuStats` (id Default = "", vendor Default =
@@ -592,5 +600,3 @@ mod preview_tests {
         assert_eq!(app.gpu_usage_history("b").back().copied(), Some(80));
     }
 }
-
-

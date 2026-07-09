@@ -8,18 +8,18 @@
 //! number-key shortcut (1 = Dashboard … 6 = GPU).
 
 use ratatui::{
+    Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
-    Frame,
 };
 
 use chrono::Local;
 
 use super::palette::*;
-use crate::app::state::{AppTab, TabRectEntry};
 use crate::app::App;
+use crate::app::state::{AppTab, TabRectEntry};
 
 /// Canonical tab order — matches `App::next_tab` / `prev_tab`.
 /// (index + 1) is the number-key shortcut.
@@ -39,11 +39,7 @@ const TAB_SPACING: u16 = 1;
 /// padding between border and text (border hugs the label).
 fn pill_width(name: &str, show_number: bool) -> u16 {
     let base = name.chars().count() as u16 + 2;
-    if show_number {
-        base + 2
-    } else {
-        base
-    }
+    if show_number { base + 2 } else { base }
 }
 
 /// Compute the horizontal pill layout within `area`.

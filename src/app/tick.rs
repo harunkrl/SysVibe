@@ -91,4 +91,3 @@ impl super::App {
         &self.active_alerts
     }
 }
-

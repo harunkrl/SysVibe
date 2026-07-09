@@ -148,7 +148,9 @@ fn render_gpu_info(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: Panel
         f.render_widget(
             Paragraph::new(Span::styled(
                 format!(" {:.0}%", gpu.usage_pct),
-                Style::default().fg(usage_color).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(usage_color)
+                    .add_modifier(Modifier::BOLD),
             )),
             chart_area,
         );
@@ -306,9 +308,15 @@ fn render_hero_row(f: &mut Frame, app: &App, area: Rect, nf: bool) {
             .map(|s| s.temp_c)
     };
     let cpu_t = find_temp(&["cpu", "package", "tctl", "core"]);
-    let gpu_t = find_temp(&["gpu", "graphics"])
-        .or_else(|| app.gpu_stats().first().map(|g| g.temperature));
-    let conv = |t: f32| if app.temp_celsius { t } else { t * 9.0 / 5.0 + 32.0 };
+    let gpu_t =
+        find_temp(&["gpu", "graphics"]).or_else(|| app.gpu_stats().first().map(|g| g.temperature));
+    let conv = |t: f32| {
+        if app.temp_celsius {
+            t
+        } else {
+            t * 9.0 / 5.0 + 32.0
+        }
+    };
     let unit = if app.temp_celsius { "°C" } else { "°F" };
 
     if cpu_t.is_some() || gpu_t.is_some() || !temps.is_empty() {
@@ -321,10 +329,10 @@ fn render_hero_row(f: &mut Frame, app: &App, area: Rect, nf: bool) {
             (None, Some(g)) => format!("gpu - {:.0}{}", conv(g), unit),
             (None, None) => {
                 // No CPU/GPU label — show the hottest sensor as a fallback.
-                let mt = temps.iter().map(|s| s.temp_c).fold(
-                    None::<f32>,
-                    |a, v| Some(a.map_or(v, |x| x.max(v))),
-                );
+                let mt = temps
+                    .iter()
+                    .map(|s| s.temp_c)
+                    .fold(None::<f32>, |a, v| Some(a.map_or(v, |x| x.max(v))));
                 mt.map(|t| format!("{:.0}{}", conv(t), unit))
                     .unwrap_or_default()
             }
@@ -336,7 +344,11 @@ fn render_hero_row(f: &mut Frame, app: &App, area: Rect, nf: bool) {
             .fold(None::<f32>, |a, v| Some(a.map_or(v, |x| x.max(v))));
         cards.push(HeroCard {
             label: "TEMP",
-            icon: if nf { icons::TEMP } else { icons::fallback::TEMP },
+            icon: if nf {
+                icons::TEMP
+            } else {
+                icons::fallback::TEMP
+            },
             value,
             sub: format!("{} sensors", temps.len()),
             color: max_t.map(temp_color).unwrap_or_else(subtext),
@@ -459,10 +471,7 @@ fn render_stat_card(f: &mut Frame, area: Rect, card: &HeroCard) {
         )));
     }
 
-    f.render_widget(
-        Paragraph::new(lines).alignment(Alignment::Center),
-        inner,
-    );
+    f.render_widget(Paragraph::new(lines).alignment(Alignment::Center), inner);
 }
 
 /// Tiny one-line sparkline using 8-level half-block characters.
@@ -650,10 +659,7 @@ fn render_cpu_freq(f: &mut Frame, area: Rect, app: &App) {
         .iter()
         .find(|s| {
             let l = s.label.to_ascii_lowercase();
-            l.contains("cpu")
-                || l.contains("package")
-                || l.contains("tctl")
-                || l.contains("core")
+            l.contains("cpu") || l.contains("package") || l.contains("tctl") || l.contains("core")
         })
         .map(|s| s.temp_c);
     let temp_span = |t: f32| {
@@ -662,7 +668,10 @@ fn render_cpu_freq(f: &mut Frame, area: Rect, app: &App) {
         } else {
             t * 9.0 / 5.0 + 32.0
         };
-        Span::styled(format!("{:.0}°  ", disp), Style::default().fg(temp_color(t)))
+        Span::styled(
+            format!("{:.0}°  ", disp),
+            Style::default().fg(temp_color(t)),
+        )
     };
 
     let current = Line::from({
@@ -711,7 +720,10 @@ fn render_cpu_freq(f: &mut Frame, area: Rect, app: &App) {
 /// `HISTORY_LEN` samples at the effective CPU refresh interval.
 #[allow(dead_code)]
 fn cpu_window_label(app: &App) -> String {
-    let interval_ms = app.config().cpu_refresh_ms.unwrap_or(app.config().data_refresh_rate);
+    let interval_ms = app
+        .config()
+        .cpu_refresh_ms
+        .unwrap_or(app.config().data_refresh_rate);
     let secs = (HISTORY_LEN as u64 * interval_ms) / 1000;
     if secs >= 60 && secs.is_multiple_of(60) {
         format!("-{}m", secs / 60)
@@ -735,7 +747,11 @@ fn render_memory_panel(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: P
     // used/total, so this panel adds the breakdown the hero can't.
     let mem = app.memory_breakdown();
     let total = mem.total_bytes as f64;
-    let used_ratio = if total > 0.0 { mem.used_bytes as f64 / total } else { 0.0 };
+    let used_ratio = if total > 0.0 {
+        mem.used_bytes as f64 / total
+    } else {
+        0.0
+    };
     let _cached_ratio = if total > 0.0 {
         (mem.cached_bytes as f64 + mem.buffers_bytes as f64) / total
     } else {
@@ -869,7 +885,10 @@ fn render_top_processes(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: 
         } else {
             header_idle
         };
-        Cell::from(Span::styled(format!("{}{}", label, smart_sort_arrow(app, col)), style))
+        Cell::from(Span::styled(
+            format!("{}{}", label, smart_sort_arrow(app, col)),
+            style,
+        ))
     };
     let header_cells = vec![
         cell("PID", SortBy::Pid),
@@ -951,7 +970,10 @@ fn render_top_processes(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: 
             ),
             Span::styled(" processes", Style::default().fg(subtext())),
             Span::styled("   sort: ", Style::default().fg(subtext())),
-            Span::styled(sort_caption, Style::default().fg(peach()).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                sort_caption,
+                Style::default().fg(peach()).add_modifier(Modifier::BOLD),
+            ),
         ])),
         layout[0],
     );
@@ -1006,10 +1028,20 @@ fn render_network_panel(f: &mut Frame, app: &App, area: Rect, nf: bool, focus: P
     // same offset (newest aligned to the right). Length = shortest history.
     let hist_len = stats.iter().map(|s| s.rx_history.len()).min().unwrap_or(0);
     let agg_rx: Vec<u64> = (0..hist_len)
-        .map(|i| stats.iter().map(|s| s.rx_history.get(i).copied().unwrap_or(0)).sum())
+        .map(|i| {
+            stats
+                .iter()
+                .map(|s| s.rx_history.get(i).copied().unwrap_or(0))
+                .sum()
+        })
         .collect();
     let agg_tx: Vec<u64> = (0..hist_len)
-        .map(|i| stats.iter().map(|s| s.tx_history.get(i).copied().unwrap_or(0)).sum())
+        .map(|i| {
+            stats
+                .iter()
+                .map(|s| s.tx_history.get(i).copied().unwrap_or(0))
+                .sum()
+        })
         .collect();
 
     // Header: interface(s) + CUMULATIVE totals (session).
@@ -1021,7 +1053,10 @@ fn render_network_panel(f: &mut Frame, app: &App, area: Rect, nf: bool, focus: P
         Span::styled("  total ", Style::default().fg(subtext())),
     ];
     if let Some(ip) = &stats[0].local_ip {
-        hdr.push(Span::styled(format!("{}  ", ip), Style::default().fg(overlay()).add_modifier(Modifier::DIM)));
+        hdr.push(Span::styled(
+            format!("{}  ", ip),
+            Style::default().fg(overlay()).add_modifier(Modifier::DIM),
+        ));
     }
     // cumulative RX / TX (humanised)
     hdr.push(Span::styled(
@@ -1133,9 +1168,10 @@ fn render_disk_panel(f: &mut Frame, app: &App, area: Rect, nf: bool, focus: Pane
         let mp = truncate_str(&p.mount_point, 8);
         let lbl_w = 9; // mount padded
         let meter_w = bar_w.saturating_sub(lbl_w + 5); // +pct
-        let mut spans = vec![
-            Span::styled(format!("{:<8} ", mp), Style::default().fg(subtext())),
-        ];
+        let mut spans = vec![Span::styled(
+            format!("{:<8} ", mp),
+            Style::default().fg(subtext()),
+        )];
         spans.extend(gradient_bar_spans(meter_w.max(1), ratio));
         spans.push(Span::styled(
             format!(" {:>3.0}%", ratio * 100.0),

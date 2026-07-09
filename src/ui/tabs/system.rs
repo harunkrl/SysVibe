@@ -12,8 +12,8 @@ use ratatui::{
     widgets::Paragraph,
 };
 
-use crate::app::state::PanelFocus;
 use crate::app::App;
+use crate::app::state::PanelFocus;
 use crate::ui::helpers::*;
 use crate::ui::icons;
 use crate::ui::palette::*;
@@ -39,7 +39,12 @@ pub fn render_system_tab(f: &mut Frame, app: &App, area: Rect) {
     } else {
         // Single column: identity lines then hardware lines, in one panel.
         let focus = app.panel_focus();
-        let title = icons::titled(app, icons::OS_LINUX, icons::fallback::OS_LINUX, "System Info");
+        let title = icons::titled(
+            app,
+            icons::OS_LINUX,
+            icons::fallback::OS_LINUX,
+            "System Info",
+        );
         let block = panel_block_themed(&title, focus == PanelFocus::Panel1, mauve());
         let inner = block.inner(area);
         f.render_widget(block, area);
@@ -171,7 +176,11 @@ fn identity_lines(app: &App, max_w: usize) -> Vec<Line<'static>> {
                 lines.push(kv_line("Mode", mode, mauve()));
             }
             if let Some(sb) = b.secure_boot {
-                lines.push(kv_line("Secure Boot", if sb { "enabled" } else { "disabled" }, blue()));
+                lines.push(kv_line(
+                    "Secure Boot",
+                    if sb { "enabled" } else { "disabled" },
+                    blue(),
+                ));
             }
             if let Some(init) = &b.init_system {
                 lines.push(kv_line("Init", init, subtext()));
@@ -282,7 +291,10 @@ fn hardware_lines(app: &App, max_w: usize) -> Vec<Line<'static>> {
         if let Some(ref ff) = ram.form_factor {
             ram_parts.push(Span::styled(ff.clone(), Style::default().fg(overlay())));
         } else {
-            ram_parts.push(Span::styled("DIMM".to_string(), Style::default().fg(overlay())));
+            ram_parts.push(Span::styled(
+                "DIMM".to_string(),
+                Style::default().fg(overlay()),
+            ));
         }
         ram_parts.push(Span::styled(")", Style::default().fg(overlay())));
     }
@@ -309,11 +321,10 @@ fn hardware_lines(app: &App, max_w: usize) -> Vec<Line<'static>> {
     lines.push(section_divider("CPU", max_w));
     {
         let c = &hw.cpu;
-        let mut cache_parts =
-            vec![Span::styled(
-                " Cache:",
-                Style::default().fg(subtext()).add_modifier(Modifier::BOLD),
-            )];
+        let mut cache_parts = vec![Span::styled(
+            " Cache:",
+            Style::default().fg(subtext()).add_modifier(Modifier::BOLD),
+        )];
         let mut any = false;
         for (lvl, val) in [("L1", &c.l1), ("L2", &c.l2), ("L3", &c.l3)] {
             if let Some(v) = val {
@@ -501,9 +512,7 @@ fn hardware_lines(app: &App, max_w: usize) -> Vec<Line<'static>> {
                 "{} {}{}{}",
                 n.kind,
                 n.driver.as_deref().unwrap_or(""),
-                n.speed_mbps
-                    .map(|s| format!(" {}M", s))
-                    .unwrap_or_default(),
+                n.speed_mbps.map(|s| format!(" {}M", s)).unwrap_or_default(),
                 if n.link_up { "  up" } else { "  down" },
             );
             let val = fit_str(&val, max_w.saturating_sub(n.name.len() + 4));

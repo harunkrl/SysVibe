@@ -7,11 +7,11 @@
 //!          `--theme <name>` (default follows config = dracula)
 
 use std::fs;
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
 
-use vitalis::app::state::AppTab;
 use vitalis::app::App;
+use vitalis::app::state::AppTab;
 use vitalis::config::Config;
 use vitalis::ui::palette;
 use vitalis::ui::preview::render_app_to_svg;

@@ -302,4 +302,3 @@ impl super::App {
         self.selected_pids.clear();
     }
 }
-

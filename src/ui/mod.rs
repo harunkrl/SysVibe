@@ -8,11 +8,11 @@ pub mod header;
 pub mod helpers;
 pub mod icons;
 pub mod palette;
+#[cfg(feature = "preview")]
+pub mod preview;
 pub mod tabs;
 pub mod theme;
 pub mod widgets;
-#[cfg(feature = "preview")]
-pub mod preview;
 
 use ratatui::{
     Frame,
@@ -59,7 +59,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(1), // Header (title line only — tabs moved to footer)
-            Constraint::Min(0),   // Main content
+            Constraint::Min(0),    // Main content
             Constraint::Length(1), // Footer (keybinds + active tab)
         ])
         .split(inner_area);

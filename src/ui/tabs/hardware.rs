@@ -5,15 +5,15 @@
 //! Two-row layout: monitoring columns on top, sensors + disk I/O below.
 
 use ratatui::{
+    Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
-    Frame,
 };
 
-use crate::app::state::{PanelFocus, SensorReading};
 use crate::app::App;
+use crate::app::state::{PanelFocus, SensorReading};
 use crate::ui::helpers::*;
 use crate::ui::icons;
 use crate::ui::palette::*;

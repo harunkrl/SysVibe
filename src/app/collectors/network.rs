@@ -5,7 +5,7 @@
 //! for sparkline rendering.
 
 use super::super::helpers::push_history;
-use super::super::state::{NetworkStats, HISTORY_LEN};
+use super::super::state::{HISTORY_LEN, NetworkStats};
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::net::UdpSocket;

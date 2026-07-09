@@ -7,11 +7,11 @@
 //! large empty-space problem the old fixed card layout had.
 
 use ratatui::{
+    Frame,
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{List, ListItem, Paragraph},
-    Frame,
 };
 
 use crate::app::App;
@@ -474,8 +474,8 @@ mod tests {
     fn render_gpu_processes_draws_header_and_rows() {
         // Directly exercise the process-list renderer with a TestBackend so the
         // new render path is verified to actually paint (not just compile).
-        use ratatui::backend::TestBackend;
         use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
 
         let procs = vec![
             GpuProcess {
@@ -513,7 +513,7 @@ mod tests {
     fn single_gpu_hides_list_and_fills_one_panel() {
         // 1 GPU (or compact width) renders a single full-width detail panel
         // with the Usage gauge label present (master-detail list is hidden).
-        use ratatui::{backend::TestBackend, Terminal};
+        use ratatui::{Terminal, backend::TestBackend};
 
         let mut app = crate::app::App::new_sample(crate::config::Config::default());
         app.set_tab(crate::app::state::AppTab::Gpu);

@@ -41,11 +41,7 @@ fn braille(idx: usize) -> &'static str {
 /// a line draws only the top 2 sub-pixels of the fill (a crisp 2-px stroke).
 #[inline]
 fn subpixel_on(hb: usize, h: usize, area: bool) -> bool {
-    if area {
-        hb < h
-    } else {
-        hb < h && hb + 2 >= h
-    }
+    if area { hb < h } else { hb < h && hb + 2 >= h }
 }
 
 /// Smooth braille trend graph rendered on a full **2×4 sub-pixel grid** (both
@@ -350,8 +346,8 @@ pub fn braille_mirrored_graph(
             // cy within this area, 0 = topmost. Distance above baseline:
             // up_base_row - ry (1 = row just above baseline).
             let dist_above = up_base_row - ry; // 1..up_area
-                                               // sub-pixel distance from baseline top: this cell's BOTTOM sub-row
-                                               // sits at (dist_above-1)*4 from baseline going up.
+            // sub-pixel distance from baseline top: this cell's BOTTOM sub-row
+            // sits at (dist_above-1)*4 from baseline going up.
             for cx in 0..graph_w {
                 let mut bits = 0u8;
                 for r in 0..4usize {

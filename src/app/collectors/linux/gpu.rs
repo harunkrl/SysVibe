@@ -98,9 +98,10 @@ fn collect_nvidia_stats() -> Vec<GpuStats> {
         // The uuid is the 9th CSV field (index 8); nvidia_stats_from_row
         // ignores it, so capture it here to look up this GPU's processes.
         if let Some(uuid) = parts.get(8).map(|s| s.trim().to_string())
-            && let Some(list) = procs_by_uuid.get(&uuid) {
-                g.processes = list.clone();
-            }
+            && let Some(list) = procs_by_uuid.get(&uuid)
+        {
+            g.processes = list.clone();
+        }
         results.push(g);
     }
 
@@ -129,13 +130,11 @@ fn parse_nvidia_compute_apps(
         let Some(vram_mb) = parts[3].parse::<u64>().ok() else {
             continue;
         };
-        map.entry(uuid)
-            .or_default()
-            .push(GpuProcess {
-                pid,
-                name: parts[2].to_string(),
-                vram_mb,
-            });
+        map.entry(uuid).or_default().push(GpuProcess {
+            pid,
+            name: parts[2].to_string(),
+            vram_mb,
+        });
     }
     map
 }
@@ -143,8 +142,8 @@ fn parse_nvidia_compute_apps(
 /// Query `nvidia-smi` for the processes currently using each GPU. Returns an
 /// empty map on any failure (e.g. nvidia-smi absent, or no compute apps), so
 /// non-NVIDIA systems and idle GPUs degrade gracefully to an empty process list.
-fn collect_nvidia_processes() -> std::collections::HashMap<String, Vec<crate::app::state::GpuProcess>>
-{
+fn collect_nvidia_processes()
+-> std::collections::HashMap<String, Vec<crate::app::state::GpuProcess>> {
     let output = match Command::new("nvidia-smi")
         .args([
             "--query-compute-apps=gpu_uuid,pid,process_name,used_memory",
@@ -416,15 +415,17 @@ fn read_amd_hwmon_extras(hwmon_path: &std::path::Path) -> (Option<f32>, Option<f
     for entry in entries.flatten() {
         let p = entry.path();
         if power.is_none()
-            && let Ok(v) = fs::read_to_string(p.join("power1_input")) {
-                power = parse_microwatts_to_w(&v);
-            }
+            && let Ok(v) = fs::read_to_string(p.join("power1_input"))
+        {
+            power = parse_microwatts_to_w(&v);
+        }
         if fan.is_none() {
             // pwm1 is a 0-255 duty cycle; convert to a percentage.
             if let Ok(v) = fs::read_to_string(p.join("pwm1"))
-                && let Ok(duty) = v.trim().parse::<f32>() {
-                    fan = Some((duty / 255.0 * 100.0).clamp(0.0, 100.0));
-                }
+                && let Ok(duty) = v.trim().parse::<f32>()
+            {
+                fan = Some((duty / 255.0 * 100.0).clamp(0.0, 100.0));
+            }
         }
         if power.is_some() && fan.is_some() {
             break;
@@ -595,20 +596,43 @@ mod tests {
     #[test]
     fn amd_apu_carveout_is_marked_shared() {
         // APU VRAM carveout (small, near-full) -> Shared.
-        let g = amd_stats_from_raw("amd-test", "AMD 680M", 0.0, 498, 512, 44.0, None, None, None, true);
+        let g = amd_stats_from_raw(
+            "amd-test", "AMD 680M", 0.0, 498, 512, 44.0, None, None, None, true,
+        );
         assert_eq!(g.vendor, GpuVendor::Amd);
         assert_eq!(g.vram_kind, VramKind::Shared);
     }
 
     #[test]
     fn amd_discrete_is_marked_dedicated() {
-        let g = amd_stats_from_raw("amd-test", "AMD RX 6700", 30.0, 4000, 12288, 60.0, None, None, None, false);
+        let g = amd_stats_from_raw(
+            "amd-test",
+            "AMD RX 6700",
+            30.0,
+            4000,
+            12288,
+            60.0,
+            None,
+            None,
+            None,
+            false,
+        );
         assert_eq!(g.vram_kind, VramKind::Dedicated);
     }
 
     #[test]
     fn intel_builder_is_shared() {
-        let g = intel_stats_from_raw("intel-test", "Intel Iris", 5.0, 0, 0, 45.0, None, None, None);
+        let g = intel_stats_from_raw(
+            "intel-test",
+            "Intel Iris",
+            5.0,
+            0,
+            0,
+            45.0,
+            None,
+            None,
+            None,
+        );
         assert_eq!(g.vendor, GpuVendor::Intel);
         assert_eq!(g.vram_kind, VramKind::Shared);
     }

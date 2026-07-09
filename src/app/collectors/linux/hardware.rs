@@ -487,14 +487,15 @@ fn fetch_cpu_details() -> CpuDetails {
     };
     for idx in 0..=3 {
         if let Some(level) = level_of(idx).map(|s| s.trim().to_string())
-            && let Some(size) = size_of(idx) {
-                match level.as_str() {
-                    "1" => l1.get_or_insert(size),
-                    "2" => l2.get_or_insert(size),
-                    "3" => l3.get_or_insert(size),
-                    _ => continue,
-                };
-            }
+            && let Some(size) = size_of(idx)
+        {
+            match level.as_str() {
+                "1" => l1.get_or_insert(size),
+                "2" => l2.get_or_insert(size),
+                "3" => l3.get_or_insert(size),
+                _ => continue,
+            };
+        }
     }
 
     let read_mhz = |p: &str| {
@@ -505,23 +506,22 @@ fn fetch_cpu_details() -> CpuDetails {
     let base_mhz = read_mhz(&format!("{cpu0}/cpufreq/base_frequency"));
     let max_mhz = read_mhz("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq")
         .map(|khz| khz / 1000)
-        .or_else(|| read_mhz("/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq").map(|khz| khz / 1000));
-
-    let microcode = fs::read_to_string("/proc/cpuinfo")
-        .ok()
-        .and_then(|c| {
-            c.lines()
-                .find(|l| l.starts_with("microcode"))
-                .and_then(|l| l.split(':').nth(1))
-                .map(|s| s.trim().to_string())
+        .or_else(|| {
+            read_mhz("/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq").map(|khz| khz / 1000)
         });
 
-    let tdp_w = fs::read_to_string(
-        "/sys/class/powercap/intel-rapl/intel-rapl:0/constraint_0_max_power_uw",
-    )
-    .ok()
-    .and_then(|s| s.trim().parse::<u64>().ok())
-    .map(|uw| (uw / 1_000_000) as u32);
+    let microcode = fs::read_to_string("/proc/cpuinfo").ok().and_then(|c| {
+        c.lines()
+            .find(|l| l.starts_with("microcode"))
+            .and_then(|l| l.split(':').nth(1))
+            .map(|s| s.trim().to_string())
+    });
+
+    let tdp_w =
+        fs::read_to_string("/sys/class/powercap/intel-rapl/intel-rapl:0/constraint_0_max_power_uw")
+            .ok()
+            .and_then(|s| s.trim().parse::<u64>().ok())
+            .map(|uw| (uw / 1_000_000) as u32);
 
     let fms = fs::read_to_string("/proc/cpuinfo").ok().and_then(|c| {
         let fam = c
@@ -616,9 +616,7 @@ fn fetch_storage_devices() -> Vec<StorageDevice> {
             continue;
         }
 
-        let removable = read_field("removable")
-            .map(|s| s == "1")
-            .unwrap_or(false);
+        let removable = read_field("removable").map(|s| s == "1").unwrap_or(false);
 
         let is_nvme = name.starts_with("nvme");
         let is_usb = name.starts_with("sd") && removable;

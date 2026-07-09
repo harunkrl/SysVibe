@@ -164,12 +164,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (tx, mut rx) = mpsc::channel::<StateUpdate>(64);
 
     // 6. Spawn background data collection tasks
-    spawn_collector_tasks(
-        tx,
-        &config,
-        app.log_scope_handle(),
-        app.log_reset_handle(),
-    );
+    spawn_collector_tasks(tx, &config, app.log_scope_handle(), app.log_reset_handle());
 
     // 7. Run the async UI loop
     let res = run_async_app(&mut terminal, &mut app, &mut rx).await;
@@ -380,9 +375,7 @@ fn spawn_collector_tasks(
                 log_scope.load(std::sync::atomic::Ordering::Relaxed),
             );
             log_collector.set_scope(scope);
-            if log_reset
-                .swap(false, std::sync::atomic::Ordering::Acquire)
-            {
+            if log_reset.swap(false, std::sync::atomic::Ordering::Acquire) {
                 log_collector.reset();
             }
 

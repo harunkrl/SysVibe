@@ -5,14 +5,14 @@
 use super::super::helpers::*;
 use super::super::icons;
 use super::super::palette::*;
-use crate::app::state::{AppMode, ProcessEntry, SortBy};
 use crate::app::App;
+use crate::app::state::{AppMode, ProcessEntry, SortBy};
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Cell, Paragraph, Row, Table},
-    Frame,
 };
 
 pub fn render_processes_tab(f: &mut Frame, app: &mut App, area: Rect) {
@@ -662,10 +662,10 @@ fn render_tree_view(f: &mut Frame, app: &mut App, area: Rect) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use ratatui::layout::Constraint;
     use ratatui::widgets::{Row, Table, TableState};
-    use ratatui::Terminal;
 
     /// Regression test for the "scroll jumps to the top" bug (fix #4).
     ///

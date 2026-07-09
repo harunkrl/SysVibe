@@ -412,6 +412,7 @@ mod tests {
 
     fn gpu(kind: VramKind, vendor: GpuVendor, used: u64, total: u64) -> GpuStats {
         GpuStats {
+            id: String::new(),
             name: "x".into(),
             usage_pct: 1.0,
             vram_used_mb: used,

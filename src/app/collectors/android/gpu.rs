@@ -66,6 +66,7 @@ fn collect_adreno_stats() -> Option<Vec<GpuStats>> {
     };
 
     Some(vec![GpuStats {
+        id: "adreno-kgsl-3d0".to_string(),
         name: "Adreno GPU".to_string(),
         usage_pct: busy_pct,
         vram_used_mb,
@@ -131,6 +132,7 @@ fn collect_devfreq_stats() -> Option<Vec<GpuStats>> {
         .to_string();
 
         return Some(vec![GpuStats {
+            id: format!("devfreq-{}", name),
             name: gpu_name,
             usage_pct,
             vram_used_mb: 0,

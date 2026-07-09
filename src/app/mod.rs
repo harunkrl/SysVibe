@@ -538,6 +538,7 @@ mod preview_tests {
         let mut app = App::new_sample(Config::default());
         app.gpu_history.clear();
         app.set_gpu_stats(vec![crate::app::state::GpuStats {
+            id: String::new(),
             name: "x".into(),
             usage_pct: 42.0,
             vram_used_mb: 0,

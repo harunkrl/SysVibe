@@ -1156,6 +1156,7 @@ mod tests {
         // Shared-memory GPUs (iGPU/APU) must NOT show a misleading VRAM
         // percent in the GPU Info detail row; dedicated GPUs should.
         let mut g = GpuStats {
+            id: String::new(),
             name: "680M".into(),
             usage_pct: 5.0,
             vram_used_mb: 498,

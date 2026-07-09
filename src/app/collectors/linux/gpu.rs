@@ -158,6 +158,7 @@ fn nvidia_stats_from_row(line: &str) -> GpuStats {
     let parse_f = |i: usize| parts.get(i).and_then(|v| v.parse::<f32>().ok());
     let parse_u = |i: usize| parts.get(i).and_then(|v| v.parse::<u64>().ok());
     GpuStats {
+        id: parts.get(8).map(|s| s.to_string()).unwrap_or_default(),
         name: parts.first().map(|s| s.to_string()).unwrap_or_default(),
         usage_pct: parse_f(1).unwrap_or(0.0),
         vram_used_mb: parse_u(2).unwrap_or(0),
@@ -170,6 +171,18 @@ fn nvidia_stats_from_row(line: &str) -> GpuStats {
         vendor: GpuVendor::Nvidia,
         processes: Vec::new(),
     }
+}
+
+/// Read the PCI slot name (e.g. "0000:73:00.0") from a drm device's `uevent`.
+/// Stable across reboots; used as the GPU history key.
+fn read_pci_slot(device_path: &std::path::Path) -> Option<String> {
+    let uevent = fs::read_to_string(device_path.join("uevent")).ok()?;
+    for line in uevent.lines() {
+        if let Some(rest) = line.strip_prefix("PCI_SLOT_NAME=") {
+            return Some(rest.trim().to_string());
+        }
+    }
+    None
 }
 
 /// Collect AMD GPU stats via SysFS.
@@ -275,6 +288,7 @@ fn collect_amd_stats() -> Vec<GpuStats> {
         // misleading near-full VRAM gauge.
         let is_apu = vram_total_mb < 1024 && fan_speed_pct.is_none();
         results.push(amd_stats_from_raw(
+            &read_pci_slot(&device_path).unwrap_or_else(|| format!("amd-{gpu_name}")),
             &gpu_name,
             usage_pct,
             vram_used_mb,
@@ -295,6 +309,7 @@ fn collect_amd_stats() -> Vec<GpuStats> {
 /// misleading), so the UI can render them as "Shared RAM" instead of a gauge.
 #[allow(clippy::too_many_arguments)]
 fn amd_stats_from_raw(
+    id: &str,
     name: &str,
     usage_pct: f32,
     vram_used_mb: u64,
@@ -306,6 +321,7 @@ fn amd_stats_from_raw(
     is_apu: bool,
 ) -> GpuStats {
     GpuStats {
+        id: id.to_string(),
         name: name.to_string(),
         usage_pct,
         vram_used_mb,
@@ -328,6 +344,7 @@ fn amd_stats_from_raw(
 /// `vram_kind` is always [`VramKind::Shared`].
 #[allow(clippy::too_many_arguments)]
 fn intel_stats_from_raw(
+    id: &str,
     name: &str,
     usage_pct: f32,
     vram_used_mb: u64,
@@ -338,6 +355,7 @@ fn intel_stats_from_raw(
     clock_mhz: Option<u32>,
 ) -> GpuStats {
     GpuStats {
+        id: id.to_string(),
         name: name.to_string(),
         usage_pct,
         vram_used_mb,
@@ -525,6 +543,7 @@ fn collect_intel_stats() -> Vec<GpuStats> {
 
         // Intel iGPUs share system RAM — report 0/0 to indicate shared memory
         results.push(intel_stats_from_raw(
+            &read_pci_slot(&device_path).unwrap_or_else(|| format!("intel-{gpu_name}")),
             &gpu_name,
             usage_pct,
             0,
@@ -545,6 +564,15 @@ mod tests {
     use crate::app::state::{GpuVendor, VramKind};
 
     #[test]
+    fn nvidia_builder_captures_uuid_as_id() {
+        // uuid is the 9th CSV field (index 8); it must be stored as `id`.
+        let g = nvidia_stats_from_row(
+            "GeForce RTX 3060, 12, 2000, 12288, 55, 120.5, 40, 1800, GPU-abcdef-1234",
+        );
+        assert_eq!(g.id, "GPU-abcdef-1234");
+    }
+
+    #[test]
     fn nvidia_builder_parses_csv_row() {
         let g = nvidia_stats_from_row("GeForce RTX 3060, 12, 2000, 12288, 55, 120.5, 40, 1800");
         assert_eq!(g.name, "GeForce RTX 3060");
@@ -558,20 +586,20 @@ mod tests {
     #[test]
     fn amd_apu_carveout_is_marked_shared() {
         // APU VRAM carveout (small, near-full) -> Shared.
-        let g = amd_stats_from_raw("AMD 680M", 0.0, 498, 512, 44.0, None, None, None, true);
+        let g = amd_stats_from_raw("amd-test", "AMD 680M", 0.0, 498, 512, 44.0, None, None, None, true);
         assert_eq!(g.vendor, GpuVendor::Amd);
         assert_eq!(g.vram_kind, VramKind::Shared);
     }
 
     #[test]
     fn amd_discrete_is_marked_dedicated() {
-        let g = amd_stats_from_raw("AMD RX 6700", 30.0, 4000, 12288, 60.0, None, None, None, false);
+        let g = amd_stats_from_raw("amd-test", "AMD RX 6700", 30.0, 4000, 12288, 60.0, None, None, None, false);
         assert_eq!(g.vram_kind, VramKind::Dedicated);
     }
 
     #[test]
     fn intel_builder_is_shared() {
-        let g = intel_stats_from_raw("Intel Iris", 5.0, 0, 0, 45.0, None, None, None);
+        let g = intel_stats_from_raw("intel-test", "Intel Iris", 5.0, 0, 0, 45.0, None, None, None);
         assert_eq!(g.vendor, GpuVendor::Intel);
         assert_eq!(g.vram_kind, VramKind::Shared);
     }

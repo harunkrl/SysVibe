@@ -325,6 +325,7 @@ impl super::App {
                 },
             ],
             gpu_stats: vec![GpuStats {
+                id: "nvidia-rtx3060".into(),
                 name: "NVIDIA GeForce RTX 3060".into(),
                 usage_pct: 64.0,
                 vram_used_mb: 5320,

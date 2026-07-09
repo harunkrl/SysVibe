@@ -353,6 +353,9 @@ pub struct GpuProcess {
 #[allow(dead_code)]
 #[derive(Debug, Clone, Default)]
 pub struct GpuStats {
+    /// Stable per-GPU key (NVIDIA uuid / AMD-Intel PCI slot / Android id).
+    /// Empty string = fallback (history keyed by id collapses safely).
+    pub id: String,
     pub name: String,
     pub usage_pct: f32,
     pub vram_used_mb: u64,
@@ -713,6 +716,7 @@ mod tests {
     #[test]
     fn gpu_stats_carries_new_fields() {
         let g = GpuStats {
+            id: String::new(),
             name: "x".into(),
             usage_pct: 0.0,
             vram_used_mb: 0,

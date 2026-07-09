@@ -7,11 +7,11 @@
 //! large empty-space problem the old fixed card layout had.
 
 use ratatui::{
-    Frame,
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{List, ListItem, Paragraph},
+    Frame,
 };
 
 use crate::app::App;
@@ -407,6 +407,34 @@ mod tests {
         }
     }
 
+    /// Flatten a `Line`'s spans into a plain string for assertions.
+    fn line_str(line: &Line<'_>) -> String {
+        line.spans.iter().map(|s| s.content.as_ref()).collect()
+    }
+
+    #[test]
+    fn gauge_line_renders_label_and_value_at_normal_width() {
+        let line = gauge_line(40, 0.5, "Usage", "50%", green());
+        let s = line_str(&line);
+        assert!(s.contains("Usage"), "label missing: {s}");
+        assert!(s.contains("50%"), "value missing: {s}");
+        // First span is the label (label_w = 6, so padded to 6 chars).
+        assert_eq!(line.spans.first().unwrap().content.as_ref(), "Usage ");
+        // Last span is the value (2-space prefix + value).
+        assert_eq!(line.spans.last().unwrap().content.as_ref(), "  50%");
+    }
+
+    #[test]
+    fn gauge_line_clamps_ratio_and_width_without_panic() {
+        // ratio > 1 must clamp (gradient_bar_spans clamps internally); no panic.
+        let wide = gauge_line(60, 1.5, "Usage", "100%", green());
+        assert!(line_str(&wide).contains("100%"));
+        // Tiny width: bar floor kicks in but the line still renders the value
+        // without panicking (ratatui clips gracefully at draw time).
+        let tiny = gauge_line(12, 0.2, "Temp", "61C", peach());
+        assert!(line_str(&tiny).contains("61C"));
+    }
+
     #[test]
     fn shared_vram_display_has_no_percent() {
         let g = gpu(VramKind::Shared, GpuVendor::Amd, 498, 512);
@@ -446,8 +474,8 @@ mod tests {
     fn render_gpu_processes_draws_header_and_rows() {
         // Directly exercise the process-list renderer with a TestBackend so the
         // new render path is verified to actually paint (not just compile).
-        use ratatui::Terminal;
         use ratatui::backend::TestBackend;
+        use ratatui::Terminal;
 
         let procs = vec![
             GpuProcess {
@@ -485,7 +513,7 @@ mod tests {
     fn single_gpu_hides_list_and_fills_one_panel() {
         // 1 GPU (or compact width) renders a single full-width detail panel
         // with the Usage gauge label present (master-detail list is hidden).
-        use ratatui::{Terminal, backend::TestBackend};
+        use ratatui::{backend::TestBackend, Terminal};
 
         let mut app = crate::app::App::new_sample(crate::config::Config::default());
         app.set_tab(crate::app::state::AppTab::Gpu);

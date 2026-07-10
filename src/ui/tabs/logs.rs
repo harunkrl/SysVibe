@@ -349,3 +349,57 @@ fn render_log_entries(f: &mut Frame, app: &App, area: Rect) {
 
     f.render_widget(Paragraph::new(lines), inner);
 }
+
+#[cfg(test)]
+#[cfg(feature = "preview")]
+mod tests {
+    use super::*;
+    use crate::app::state::AppTab;
+    use ratatui::{Terminal, backend::TestBackend, style::Modifier};
+
+    /// L1: the level-filter bar must visually distinguish active vs inactive
+    /// levels — active tags carry their color + bold, inactive ones are dimmed
+    /// with a strikethrough (CROSSED_OUT). Verify by rendering with debug
+    /// toggled off and inspecting the rendered cell styles.
+    #[test]
+    fn level_filter_bar_distinguishes_active_and_inactive_levels() {
+        let mut app = crate::app::App::new_sample(crate::config::Config::default());
+        app.set_tab(AppTab::Logs);
+        // Toggle debug OFF: ERR/WRN/INF/NTC stay active, DBG goes inactive.
+        app.toggle_log_level_debug();
+
+        let backend = TestBackend::new(120, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|f| render_logs_tab(f, &app, f.area()))
+            .unwrap();
+
+        // Scan the rendered buffer for the 'D' of "DBG" (inactive) and the
+        // 'E' of "ERR" (active) and compare their style modifiers.
+        let buf = terminal.backend().buffer();
+        let mut dbg_crossed = false;
+        let mut err_bold = false;
+        let mut found_dbg = false;
+        let mut found_err = false;
+        for cell in buf.content() {
+            let sym = cell.symbol();
+            if sym == "D" {
+                found_dbg = true;
+                if cell.style().add_modifier.contains(Modifier::CROSSED_OUT) {
+                    dbg_crossed = true;
+                }
+            }
+            if sym == "E" {
+                found_err = true;
+                if cell.style().add_modifier.contains(Modifier::BOLD) {
+                    err_bold = true;
+                }
+            }
+        }
+        // The tags render bracketed; confirm the active tag is bold and the
+        // inactive one is crossed out (dimmed) somewhere in the bar.
+        assert!(found_dbg && found_err, "both ERR and DBG tags must render");
+        assert!(dbg_crossed, "inactive DBG tag must be CROSSED_OUT (dimmed)");
+        assert!(err_bold, "active ERR tag must be BOLD");
+    }
+}

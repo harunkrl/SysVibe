@@ -44,15 +44,6 @@ fn subpixel_on(hb: usize, h: usize, area: bool) -> bool {
     if area { hb < h } else { hb < h && hb + 2 >= h }
 }
 
-/// Smooth braille trend graph rendered on a full **2×4 sub-pixel grid** (both
-/// braille columns × 4 vertical sub-pixels per row) with linear-interpolated
-/// data resampled to 2× horizontal resolution. This is the smoothest rendering
-/// braille allows and eliminates the per-column staircase that made sharp peaks
-/// (and curve bodies) zig-zag.
-///
-/// `area = true` → filled area (btop-style gradient body). `area = false` →
-/// crisp 2-px gradient line. Vertical colour gradient from `color` (bright,
-/// near the line) to `fade_color` (dim, near the base).
 /// Single-row inline braille sparkline, returned as colored spans (for placing
 /// inside a `Line` alongside a label and value). `history` is resampled to
 /// `width` columns; each column maps its value to a 5-level bottom-up braille
@@ -86,6 +77,15 @@ pub fn braille_sparkline_spans(
         .collect()
 }
 
+/// Smooth braille trend graph rendered on a full **2×4 sub-pixel grid** (both
+/// braille columns × 4 vertical sub-pixels per row) with linear-interpolated
+/// data resampled to 2× horizontal resolution. This is the smoothest rendering
+/// braille allows and eliminates the per-column staircase that made sharp peaks
+/// (and curve bodies) zig-zag.
+///
+/// `area = true` → filled area (btop-style gradient body). `area = false` →
+/// crisp 2-px gradient line. Vertical colour gradient from `color` (bright,
+/// near the line) to `fade_color` (dim, near the base).
 pub fn braille_smooth_graph(
     data: &VecDeque<u64>,
     area_width: u16,

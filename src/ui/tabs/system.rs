@@ -523,5 +523,111 @@ fn hardware_lines(app: &App, max_w: usize) -> Vec<Line<'static>> {
         }
     }
 
+    // ── Battery (power hardware, laptops) ────────────────────────────────
+    // Balances the right panel against the taller Identity panel and surfaces
+    // battery health/cycles that aren't otherwise in the System hardware view.
+    if let Some(bat) = app.battery() {
+        lines.push(section_divider("Battery", max_w));
+        // Health + cycle count (when known) as a one-line summary.
+        let mut health_parts: Vec<Span<'static>> = Vec::new();
+        health_parts.push(Span::styled(
+            " Health:",
+            Style::default().fg(subtext()).add_modifier(Modifier::BOLD),
+        ));
+        match bat.health_pct {
+            Some(h) => health_parts.push(Span::styled(
+                format!(" {:.0}%", h),
+                Style::default().fg(if h >= 80.0 {
+                    green()
+                } else if h >= 50.0 {
+                    yellow()
+                } else {
+                    red()
+                }),
+            )),
+            None => health_parts.push(Span::styled(" —", Style::default().fg(overlay()))),
+        }
+        if let Some(cyc) = bat.cycle_count {
+            health_parts.push(Span::styled(
+                format!(" · {} cycles", cyc),
+                Style::default().fg(overlay()),
+            ));
+        }
+        lines.push(Line::from(health_parts));
+
+        // Charge state + power draw.
+        let mut state_parts: Vec<Span<'static>> = vec![Span::styled(
+            " State:",
+            Style::default().fg(subtext()).add_modifier(Modifier::BOLD),
+        )];
+        state_parts.push(Span::styled(
+            format!(" {:.0}%", bat.percentage),
+            Style::default().fg(text()),
+        ));
+        state_parts.push(Span::styled(
+            format!(" · {}", bat.state),
+            Style::default().fg(overlay()),
+        ));
+        if let Some(w) = bat.power_w {
+            state_parts.push(Span::styled(
+                format!(" · {:.1}W", w),
+                Style::default().fg(yellow()),
+            ));
+        }
+        lines.push(Line::from(state_parts));
+
+        // Technology + model (when known).
+        if bat.technology.is_some() || bat.manufacturer.is_some() {
+            let mut tech_parts: Vec<Span<'static>> = vec![Span::styled(
+                " Tech:",
+                Style::default().fg(subtext()).add_modifier(Modifier::BOLD),
+            )];
+            tech_parts.push(Span::styled(
+                format!(" {}", bat.technology.as_deref().unwrap_or("—")),
+                Style::default().fg(sky()),
+            ));
+            if let Some(mfg) = &bat.manufacturer {
+                let mfg = fit_str(mfg, max_w.saturating_sub(20));
+                tech_parts.push(Span::styled(
+                    format!(" · {}", mfg),
+                    Style::default().fg(overlay()),
+                ));
+            }
+            lines.push(Line::from(tech_parts));
+        }
+    }
+
+    // ── Temperatures (sensor summary) ─────────────────────────────────────
+    // Reuses the Hardware tab's collapse/dedup so per-core duplicates don't
+    // flood the panel; capped to keep the column balanced, not overflowing.
+    let collapsed = crate::ui::tabs::hardware::collapsed_temperatures(app.temperatures());
+    if !collapsed.is_empty() {
+        lines.push(section_divider("Temperatures", max_w));
+        let unit = if app.temp_celsius { "°C" } else { "°F" };
+        for (s, label) in collapsed.iter().take(6) {
+            let val = if app.temp_celsius {
+                s.temp_c
+            } else {
+                s.temp_c * 9.0 / 5.0 + 32.0
+            };
+            let label_w = max_w.saturating_sub(12).min(label.len() + 2);
+            let lbl = if label.len() > label_w {
+                fit_str(label, label_w)
+            } else {
+                label.clone()
+            };
+            lines.push(Line::from(vec![
+                Span::styled(
+                    format!(" {}:", lbl),
+                    Style::default().fg(subtext()).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!(" {:.0}{}", val, unit),
+                    Style::default().fg(crate::ui::helpers::temp_color(s.temp_c)),
+                ),
+            ]));
+        }
+    }
+
     lines
 }

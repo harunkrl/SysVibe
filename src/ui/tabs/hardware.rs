@@ -724,7 +724,7 @@ fn temp_category_priority(base: &str) -> u8 {
 /// primary sensor — typically the canonical "composite" reading) and sort the
 /// result by [`temp_category_priority`]. Returns `(reading, base_label)` pairs
 /// where `base_label` is the deduplicated category name used for display.
-fn collapsed_temperatures(temps: &[SensorReading]) -> Vec<(&SensorReading, String)> {
+pub(crate) fn collapsed_temperatures(temps: &[SensorReading]) -> Vec<(&SensorReading, String)> {
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut out: Vec<(&SensorReading, String)> = Vec::new();
     for s in temps.iter() {

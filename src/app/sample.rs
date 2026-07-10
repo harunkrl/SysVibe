@@ -249,6 +249,25 @@ impl super::App {
                 ProcessEntry { pid: 812, parent_pid: 1, name: "NetworkManager".into(), cpu_pct: 0.2, mem_pct: 0.3, cmdline: String::new(), user: None },
                 ProcessEntry { pid: 3320, parent_pid: 1, name: "sshd".into(), cpu_pct: 0.1, mem_pct: 0.1, cmdline: String::new(), user: None },
                 ProcessEntry { pid: 1900, parent_pid: 1, name: "colord".into(), cpu_pct: 0.0, mem_pct: 0.1, cmdline: String::new(), user: None },
+                // Extra background services so the Processes panel renders a
+                // realistic, full viewport in svshot (the real app collects up
+                // to max_processes=50; a 16-row sample left ~18 empty rows,
+                // which looked like a density bug but was just sparse sample).
+                ProcessEntry { pid: 2, parent_pid: 0, name: "kthreadd".into(), cpu_pct: 0.0, mem_pct: 0.0, cmdline: String::new(), user: Some("root".into()) },
+                ProcessEntry { pid: 412, parent_pid: 2, name: "systemd-udevd".into(), cpu_pct: 0.0, mem_pct: 0.2, cmdline: String::new(), user: Some("root".into()) },
+                ProcessEntry { pid: 501, parent_pid: 1, name: "systemd-journald".into(), cpu_pct: 0.1, mem_pct: 0.4, cmdline: String::new(), user: Some("root".into()) },
+                ProcessEntry { pid: 633, parent_pid: 1, name: "dbus-broker".into(), cpu_pct: 0.0, mem_pct: 0.1, cmdline: String::new(), user: Some("root".into()) },
+                ProcessEntry { pid: 701, parent_pid: 1, name: "NetworkManager".into(), cpu_pct: 0.0, mem_pct: 0.3, cmdline: String::new(), user: Some("root".into()) },
+                ProcessEntry { pid: 740, parent_pid: 1, name: "ModemManager".into(), cpu_pct: 0.0, mem_pct: 0.1, cmdline: String::new(), user: Some("root".into()) },
+                ProcessEntry { pid: 802, parent_pid: 1, name: "power-profiles-daemon".into(), cpu_pct: 0.0, mem_pct: 0.2, cmdline: String::new(), user: Some("root".into()) },
+                ProcessEntry { pid: 880, parent_pid: 1, name: "rtkit-daemon".into(), cpu_pct: 0.0, mem_pct: 0.1, cmdline: String::new(), user: Some("root".into()) },
+                ProcessEntry { pid: 920, parent_pid: 1, name: "colord-session".into(), cpu_pct: 0.0, mem_pct: 0.1, cmdline: String::new(), user: Some("colord".into()) },
+                ProcessEntry { pid: 1001, parent_pid: 1, name: "gnome-settings-daemon".into(), cpu_pct: 0.2, mem_pct: 1.4, cmdline: String::new(), user: Some("lenovo".into()) },
+                ProcessEntry { pid: 1102, parent_pid: 1, name: "Xwayland".into(), cpu_pct: 0.3, mem_pct: 0.9, cmdline: String::new(), user: Some("lenovo".into()) },
+                ProcessEntry { pid: 1150, parent_pid: 1, name: "pipewire-pulse".into(), cpu_pct: 0.0, mem_pct: 0.2, cmdline: String::new(), user: Some("lenovo".into()) },
+                ProcessEntry { pid: 1211, parent_pid: 1, name: "wireplumber".into(), cpu_pct: 0.0, mem_pct: 0.3, cmdline: String::new(), user: Some("lenovo".into()) },
+                ProcessEntry { pid: 1340, parent_pid: 1, name: "gdm".into(), cpu_pct: 0.0, mem_pct: 0.4, cmdline: String::new(), user: Some("gdm".into()) },
+                ProcessEntry { pid: 1410, parent_pid: 1, name: "gvfsd".into(), cpu_pct: 0.0, mem_pct: 0.2, cmdline: String::new(), user: Some("lenovo".into()) },
             ],
             // Live mirror of the top list for the Dashboard smart panel (the
             // sample snapshot is fine here; svshot doesn't run the collector).

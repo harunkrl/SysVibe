@@ -49,10 +49,11 @@ impl Hint {
 
 /// The always-shown keybindings appended to every tab's hints. Shared by
 /// `push_universal()` and `fit_hint_line()` so the suffix never drifts.
-const UNIVERSAL: [Hint; 4] = [
+const UNIVERSAL: [Hint; 5] = [
     Hint::new("1-6", "Tab"),
     Hint::new(":", "Cmd"),
     Hint::new("T", "Theme"),
+    Hint::new("b", "blur"),
     Hint::new("q", "Quit"),
 ];
 
@@ -326,15 +327,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn universal_suffix_surfaces_tab_cmd_theme_quit() {
-        let mut s: Vec<Span<'static>> = Vec::new();
-        push_universal(&mut s);
-        let txt: String = s.iter().map(|sp| sp.content.as_ref()).collect();
-        assert!(txt.contains("1-6"), "tab numbers must surface: {txt}");
-        assert!(txt.contains("Tab"), "tab key must surface: {txt}");
-        assert!(txt.contains("Cmd"), "command mode must surface: {txt}");
-        assert!(txt.contains("Theme"), "theme must surface: {txt}");
-        assert!(txt.contains("Quit"), "quit must surface: {txt}");
+    fn universal_suffix_surfaces_tab_cmd_theme_blur_quit() {
+        let spans = fit_hint_line(200, &[]);
+        let line = txt(&spans);
+        // All five universal hints render when width is ample.
+        for needle in ["Tab", "Cmd", "Theme", "blur", "Quit"] {
+            assert!(
+                line.contains(needle),
+                "universal hint {needle:?} missing: {line}"
+            );
+        }
     }
 
     fn txt(spans: &[Span<'static>]) -> String {
@@ -352,7 +354,9 @@ mod tests {
             ],
         );
         let t = txt(&spans);
-        for needle in ["Help", "Scope", "Refresh", "Tab", "Cmd", "Theme", "Quit"] {
+        for needle in [
+            "Help", "Scope", "Refresh", "Tab", "Cmd", "Theme", "blur", "Quit",
+        ] {
             assert!(t.contains(needle), "wide line must contain {needle}: {t}");
         }
         // Width must fit within the generous budget.

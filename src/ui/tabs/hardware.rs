@@ -752,6 +752,10 @@ pub(crate) fn collapsed_temperatures(temps: &[SensorReading]) -> Vec<(&SensorRea
     out
 }
 
+/// Y-axis floor for the inline temperature sparklines so low/idle temps still
+/// show readable vertical variation instead of a flat line.
+const TEMP_SPARK_FLOOR: f64 = 40.0;
+
 fn render_temperatures(f: &mut Frame, app: &App, area: Rect, focused: bool) {
     let title = icons::titled(app, icons::TEMP, icons::fallback::TEMP, "Temperatures");
     let block = panel_block_themed(&title, focused, peach());
@@ -771,15 +775,23 @@ fn render_temperatures(f: &mut Frame, app: &App, area: Rect, focused: bool) {
     // base category, keep only the FIRST (primary/"composite") sensor per
     // category, and sort by a sensible priority: CPU → GPU → NVMe → WiFi →
     // ACPI → …
-    let display = collapsed_temperatures(temps);
-    // Each bar takes 2 rows (data + a gap); fit as many as the panel allows.
+    // Only the 3 primary sensors get an inline braille trend; other categories
+    // (WiFi, ACPI, SSD, …) are hidden. collapsed_temperatures already dedups to
+    // one reading per category and sorts CPU→GPU→NVMe→…, so filtering the base
+    // label keeps that exact order.
+    let display: Vec<(&SensorReading, String)> = collapsed_temperatures(temps)
+        .into_iter()
+        .filter(|(_, base)| matches!(base.to_ascii_lowercase().as_str(), "cpu" | "gpu" | "nvme"))
+        .collect();
+    // Inline sparkline shares the row geometry with the old gradient bar
+    // (label 6 + meter + value 6), so reuse the same width.
     let bar_width = inner.width.saturating_sub(15).max(3);
     let unit = if app.temp_celsius { "°C" } else { "°F" };
     let mut lines: Vec<Line> = Vec::new();
-    lines.push(Line::raw("")); // top padding: first bar shouldn't hug the border
+    lines.push(Line::raw("")); // top padding: first row shouldn't hug the border
 
-    // 1 leading pad + 2 rows per sensor.
-    let max_sensors = inner.height.saturating_sub(1) as usize / 2;
+    // 1 leading pad + 1 row per sensor (inline sparkline is compact).
+    let max_sensors = inner.height.saturating_sub(1) as usize;
     for (s, base_label) in display.iter().take(max_sensors) {
         let label_padded = truncate_str(base_label, 6).to_string();
         let temp_val = s.temp_c as f64;
@@ -789,18 +801,22 @@ fn render_temperatures(f: &mut Frame, app: &App, area: Rect, focused: bool) {
             temp_val * 9.0 / 5.0 + 32.0
         };
         let color = temp_threshold_color(temp_val as f32);
-        let ratio = (temp_val / 100.0).clamp(0.0, 1.0);
+        let hist: Vec<u64> = s.history.iter().copied().collect();
         let mut spans = vec![Span::styled(
             format!("{:<6}", label_padded),
-            Style::default().fg(color),
+            Style::default().fg(subtext()),
         )];
-        spans.extend(gradient_bar_spans(bar_width, ratio));
+        spans.extend(sparkline::braille_sparkline_spans(
+            &hist,
+            bar_width as usize,
+            color,
+            TEMP_SPARK_FLOOR,
+        ));
         spans.push(Span::styled(
             format!(" {:>3.0}{}", display, unit),
             Style::default().fg(color),
         ));
         lines.push(Line::from(spans));
-        lines.push(Line::raw("")); // breathing space between temp bars
     }
 
     // ── Fan speeds ── fill the remaining panel space with fan data. We show
@@ -1134,5 +1150,36 @@ mod tests {
             .map(|(s, _)| s.temp_c)
             .unwrap();
         assert_eq!(nvme, 40.0);
+    }
+
+    #[test]
+    fn temp_filter_keeps_only_cpu_gpu_nvme_in_order() {
+        use crate::app::state::SensorReading;
+        use std::collections::VecDeque;
+        let mk = |label: &str, t: f32| SensorReading {
+            label: label.into(),
+            temp_c: t,
+            history: VecDeque::new(),
+        };
+        let temps = vec![
+            mk("WiFi", 44.0),
+            mk("NVMe", 41.0),
+            mk("ACPI", 30.0),
+            mk("GPU", 58.0),
+            mk("CPU", 62.0),
+        ];
+        // Same filter render_temperatures applies, over collapsed_temperatures.
+        let kept: Vec<String> = collapsed_temperatures(&temps)
+            .into_iter()
+            .filter(|(_, base)| {
+                matches!(base.to_ascii_lowercase().as_str(), "cpu" | "gpu" | "nvme")
+            })
+            .map(|(_, base)| base)
+            .collect();
+        assert_eq!(
+            kept,
+            vec!["CPU", "GPU", "NVMe"],
+            "only cpu/gpu/nvme, in priority order"
+        );
     }
 }

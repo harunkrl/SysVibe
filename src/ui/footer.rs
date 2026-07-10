@@ -3,18 +3,18 @@
 //! Mode-aware keybinding hints and transient status messages.
 
 use ratatui::{
-    Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
+    Frame,
 };
 
 use super::header::TAB_ORDER;
 use super::icons;
 use super::palette::*;
-use crate::app::App;
 use crate::app::state::{AppMode, AppTab};
+use crate::app::App;
 
 /// Separator dot between keybinds.
 fn sep() -> Span<'static> {
@@ -171,7 +171,7 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
                         },
                     ));
                     s.push(sep());
-                    s.extend(key_desc("ewind", "Levels"));
+                    s.extend(key_desc("e/w/i/n/d", "Levels"));
                     push_universal(&mut s);
                 }
                 AppTab::Gpu => {

@@ -59,6 +59,11 @@ pub enum StateUpdate {
         // task so the power-draw trend graph advances at the same ~1 s cadence
         // as the CPU/network/disk graphs (and stays smooth rather than chunky).
         battery: Option<app::state::BatteryStatus>,
+        // AMD/Intel GPU usage sampled at ~1 Hz via sample_usage_fast (the cheap
+        // sysfs gpu_busy_percent read), pushed into the per-GPU history on the
+        // App side so the Dashboard/GPU-tab braille trend stays populated.
+        // NVIDIA/Unknown advance inside set_gpu_stats at the 5 s sensor tier.
+        gpu_usage_samples: Vec<(String, u64)>,
     },
 
     /// Tier 1b: Process list (every ~process_refresh_rate, decoupled from fast metrics)
@@ -285,6 +290,15 @@ fn spawn_collector_tasks(
             // graph advances in lock-step with the CPU/network/disk graphs.
             let battery = app::collectors::battery::read_battery();
 
+            // AMD/Intel GPU usage at ~1 Hz (cheap sysfs gpu_busy_percent reads).
+            // NVIDIA/Unknown have no cheap per-tick source and advance at the
+            // 5 s sensor tier inside set_gpu_stats instead. Round to u64 to
+            // match the history buffer type.
+            let gpu_usage_samples: Vec<(String, u64)> = app::collectors::gpu::sample_usage_fast()
+                .into_iter()
+                .map(|(id, usage)| (id, usage.round() as u64))
+                .collect();
+
             drop(tx_fast.blocking_send(StateUpdate::FastMetrics {
                 cpu_usage,
                 per_core_usage,
@@ -299,6 +313,7 @@ fn spawn_collector_tasks(
                 network_stats: network_stats.clone(),
                 disk_io: disk_io.clone(),
                 battery,
+                gpu_usage_samples,
             }));
         }
     });
@@ -477,6 +492,7 @@ fn apply_state_update(app: &mut App, update: StateUpdate) {
             network_stats,
             disk_io,
             battery,
+            gpu_usage_samples,
         } => {
             // Push instantaneous CPU values into App-maintained history
             app::helpers::push_history(&mut app.cpu_history, cpu_usage);
@@ -516,6 +532,10 @@ fn apply_state_update(app: &mut App, update: StateUpdate) {
             // set_battery advances the battery power/charge histories (~1 s)
             // so the power-draw graph stays in lock-step with the other graphs.
             app.set_battery(battery);
+            // AMD/Intel GPU usage history advances at ~1 Hz (the cheap sysfs
+            // path), keeping the Dashboard/GPU-tab braille trend populated at
+            // the same cadence as CPU. NVIDIA/Unknown advance in set_gpu_stats.
+            app.push_gpu_usage_samples(gpu_usage_samples);
         }
         StateUpdate::Processes { processes, total } => {
             app.set_top_processes(processes, total);

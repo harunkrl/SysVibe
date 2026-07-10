@@ -599,4 +599,20 @@ mod preview_tests {
         assert_eq!(app.gpu_usage_history("a").back().copied(), Some(10));
         assert_eq!(app.gpu_usage_history("b").back().copied(), Some(80));
     }
+
+    #[test]
+    fn push_gpu_usage_samples_advances_amd_intel_history() {
+        // The live Tier 1 path pushes AMD/Intel usage at ~1 Hz via
+        // push_gpu_usage_samples (sample_usage_fast on the collector thread).
+        // Without it, AMD/Intel GPU history never grows past the single
+        // startup sample and the Dashboard/GPU-tab braille trend stays empty.
+        let mut app = App::new_sample(Config::default());
+        app.gpu_usage_history.clear();
+        app.push_gpu_usage_samples(vec![("0000:73:00.0".into(), 7), ("0000:73:00.0".into(), 9)]);
+        assert_eq!(app.gpu_usage_history("0000:73:00.0").len(), 2);
+        assert_eq!(
+            app.gpu_usage_history("0000:73:00.0").back().copied(),
+            Some(9)
+        );
+    }
 }

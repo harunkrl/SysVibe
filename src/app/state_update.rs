@@ -79,6 +79,22 @@ impl super::App {
         self.gpu_stats = stats;
     }
 
+    /// Push fast-tier (AMD/Intel) GPU usage samples into the per-GPU history
+    /// map. AMD/Intel usage is sampled at ~1 Hz via `sample_usage_fast` (the
+    /// cheap sysfs `gpu_busy_percent` read); NVIDIA/Unknown advance inside
+    /// `set_gpu_stats` at the 5 s sensor tier. This keeps the Dashboard / GPU-tab
+    /// braille trend populated for AMD/Intel GPUs at the same cadence as the
+    /// CPU history. Each sample is `(gpu_id, usage_pct)`.
+    pub fn push_gpu_usage_samples(&mut self, samples: Vec<(String, u64)>) {
+        for (id, usage) in samples {
+            let h = self
+                .gpu_usage_history
+                .entry(id)
+                .or_insert_with(|| VecDeque::with_capacity(HISTORY_LEN));
+            helpers::push_history(h, usage);
+        }
+    }
+
     /// Primary-GPU usage history (0-100 per sample), for the Dashboard trend.
     /// Returns the focused/primary GPU's buffer from the per-GPU map (single
     /// source of truth), falling back to an empty buffer when no GPU is

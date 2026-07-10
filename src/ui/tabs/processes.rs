@@ -570,6 +570,9 @@ fn render_tree_view(f: &mut Frame, app: &mut App, area: Rect) {
         .unwrap_or(0);
 
     let proc_icon = if nf { icons::PROCESS_RUNNING } else { "" };
+    // Space between the icon glyph and the name, matching the flat table so a
+    // nerd-font triangle never sits flush against the process name.
+    let icon_sep = if proc_icon.is_empty() { "" } else { " " };
 
     let mut lines: Vec<Line<'_>> = Vec::new();
 
@@ -642,7 +645,7 @@ fn render_tree_view(f: &mut Frame, app: &mut App, area: Rect) {
             ),
             Span::styled(tree_prefix, Style::default().fg(indent_fg).bg(bg)),
             Span::styled(
-                format!("{}{}", proc_icon, name_display),
+                format!("{}{}{}", proc_icon, icon_sep, name_display),
                 Style::default().fg(name_fg).bg(bg),
             ),
             Span::styled(

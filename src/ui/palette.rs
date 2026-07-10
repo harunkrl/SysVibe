@@ -142,11 +142,14 @@ theme_color!(focus_tab, focus_tab);
 mod tests {
     use super::*;
 
-    /// Guard: always reset the flag so tests don't leak state into each other.
+    /// Guard: restore both the blur flag AND the default theme on drop so tests
+    /// don't leak thread-local state into each other (cargo test reuses threads
+    /// from its pool, and thread-locals persist per-thread).
     struct BlurGuard;
     impl Drop for BlurGuard {
         fn drop(&mut self) {
             set_blur_active(false);
+            apply_theme(Theme::catppuccin_macchiato());
         }
     }
 

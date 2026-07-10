@@ -101,7 +101,13 @@ pub fn braille_smooth_graph(
     let off = graph_w * 2 - scaled_samples.len();
     for (i, &v) in scaled_samples.iter().enumerate() {
         let h = ((v as f64 / y_max) * sub_h as f64).round() as usize;
-        hy[off + i] = h.min(sub_h);
+        // Clamp sampled columns to a 1-subpixel baseline so a 0% / very-low
+        // value (e.g. an idle GPU) still renders a visible flat line instead
+        // of a blank column — `subpixel_on(hb, 0, area)` is never true, so an
+        // unclamped 0 height draws nothing. Honours the `y_floor` intent of
+        // "no flat/empty graph". Gutter columns (no sample yet) keep h=0 and
+        // stay blank, preserving the right-to-left fill.
+        hy[off + i] = h.max(1).min(sub_h);
     }
     // The left gutter stays 0 — subpixel_on(hb, 0, area) is always false, so
     // those columns render blank automatically (no special skip needed).
@@ -619,5 +625,31 @@ mod tests {
     /// True if the line contains any braille pattern char (U+2800 and up).
     fn has_braille(line: &Line<'_>) -> bool {
         row_to_string(line).chars().any(|c| c >= '\u{2800}')
+    }
+
+    #[test]
+    fn braille_smooth_renders_baseline_for_all_zero_data() {
+        // An idle GPU (0% usage) produces all-zero history. The area graph
+        // must still render a visible baseline (at least one braille cell)
+        // rather than a blank body — matching the CPU graph, which is rarely
+        // zero. Regression guard for the empty-GPU-graph bug.
+        let data: VecDeque<u64> = vec![0, 0, 0, 0, 0].into_iter().collect();
+        let lines = braille_smooth_graph(&data, 40, 5, "%", true, true, 50.0);
+        assert!(!lines.is_empty(), "graph must produce rows");
+        assert!(
+            lines.iter().any(|l| has_braille(l)),
+            "all-zero data must render a baseline, not a blank graph"
+        );
+    }
+
+    #[test]
+    fn braille_smooth_renders_curve_for_nonzero_data() {
+        // Non-zero data must still render a braille curve (no regression).
+        let data: VecDeque<u64> = vec![10, 20, 30, 20, 10].into_iter().collect();
+        let lines = braille_smooth_graph(&data, 40, 5, "%", true, true, 50.0);
+        assert!(
+            lines.iter().any(|l| has_braille(l)),
+            "non-zero data must render a curve"
+        );
     }
 }

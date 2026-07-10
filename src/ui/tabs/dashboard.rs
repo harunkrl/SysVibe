@@ -495,7 +495,7 @@ fn render_stat_card(f: &mut Frame, area: Rect, card: &HeroCard) {
     if inner.height >= 5 {
         lines.push(Line::from(Span::styled(
             truncate_str(&card.sub, inner.width as usize),
-            Style::default().fg(overlay()).add_modifier(Modifier::DIM),
+            muted_style(),
         )));
     }
 
@@ -817,10 +817,7 @@ fn render_memory_panel(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: P
             format!("  cache {}", fmt_gib(mem.cached_bytes + mem.buffers_bytes)),
             Style::default().fg(sapphire()),
         ),
-        Span::styled(
-            format!("  free {}", fmt_gib(mem.free_bytes)),
-            Style::default().fg(overlay()).add_modifier(Modifier::DIM),
-        ),
+        Span::styled(format!("  free {}", fmt_gib(mem.free_bytes)), muted_style()),
     ]));
 
     lines.push(Line::from(""));
@@ -852,10 +849,7 @@ fn render_memory_panel(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: P
                 format!(" used {}", fmt_gib(swap_used)),
                 Style::default().fg(swap_color),
             ),
-            Span::styled(
-                format!("  free {}", fmt_gib(swap_free)),
-                Style::default().fg(overlay()).add_modifier(Modifier::DIM),
-            ),
+            Span::styled(format!("  free {}", fmt_gib(swap_free)), muted_style()),
         ]));
     } else {
         lines.push(Line::from(vec![
@@ -1081,10 +1075,7 @@ fn render_network_panel(f: &mut Frame, app: &App, area: Rect, nf: bool, focus: P
         Span::styled("  total ", Style::default().fg(subtext())),
     ];
     if let Some(ip) = &stats[0].local_ip {
-        hdr.push(Span::styled(
-            format!("{}  ", ip),
-            Style::default().fg(overlay()).add_modifier(Modifier::DIM),
-        ));
+        hdr.push(Span::styled(format!("{}  ", ip), muted_style()));
     }
     // cumulative RX / TX (humanised)
     hdr.push(Span::styled(

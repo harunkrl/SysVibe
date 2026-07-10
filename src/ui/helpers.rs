@@ -339,6 +339,17 @@ pub fn fit_str(s: &str, max_chars: usize) -> String {
     format!("{}..{}", head, tail)
 }
 
+/// Tertiary-text style for de-emphasised labels (e.g. bar legends like "free").
+/// Non-blur: overlay + DIM (current behaviour). Blur-friendly: the (already
+/// brightened) overlay, no DIM — DIM would re-dim the brightened colour.
+pub fn muted_style() -> Style {
+    if crate::ui::palette::blur_active() {
+        Style::default().fg(overlay())
+    } else {
+        Style::default().fg(overlay()).add_modifier(Modifier::DIM)
+    }
+}
+
 /// Create a key-value info line used in System Information panels.
 pub fn kv_line(key: &str, val: &str, color: Color) -> Line<'static> {
     Line::from(vec![
@@ -404,5 +415,27 @@ mod tests {
         assert_eq!(fmt_gib(0), "0.0GB");
         assert_eq!(fmt_gib(1_073_741_824), "1.0GB");
         assert_eq!(fmt_gib(12_884_901_888), "12.0GB");
+    }
+
+    #[test]
+    fn muted_style_dims_when_blur_off() {
+        crate::ui::palette::set_blur_active(false);
+        let s = muted_style();
+        assert!(
+            s.add_modifier.contains(ratatui::style::Modifier::DIM),
+            "DIM must be set when blur is off"
+        );
+        crate::ui::palette::set_blur_active(false); // reset
+    }
+
+    #[test]
+    fn muted_style_no_dim_when_blur_on() {
+        crate::ui::palette::set_blur_active(true);
+        let s = muted_style();
+        assert!(
+            !s.add_modifier.contains(ratatui::style::Modifier::DIM),
+            "DIM must NOT be set when blur is on"
+        );
+        crate::ui::palette::set_blur_active(false); // reset
     }
 }

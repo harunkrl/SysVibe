@@ -27,11 +27,11 @@ pub fn render_hardware_tab(f: &mut Frame, app: &App, area: Rect) {
         let rows = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Percentage(18), // CPU
-                Constraint::Percentage(16), // Memory
-                Constraint::Percentage(14), // Battery
-                Constraint::Percentage(20), // Network
-                Constraint::Percentage(16), // Temperatures
+                Constraint::Percentage(16), // CPU
+                Constraint::Percentage(14), // Memory
+                Constraint::Percentage(12), // Battery
+                Constraint::Percentage(18), // Network
+                Constraint::Percentage(24), // Temperatures (3 braille trend graphs)
                 Constraint::Percentage(16), // Disk I/O
             ])
             .split(area);
@@ -72,7 +72,7 @@ pub fn render_hardware_tab(f: &mut Frame, app: &App, area: Rect) {
 
         let bot = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(38), Constraint::Percentage(62)])
+            .constraints([Constraint::Percentage(44), Constraint::Percentage(56)])
             .split(right[1]);
         render_temperatures(f, app, bot[0], focus == PanelFocus::Panel4);
         render_disk_io(f, app, bot[1], focus == PanelFocus::Panel5);
@@ -752,12 +752,6 @@ pub(crate) fn collapsed_temperatures(temps: &[SensorReading]) -> Vec<(&SensorRea
     out
 }
 
-/// Absolute temperature threshold bands for the inline sparklines: each
-/// historical sample maps to one of 4 braille levels by its temperature —
-/// ≤45 °C = 1 dot (cool), …55 = 2, …65 = 3, >65 = 4 (full/hot). Stable
-/// across machines (cool=low, hot=full) instead of rescaling to each peak.
-const TEMP_THRESHOLDS: [u64; 3] = [45, 55, 65];
-
 fn render_temperatures(f: &mut Frame, app: &App, area: Rect, focused: bool) {
     let title = icons::titled(app, icons::TEMP, icons::fallback::TEMP, "Temperatures");
     let block = panel_block_themed(&title, focused, peach());
@@ -769,69 +763,26 @@ fn render_temperatures(f: &mut Frame, app: &App, area: Rect, focused: bool) {
     }
 
     let temps = app.temperatures();
-    // Collapse to one reading per hardware category and present them in a
-    // fixed, predictable order. The hwmon collector disambiguates multiple
-    // sensors/drives that share a class into distinct labels (e.g. three NVMe
-    // entries become "NVMe", "NVMe 2", "NVMe 3"), so they slip past its
-    // label-based dedup. Here we strip the trailing " N" suffix to recover the
-    // base category, keep only the FIRST (primary/"composite") sensor per
-    // category, and sort by a sensible priority: CPU → GPU → NVMe → WiFi →
-    // ACPI → …
-    // Only the 3 primary sensors get an inline braille trend; other categories
-    // (WiFi, ACPI, SSD, …) are hidden. collapsed_temperatures already dedups to
-    // one reading per category and sorts CPU→GPU→NVMe→…, so filtering the base
-    // label keeps that exact order.
+    // Collapse to one reading per hardware category (CPU → GPU → NVMe → …) and
+    // keep only the 3 primary sensors. Other categories (WiFi, ACPI, SSD, …)
+    // are hidden. collapsed_temperatures already dedups to one reading per
+    // category and sorts by priority, so filtering the base label keeps that
+    // exact CPU→GPU→NVMe order.
     let display: Vec<(&SensorReading, String)> = collapsed_temperatures(temps)
         .into_iter()
         .filter(|(_, base)| matches!(base.to_ascii_lowercase().as_str(), "cpu" | "gpu" | "nvme"))
         .collect();
-    // Inline sparkline shares the row geometry with the old gradient bar
-    // (label 6 + meter + value 6), so reuse the same width.
     let bar_width = inner.width.saturating_sub(15).max(3);
     let unit = if app.temp_celsius { "°C" } else { "°F" };
-    let mut lines: Vec<Line> = Vec::new();
-    lines.push(Line::raw("")); // top padding: first row shouldn't hug the border
 
-    // 1 leading pad + 1 row per sensor (inline sparkline is compact).
-    let max_sensors = inner.height.saturating_sub(1) as usize;
-    for (s, base_label) in display.iter().take(max_sensors) {
-        let label_padded = truncate_str(base_label, 6).to_string();
-        let temp_val = s.temp_c as f64;
-        let display = if app.temp_celsius {
-            temp_val
-        } else {
-            temp_val * 9.0 / 5.0 + 32.0
-        };
-        let color = temp_threshold_color(temp_val as f32);
-        let hist: Vec<u64> = s.history.iter().copied().collect();
-        let mut spans = vec![Span::styled(
-            format!("{:<6}", label_padded),
-            Style::default().fg(subtext()),
-        )];
-        spans.extend(sparkline::braille_sparkline_spans(
-            &hist,
-            bar_width as usize,
-            color,
-            TEMP_THRESHOLDS,
-        ));
-        spans.push(Span::styled(
-            format!(" {:>3.0}{}", display, unit),
-            Style::default().fg(color),
-        ));
-        lines.push(Line::from(spans));
-    }
-
-    // ── Fan speeds ── fill the remaining panel space with fan data. We show
-    // any real fans (hwmon `fan*_input` RPMs) plus the GPU fan (percentage from
-    // nvidia-smi / sysfs). When NO fan is available at all (common on laptops
-    // that expose no `fan*_input`), we hide the fan row entirely instead of
-    // leaving an empty "fan —" placeholder.
+    // ── Fan speeds ── collected first so we can reserve their rows at the
+    // bottom of the panel. GPU fan (nvidia-smi/sysfs %) + hwmon `fan*_input`
+    // RPMs. When NO fan is readable (common on laptops with no `fan*_input`),
+    // fall back to the active cooling profile.
     let gpus = app.gpu_stats();
     let gpu_fan_pct = gpus.iter().find_map(|g| g.fan_speed_pct);
     let hwmon_fans = app.fans();
     let gpu_present = gpu_fan_pct.is_some();
-
-    // Assume ~6000 RPM ≈ 100% for the bar width.
     const FAN_MAX_RPM: f64 = 6000.0;
     let mut fan_lines: Vec<Line> = Vec::new();
     if let Some(pct) = gpu_fan_pct {
@@ -848,7 +799,6 @@ fn render_temperatures(f: &mut Frame, app: &App, area: Rect, focused: bool) {
         fan_lines.push(Line::from(spans));
     }
     for fr in hwmon_fans {
-        // Skip if the GPU fan already covers "gpu".
         if fr.label == "gpu" && gpu_present {
             continue;
         }
@@ -865,30 +815,81 @@ fn render_temperatures(f: &mut Frame, app: &App, area: Rect, focused: bool) {
         ));
         fan_lines.push(Line::from(spans));
     }
-
-    if !fan_lines.is_empty() {
-        if !lines.is_empty() {
-            lines.push(Line::raw("")); // separator before fans
-        }
-        lines.extend(fan_lines);
-    } else {
-        // No readable fan RPM (common on modern Lenovo IdeaPad/ThinkBook,
-        // which expose a platform-profile / fan-mode but no `fan*_input`).
-        // Show the active cooling profile as a fallback signal instead of
-        // leaving the area blank.
+    let mut fan_fallback: Option<Line> = None;
+    if fan_lines.is_empty() {
         let profile = app.power_profile();
         if !profile.is_empty() {
-            if !lines.is_empty() {
-                lines.push(Line::raw(""));
-            }
-            lines.push(Line::from(vec![
+            fan_fallback = Some(Line::from(vec![
                 Span::styled("fan   ", Style::default().fg(subtext())),
                 Span::styled(format!("profile: {}", profile), Style::default().fg(sky())),
             ]));
         }
     }
 
-    f.render_widget(Paragraph::new(lines), inner);
+    // Reserve the bottom rows for fans (separator + fan rows, or the fallback).
+    let fan_rows: u16 = if !fan_lines.is_empty() {
+        fan_lines.len() as u16 + 1 // +1 separator
+    } else if fan_fallback.is_some() {
+        2 // separator + profile line
+    } else {
+        0
+    };
+
+    // Split the panel: sensor graphs on top, fans pinned to the bottom.
+    let [sensor_area, fan_area] =
+        Layout::vertical([Constraint::Min(0), Constraint::Length(fan_rows)]).areas(inner);
+
+    // One dense multi-row braille area graph per primary sensor (CPU/GPU/NVMe),
+    // like the CPU/GPU info graphs — each column is a time point and the filled
+    // area shows the real history variation. A label line sits above each graph.
+    let n = display.len();
+    if n > 0 && sensor_area.height >= 3 {
+        let constraints: Vec<Constraint> = (0..n).map(|_| Constraint::Fill(1)).collect();
+        let chunks = Layout::vertical(&constraints).split(sensor_area);
+        for (i, (s, base_label)) in display.iter().take(n).enumerate() {
+            let chunk = chunks[i];
+            if chunk.height < 3 {
+                continue; // not enough room for a label + ≥2-row graph
+            }
+            let [label_area, graph_area] =
+                Layout::vertical([Constraint::Length(1), Constraint::Min(2)]).areas(chunk);
+            let label_padded = truncate_str(base_label, 6).to_string();
+            let temp_val = s.temp_c as f64;
+            let shown = if app.temp_celsius {
+                temp_val
+            } else {
+                temp_val * 9.0 / 5.0 + 32.0
+            };
+            let color = temp_threshold_color(temp_val as f32);
+            // Label line: name (left) + current value (right) so the graph
+            // below has the full width for the trend.
+            let label = Line::from(vec![
+                Span::styled(
+                    format!("{:<6}", label_padded),
+                    Style::default().fg(subtext()),
+                ),
+                Span::raw(" "),
+                Span::styled(
+                    format!("{:>3.0}{}", shown, unit),
+                    Style::default().fg(color),
+                ),
+            ]);
+            f.render_widget(Paragraph::new(label), label_area);
+            sparkline::render_braille_smooth_nolabel(f, graph_area, &s.history, "°C", true, 40.0);
+        }
+    }
+
+    // Fan rows at the bottom (separator + lines, or the profile fallback).
+    if fan_rows > 0 && fan_area.height >= 1 {
+        let mut fan_render: Vec<Line> = Vec::with_capacity(fan_rows as usize);
+        fan_render.push(Line::raw("")); // separator
+        if !fan_lines.is_empty() {
+            fan_render.extend(fan_lines);
+        } else if let Some(line) = fan_fallback {
+            fan_render.push(line);
+        }
+        f.render_widget(Paragraph::new(fan_render), fan_area);
+    }
 }
 
 // ─── Disk I/O ──────────────────────────────────────────────────────

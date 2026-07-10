@@ -44,38 +44,6 @@ fn subpixel_on(hb: usize, h: usize, area: bool) -> bool {
     if area { hb < h } else { hb < h && hb + 2 >= h }
 }
 
-/// Single-row inline braille sparkline, returned as colored spans (for placing
-/// inside a `Line` alongside a label and value). `history` is resampled to
-/// `width` columns; each column maps its value to one of 4 levels via the
-/// absolute `thresholds` bands and renders a bottom-up braille fill
-/// (`⣀ ⣄ ⣆ ⣇` — left-column dots 1,2,3,7). `level = (how many thresholds the
-/// value exceeds) + 1`, so e.g. `thresholds = [45,55,65]` → ≤45 = 1 dot (cool),
-/// …55 = 2, …65 = 3, >65 = 4 (full). Absolute bands keep the meaning stable
-/// across machines (cool=low, hot=full) instead of rescaling to each peak.
-pub fn braille_sparkline_spans(
-    history: &[u64],
-    width: usize,
-    color: Color,
-    thresholds: [u64; 3],
-) -> Vec<Span<'static>> {
-    if history.is_empty() || width == 0 {
-        return Vec::new();
-    }
-    // 4-level bottom-up braille fill (left-column dots 1,2,3,7): ⣀⣄⣆⣇.
-    // Indexed by level-1; level is always 1..=4 from the threshold bands.
-    const OFFSETS: [u32; 4] = [64, 68, 70, 71];
-    let scaled = resample(history, width);
-    scaled
-        .iter()
-        .map(|&v| {
-            // Absolute threshold bands: level = (#thresholds `v` exceeds) + 1.
-            let level = thresholds.iter().filter(|&&t| v > t).count() + 1; // 1..=4
-            let ch = char::from_u32(0x2800 + OFFSETS[level - 1]).unwrap_or(' ');
-            Span::styled(ch.to_string(), Style::default().fg(color))
-        })
-        .collect()
-}
-
 /// Smooth braille trend graph rendered on a full **2×4 sub-pixel grid** (both
 /// braille columns × 4 vertical sub-pixels per row) with linear-interpolated
 /// data resampled to 2× horizontal resolution. This is the smoothest rendering
@@ -683,63 +651,5 @@ mod tests {
             lines.iter().any(|l| has_braille(l)),
             "non-zero data must render a curve"
         );
-    }
-
-    #[test]
-    fn braille_sparkline_returns_width_spans_all_braille() {
-        let hist: Vec<u64> = vec![10, 40, 80, 50, 20];
-        let spans = braille_sparkline_spans(&hist, 8, Color::Green, [45, 55, 65]);
-        assert_eq!(spans.len(), 8, "must resample to exactly `width` spans");
-        let s: String = spans.iter().map(|sp| sp.content.to_string()).collect();
-        assert!(
-            s.chars().all(|c| c >= '\u{2800}'),
-            "every column must be a braille cell, got: {s:?}"
-        );
-    }
-
-    #[test]
-    fn braille_sparkline_threshold_bands_map_to_levels() {
-        // thresholds [45,55,65]: ≤45=⣀(1 dot), ..55=⣄(2), ..65=⣆(3), >65=⣇(4 full).
-        // Each history value is a distinct band so resample returns it verbatim
-        // (width == len, no interpolation blending).
-        let hist: Vec<u64> = vec![45, 55, 65, 70];
-        let spans = braille_sparkline_spans(&hist, 4, Color::Red, [45, 55, 65]);
-        let s: String = spans.iter().map(|sp| sp.content.to_string()).collect();
-        assert_eq!(
-            s, "\u{2840}\u{2844}\u{2846}\u{2847}",
-            "bands must map 45->⣀, 55->⣄, 65->⣆, 70->⣇, got: {s:?}"
-        );
-    }
-
-    #[test]
-    fn braille_sparkline_high_value_reaches_full_fill() {
-        // A peak value above the top threshold must produce a full-height column
-        // (⣇, U+2847).
-        let hist: Vec<u64> = vec![5, 100, 5];
-        let spans = braille_sparkline_spans(&hist, 3, Color::Red, [45, 55, 65]);
-        let s: String = spans.iter().map(|sp| sp.content.to_string()).collect();
-        assert!(
-            s.contains('\u{2847}'),
-            "peak must reach full fill ⣇, got: {s:?}"
-        );
-    }
-
-    #[test]
-    fn braille_sparkline_low_value_is_single_dot() {
-        // A value below all thresholds must render exactly ⣀ (1 dot, cool),
-        // not blank and not multi-dot.
-        let hist: Vec<u64> = vec![30, 30, 30, 30];
-        let spans = braille_sparkline_spans(&hist, 4, Color::Cyan, [45, 55, 65]);
-        let s: String = spans.iter().map(|sp| sp.content.to_string()).collect();
-        assert_eq!(
-            s, "\u{2840}\u{2840}\u{2840}\u{2840}",
-            "cool value must be a single-dot ⣀ row, got: {s:?}"
-        );
-    }
-
-    #[test]
-    fn braille_sparkline_empty_history_or_width_returns_empty() {
-        assert!(braille_sparkline_spans(&[], 8, Color::Green, [45, 55, 65]).is_empty());
-        assert!(braille_sparkline_spans(&[1, 2, 3], 0, Color::Green, [45, 55, 65]).is_empty());
     }
 }

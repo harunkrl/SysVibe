@@ -121,6 +121,11 @@ Edit it to change theme, refresh rates, alert thresholds, and more.
 | `g` | Toggle CPU view: per-core (raw) / normalized *(Dashboard & Hardware tabs only)* |
 | `r` | Refresh (the table is otherwise frozen so browsing isn't disrupted) |
 | `/` | Filter by name, PID, or command line |
+| `p` | Toggle tree (parent/child hierarchy) / flat view |
+| `Space` | Mark / unmark the selected process |
+| `m` | Toggle showing only marked processes |
+| `c` | Clear the selection (unmark all) |
+| `x` | Kill the selected process (confirms before sending the signal) |
 | `Space` | Toggle select |
 | `m` | Toggle marked-only view (show just space-selected processes) |
 | `x` | Kill selected (confirm) |

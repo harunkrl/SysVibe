@@ -752,9 +752,11 @@ pub(crate) fn collapsed_temperatures(temps: &[SensorReading]) -> Vec<(&SensorRea
     out
 }
 
-/// Y-axis floor for the inline temperature sparklines so low/idle temps still
-/// show readable vertical variation instead of a flat line.
-const TEMP_SPARK_FLOOR: f64 = 40.0;
+/// Absolute temperature threshold bands for the inline sparklines: each
+/// historical sample maps to one of 4 braille levels by its temperature —
+/// ≤45 °C = 1 dot (cool), …55 = 2, …65 = 3, >65 = 4 (full/hot). Stable
+/// across machines (cool=low, hot=full) instead of rescaling to each peak.
+const TEMP_THRESHOLDS: [u64; 3] = [45, 55, 65];
 
 fn render_temperatures(f: &mut Frame, app: &App, area: Rect, focused: bool) {
     let title = icons::titled(app, icons::TEMP, icons::fallback::TEMP, "Temperatures");
@@ -810,7 +812,7 @@ fn render_temperatures(f: &mut Frame, app: &App, area: Rect, focused: bool) {
             &hist,
             bar_width as usize,
             color,
-            TEMP_SPARK_FLOOR,
+            TEMP_THRESHOLDS,
         ));
         spans.push(Span::styled(
             format!(" {:>3.0}{}", display, unit),

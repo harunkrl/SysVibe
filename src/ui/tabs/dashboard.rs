@@ -280,6 +280,34 @@ fn render_hero_row(f: &mut Frame, app: &App, area: Rect, nf: bool) {
         });
     }
 
+    // Battery (if present). Pushed before NET/TEMP so that on space-constrained
+    // widths (compact/Termux) the battery survives truncation — on a laptop the
+    // charge level matters more at a glance than network speed or temperature.
+    if let Some(bat) = app.battery() {
+        // Compact charge-state label ("Disch"/"Chrg"/...) so "11.5W Disch"
+        // fits a hero card without an ugly "Disch…" ellipsis.
+        let state = battery_state_short(&bat.state);
+        // Show power draw (watts) when available alongside the charge state.
+        let sub = match bat.power_w {
+            Some(w) => format!("{:.1}W {}", w, state),
+            None => state.to_string(),
+        };
+        cards.push(HeroCard {
+            label: "BAT",
+            icon: if nf {
+                icons::BATTERY
+            } else {
+                icons::fallback::BATTERY
+            },
+            value: format!("{:.0}%", bat.percentage),
+            sub,
+            color: battery_color(bat.percentage),
+            spark: None,
+            ratio: Some(bat.percentage / 100.0),
+            alert: false,
+        });
+    }
+
     // Network — show both download (↓) and upload (↑) speeds.
     let stats = app.network_stats();
     let rx = stats.iter().map(|n| n.rx_speed_bps).sum::<f64>();
@@ -364,32 +392,6 @@ fn render_hero_row(f: &mut Frame, app: &App, area: Rect, nf: bool) {
                 .temperature_alert_threshold
                 .and_then(|t| max_t.map(|mt| mt >= t))
                 .unwrap_or(false),
-        });
-    }
-
-    // Battery (if present)
-    if let Some(bat) = app.battery() {
-        // Compact charge-state label ("Disch"/"Chrg"/...) so "11.5W Disch"
-        // fits a hero card without an ugly "Disch…" ellipsis.
-        let state = battery_state_short(&bat.state);
-        // Show power draw (watts) when available alongside the charge state.
-        let sub = match bat.power_w {
-            Some(w) => format!("{:.1}W {}", w, state),
-            None => state.to_string(),
-        };
-        cards.push(HeroCard {
-            label: "BAT",
-            icon: if nf {
-                icons::BATTERY
-            } else {
-                icons::fallback::BATTERY
-            },
-            value: format!("{:.0}%", bat.percentage),
-            sub,
-            color: battery_color(bat.percentage),
-            spark: None,
-            ratio: Some(bat.percentage / 100.0),
-            alert: false,
         });
     }
 

@@ -27,3 +27,6 @@ error.log
 
 # Working analysis/audit notes (not shipped)
 docs/
+
+# pi agent artifacts (subagent run outputs/sessions — local only, not shipped)
+.pi-subagents/

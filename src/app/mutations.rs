@@ -74,6 +74,22 @@ impl super::App {
         self.set_status(format!("Theme: {}", theme.name));
     }
 
+    /// Toggle blur-friendly mode live: brightens dim text (overlay/subtext) for
+    /// readability under terminal compositor blur. Mirrors the `t`/`T` pattern
+    /// (live, in-memory; set `blur_friendly` in config.toml for permanence).
+    pub fn toggle_blur(&mut self) {
+        self.config.blur_friendly = !self.config.blur_friendly;
+        crate::ui::palette::set_blur_active(self.config.blur_friendly);
+        self.set_status(format!(
+            "Blur-friendly: {}",
+            if self.config.blur_friendly {
+                "ON"
+            } else {
+                "OFF"
+            }
+        ));
+    }
+
     pub fn set_error(&mut self, text: String) {
         self.status_message = Some(StatusMessage {
             text,
@@ -300,5 +316,30 @@ impl super::App {
         self.kill_target_pid = None;
         self.kill_target_name = None;
         self.selected_pids.clear();
+    }
+}
+
+#[cfg(all(test, feature = "preview"))]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+
+    #[test]
+    fn toggle_blur_flips_flag_palette_and_status() {
+        let mut app = crate::app::App::new_sample(Config::default());
+        assert!(!app.config.blur_friendly);
+        assert!(!crate::ui::palette::blur_active());
+
+        app.toggle_blur();
+        assert!(app.config.blur_friendly, "config flips to true");
+        assert!(crate::ui::palette::blur_active(), "palette flag follows");
+        assert!(app.status_message.is_some(), "status message set");
+
+        app.toggle_blur();
+        assert!(!app.config.blur_friendly, "flips back to false");
+        assert!(!crate::ui::palette::blur_active());
+
+        // reset global state for other tests
+        crate::ui::palette::set_blur_active(false);
     }
 }

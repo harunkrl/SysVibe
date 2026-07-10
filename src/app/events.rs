@@ -90,6 +90,7 @@ fn handle_normal_key(app: &mut App, code: KeyCode, _mods: KeyModifiers) {
             app.set_status(format!("Temperature: {}", unit));
         }
         KeyCode::Char('T') => app.cycle_theme(),
+        KeyCode::Char('b') => app.toggle_blur(),
         KeyCode::Char('f') => {
             if app.tab == AppTab::Logs {
                 app.toggle_log_follow();

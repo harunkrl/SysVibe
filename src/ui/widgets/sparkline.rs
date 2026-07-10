@@ -53,6 +53,39 @@ fn subpixel_on(hb: usize, h: usize, area: bool) -> bool {
 /// `area = true` → filled area (btop-style gradient body). `area = false` →
 /// crisp 2-px gradient line. Vertical colour gradient from `color` (bright,
 /// near the line) to `fade_color` (dim, near the base).
+/// Single-row inline braille sparkline, returned as colored spans (for placing
+/// inside a `Line` alongside a label and value). `history` is resampled to
+/// `width` columns; each column maps its value to a 5-level bottom-up braille
+/// fill (`⠀ ⡀ ⡄ ⡆ ⣇`). `y_floor` keeps low values visible (no flat/empty
+/// sparkline) — pass a temperature floor (e.g. 40.0) for temp trends.
+pub fn braille_sparkline_spans(
+    history: &[u64],
+    width: usize,
+    color: Color,
+    y_floor: f64,
+) -> Vec<Span<'static>> {
+    if history.is_empty() || width == 0 {
+        return Vec::new();
+    }
+    // Braille bottom-up fill offsets: level 0..=4 -> U+2800 + offset.
+    // ⠀(0) ⡀(64) ⡄(68) ⡆(70) ⣇(71)  — left-column dots 1,2,3,7.
+    const OFFSETS: [u32; 5] = [0, 64, 68, 70, 71];
+    let scaled = resample(history, width);
+    let peak = scaled.iter().copied().max().unwrap_or(1) as f64;
+    let y_max = dynamic_ceiling(peak.max(y_floor)).max(1.0);
+    scaled
+        .iter()
+        .map(|&v| {
+            let h = ((v as f64 / y_max) * 4.0).round().clamp(0.0, 4.0) as usize;
+            // Baseline: a low/zero value still shows >= 1 dot so the sparkline
+            // is never a blank row (matches the 0%-baseline fix in braille_smooth).
+            let level = h.clamp(1, 4);
+            let ch = char::from_u32(0x2800 + OFFSETS[level]).unwrap_or(' ');
+            Span::styled(ch.to_string(), Style::default().fg(color))
+        })
+        .collect()
+}
+
 pub fn braille_smooth_graph(
     data: &VecDeque<u64>,
     area_width: u16,
@@ -651,5 +684,47 @@ mod tests {
             lines.iter().any(|l| has_braille(l)),
             "non-zero data must render a curve"
         );
+    }
+
+    #[test]
+    fn braille_sparkline_returns_width_spans_all_braille() {
+        let hist: Vec<u64> = vec![10, 40, 80, 50, 20];
+        let spans = braille_sparkline_spans(&hist, 8, Color::Green, 40.0);
+        assert_eq!(spans.len(), 8, "must resample to exactly `width` spans");
+        let s: String = spans.iter().map(|sp| sp.content.to_string()).collect();
+        assert!(
+            s.chars().all(|c| c >= '\u{2800}'),
+            "every column must be a braille cell, got: {s:?}"
+        );
+    }
+
+    #[test]
+    fn braille_sparkline_high_value_reaches_full_fill() {
+        // A peak value should produce at least one full-height column (⣇, U+2847).
+        let hist: Vec<u64> = vec![5, 100, 5];
+        let spans = braille_sparkline_spans(&hist, 3, Color::Red, 40.0);
+        let s: String = spans.iter().map(|sp| sp.content.to_string()).collect();
+        assert!(
+            s.contains('\u{2847}'),
+            "peak must reach full fill ⣇, got: {s:?}"
+        );
+    }
+
+    #[test]
+    fn braille_sparkline_low_value_never_blank() {
+        // Constant low value must still render >= ⡀ (baseline), not blank ⠀.
+        let hist: Vec<u64> = vec![10, 10, 10, 10];
+        let spans = braille_sparkline_spans(&hist, 4, Color::Cyan, 40.0);
+        let s: String = spans.iter().map(|sp| sp.content.to_string()).collect();
+        assert!(
+            !s.contains('\u{2800}'),
+            "low value must show a baseline (not blank ⠀), got: {s:?}"
+        );
+    }
+
+    #[test]
+    fn braille_sparkline_empty_history_or_width_returns_empty() {
+        assert!(braille_sparkline_spans(&[], 8, Color::Green, 40.0).is_empty());
+        assert!(braille_sparkline_spans(&[1, 2, 3], 0, Color::Green, 40.0).is_empty());
     }
 }

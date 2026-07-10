@@ -321,7 +321,6 @@ impl super::App {
 
 #[cfg(all(test, feature = "preview"))]
 mod tests {
-    use super::*;
     use crate::config::Config;
 
     #[test]

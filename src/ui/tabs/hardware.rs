@@ -298,29 +298,44 @@ fn render_memory_section(f: &mut Frame, app: &App, area: Rect) {
         green()
     };
 
-    // Layout: title · 4 mem bars (with gaps) · gap · mem info · spacer · Swap
-    // heading · swap bar · swap info. The Min(0) spacer sits between the
-    // memory info and the swap section so the swap section is pinned to the
-    // bottom of the panel instead of floating right under the memory bars.
-    let rows = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1), // title + spec
-            Constraint::Length(1), // Used
-            Constraint::Length(1), // gap
-            Constraint::Length(1), // Buffer
-            Constraint::Length(1), // gap
-            Constraint::Length(1), // Cache
-            Constraint::Length(1), // gap
-            Constraint::Length(1), // Free
-            Constraint::Length(1), // gap (separates footer from free bar)
-            Constraint::Length(1), // mem info footer
-            Constraint::Min(0),    // spacer (pushes swap to the bottom)
-            Constraint::Length(1), // Swap heading
-            Constraint::Length(1), // Swap bar
-            Constraint::Length(1), // swap info footer
-        ])
-        .split(area);
+    // Layout: title · memory bars (with gaps; zero-byte buffer/cache rows
+    // are dropped so we never render an empty meter) · footer · Min(0) spacer
+    // (pins Swap to the bottom) · Swap heading/bar/info.
+    // Used and Free always show; Buffer/Cache show only when nonzero (on many
+    // modern kernels buffers ~0, so the empty "buf 0.0% ░░ 0 B" row is noise).
+    let bars: Vec<(&str, f64, u64, Color)> = {
+        let mut v: Vec<(&str, f64, u64, Color)> = vec![("used", used_pct, mem.used_bytes, peach())];
+        if mem.buffers_bytes > 0 {
+            v.push(("buf", buf_pct, mem.buffers_bytes, sky()));
+        }
+        if mem.cached_bytes > 0 {
+            v.push(("cache", cache_pct, mem.cached_bytes, mauve()));
+        }
+        v.push(("free", free_pct, mem.free_bytes, green()));
+        v
+    };
+
+    // Build constraints dynamically and track section indices by walking.
+    let mut c: Vec<Constraint> = Vec::new();
+    c.push(Constraint::Length(1)); // title
+    let bars_start = c.len();
+    for i in 0..bars.len() {
+        if i > 0 {
+            c.push(Constraint::Length(1)); // gap between bars
+        }
+        c.push(Constraint::Length(1)); // bar
+    }
+    c.push(Constraint::Length(1)); // gap
+    let footer_idx = c.len();
+    c.push(Constraint::Length(1)); // mem info footer
+    c.push(Constraint::Min(0)); // spacer (pushes swap to the bottom)
+    let swap_start = c.len();
+    if has_swap {
+        c.push(Constraint::Length(1)); // Swap heading
+        c.push(Constraint::Length(1)); // Swap bar
+        c.push(Constraint::Length(1)); // swap info footer
+    }
+    let rows = Layout::vertical(c).split(area);
 
     // Title: "Memory" + spec (type · speed · DIMMs · form).
     let mut spec_parts: Vec<String> = Vec::new();
@@ -369,24 +384,20 @@ fn render_memory_section(f: &mut Frame, app: &App, area: Rect) {
         ));
         Line::from(spans)
     };
-    f.render_widget(
-        Paragraph::new(mk_bar("used", used_pct, mem.used_bytes, peach())),
-        rows[1],
-    );
-    f.render_widget(
-        Paragraph::new(mk_bar("buf", buf_pct, mem.buffers_bytes, sky())),
-        rows[3],
-    );
-    f.render_widget(
-        Paragraph::new(mk_bar("cache", cache_pct, mem.cached_bytes, mauve())),
-        rows[5],
-    );
-    f.render_widget(
-        Paragraph::new(mk_bar("free", free_pct, mem.free_bytes, green())),
-        rows[7],
-    );
+    let mut row = bars_start;
+    for (label, pct, bytes, color) in &bars {
+        // Skip the gap slot before each bar except the first.
+        if row != bars_start {
+            row += 1;
+        }
+        f.render_widget(
+            Paragraph::new(mk_bar(label, *pct, *bytes, *color)),
+            rows[row],
+        );
+        row += 1;
+    }
 
-    // Memory info footer (under the 4 memory bars). Compact form so it fits
+    // Memory info footer (under the memory bars). Compact form so it fits
     // the (narrow, left-column) memory panel: bytes shortened to e.g. "15.5G"
     // and "Pressure" → "Press".
     let short = |b: u64| {
@@ -409,7 +420,7 @@ fn render_memory_section(f: &mut Frame, app: &App, area: Rect) {
             Span::styled(pressure, Style::default().fg(pressure_color)),
         ]))
         .alignment(Alignment::Left),
-        rows[9],
+        rows[footer_idx],
     );
 
     // Swap section: "Swap" heading (like "Memory" above), then bar + info.
@@ -419,7 +430,7 @@ fn render_memory_section(f: &mut Frame, app: &App, area: Rect) {
                 "Swap",
                 Style::default().fg(sapphire()).add_modifier(Modifier::BOLD),
             ))),
-            rows[11],
+            rows[swap_start],
         );
         f.render_widget(
             Paragraph::new(mk_bar(
@@ -428,7 +439,7 @@ fn render_memory_section(f: &mut Frame, app: &App, area: Rect) {
                 mem.swap_used_bytes,
                 sapphire(),
             )),
-            rows[12],
+            rows[swap_start + 1],
         );
         f.render_widget(
             Paragraph::new(Line::from(Span::styled(
@@ -440,7 +451,7 @@ fn render_memory_section(f: &mut Frame, app: &App, area: Rect) {
                 Style::default().fg(sapphire()),
             )))
             .alignment(Alignment::Right),
-            rows[13],
+            rows[swap_start + 2],
         );
     }
 }

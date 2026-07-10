@@ -366,14 +366,8 @@ mod tests {
         // Every built-in must ship explicit blur overrides (no None) so blur
         // mode never falls back to derive_blur for shipped themes.
         for (name, theme) in Theme::all_built_ins() {
-            assert!(
-                theme.overlay_blur.is_some(),
-                "{name} missing overlay_blur"
-            );
-            assert!(
-                theme.subtext_blur.is_some(),
-                "{name} missing subtext_blur"
-            );
+            assert!(theme.overlay_blur.is_some(), "{name} missing overlay_blur");
+            assert!(theme.subtext_blur.is_some(), "{name} missing subtext_blur");
         }
     }
 

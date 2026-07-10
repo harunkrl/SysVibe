@@ -37,6 +37,12 @@ fn main() {
     }
     config.nerd_fonts = true; // match the real default look
     palette::load_and_apply(&config.theme);
+    // `--blur` renders the blur-friendly palette (brightened overlay/subtext)
+    // so OFF vs ON snapshots can be compared side-by-side.
+    if args.iter().any(|a| a == "--blur") {
+        config.blur_friendly = true;
+        palette::set_blur_active(true);
+    }
 
     let want_tab = arg_value(&args, "--tab");
     let want_size = arg_value(&args, "--size");

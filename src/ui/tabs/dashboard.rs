@@ -217,8 +217,10 @@ fn render_hero_row(f: &mut Frame, app: &App, area: Rect, nf: bool) {
             .nth(1)
             .and_then(|s| s.trim().strip_suffix("GHz").map(str::trim))
             .map(|s| format!("{}GHz", s));
+        // Compact ("8C · 2.80GHz") so the line fits a hero card without
+        // mid-character clipping; the sub is also width-truncated at render.
         match ghz {
-            Some(g) => format!("{} cores · {}", app.num_cores(), g),
+            Some(g) => format!("{}C · {}", app.num_cores(), g),
             None => format!("{} cores", app.num_cores()),
         }
         // Load average lives in the System / Hardware CPU panel; the hero card
@@ -267,7 +269,10 @@ fn render_hero_row(f: &mut Frame, app: &App, area: Rect, nf: bool) {
             label: "GPU",
             icon: if nf { icons::GPU } else { icons::fallback::GPU },
             value: format!("{:.0}%", gpu.usage_pct),
-            sub: truncate_str(&gpu.name, 10).to_string(),
+            // Full name; the sub line is width-truncated at render so wider
+            // cards show "AMD Radeon 680M" in full instead of a hard 10-char
+            // cut.
+            sub: gpu.name.clone(),
             color: usage_color(gpu.usage_pct),
             spark: None,
             ratio: Some(gpu.usage_pct as f64 / 100.0),
@@ -364,11 +369,13 @@ fn render_hero_row(f: &mut Frame, app: &App, area: Rect, nf: bool) {
 
     // Battery (if present)
     if let Some(bat) = app.battery() {
-        let state = bat.state.to_string();
+        // Compact charge-state label ("Disch"/"Chrg"/...) so "11.5W Disch"
+        // fits a hero card without an ugly "Disch…" ellipsis.
+        let state = battery_state_short(&bat.state);
         // Show power draw (watts) when available alongside the charge state.
         let sub = match bat.power_w {
-            Some(w) => format!("{:.1}W  {}", w, truncate_str(&state, 6)),
-            None => truncate_str(&state, 10).to_string(),
+            Some(w) => format!("{:.1}W {}", w, state),
+            None => state.to_string(),
         };
         cards.push(HeroCard {
             label: "BAT",
@@ -401,6 +408,24 @@ fn render_hero_row(f: &mut Frame, app: &App, area: Rect, nf: bool) {
     for (i, card) in cards.iter().take(count).enumerate() {
         render_stat_card(f, cols[i], card);
     }
+}
+
+/// Compact battery charge-state label for the hero card. sysinfo reports
+/// states like "Discharging" / "Charging" / "Full" / "Unknown" / "Empty";
+/// shorten the common ones so "11.5W Disch" fits a card without an ellipsis.
+/// Unknown states fall through unchanged (the sub line is width-truncated
+/// at render).
+fn battery_state_short(state: &str) -> String {
+    let lower = state.to_ascii_lowercase();
+    let mapped = match lower.as_str() {
+        s if s.contains("discharg") => Some("Disch"),
+        s if s.contains("charg") => Some("Chrg"),
+        "full" => Some("Full"),
+        "empty" => Some("Empty"),
+        s if s.contains("unknown") || s.is_empty() => Some("—"),
+        _ => None,
+    };
+    mapped.unwrap_or(state).to_string()
 }
 
 fn render_stat_card(f: &mut Frame, area: Rect, card: &HeroCard) {
@@ -463,10 +488,11 @@ fn render_stat_card(f: &mut Frame, area: Rect, card: &HeroCard) {
         lines.push(gradient_bar(inner.width, r));
     }
 
-    // Row 3: sub detail (dimmed — secondary; the value is the focus)
+    // Row 3: sub detail (dimmed — secondary; the value is the focus).
+    // Width-truncate so a long sub never mid-character-clips (e.g. "2.80GH").
     if inner.height >= 5 {
         lines.push(Line::from(Span::styled(
-            card.sub.clone(),
+            truncate_str(&card.sub, inner.width as usize),
             Style::default().fg(overlay()).add_modifier(Modifier::DIM),
         )));
     }

@@ -100,6 +100,7 @@ Edit it to change theme, refresh rates, alert thresholds, and more.
 | `:` | Command palette |
 | `T` | Cycle theme |
 | `t` | Toggle Celsius / Fahrenheit |
+| `b` | Toggle blur-friendly mode (brighten dim text for transparent/blur terminals) |
 | `h` / `?` | Help modal |
 | `/` | Filter |
 | `q` / `Esc` | Quit |
@@ -158,6 +159,7 @@ to (re)generate it with comments. Key fields:
 | Field | Default | Description |
 |---|---|---|
 | `theme` | `catppuccin-macchiato` | One of the built-in themes (see below) |
+| `blur_friendly` | `false` | Brighten dim text (`overlay`/`subtext`) for readability under terminal blur; toggle live with `b` |
 | `default_tab` | `dashboard` | Startup tab |
 | `nerd_fonts` | `true` | Nerd Font icons; `false` for the geometric fallback (Termux-friendly) |
 | `data_refresh_rate` | `1000` | Fast metrics refresh interval (ms) |

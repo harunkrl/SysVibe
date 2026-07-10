@@ -41,6 +41,11 @@ pub struct Theme {
     // Focus
     pub focus_border: ColorDef,
     pub focus_tab: ColorDef,
+    // Blur-friendly overrides (optional): brighter overlay/subtext used when
+    // palette::blur_active() is true. Built-ins always set these; custom TOML
+    // themes may omit them (palette falls back to derive_blur).
+    pub overlay_blur: Option<ColorDef>,
+    pub subtext_blur: Option<ColorDef>,
 }
 
 /// Serializable color definition — supports RGB triplets.
@@ -148,6 +153,8 @@ impl Theme {
             crust: ColorDef::rgb(17, 17, 27),
             focus_border: ColorDef::rgb(183, 223, 249), // lavender
             focus_tab: ColorDef::rgb(198, 160, 246),    // mauve
+            overlay_blur: Some(ColorDef::rgb(184, 192, 224)),
+            subtext_blur: Some(ColorDef::rgb(189, 198, 230)),
         }
     }
 
@@ -179,6 +186,8 @@ impl Theme {
             crust: ColorDef::rgb(17, 17, 27),
             focus_border: ColorDef::rgb(180, 190, 254),
             focus_tab: ColorDef::rgb(203, 166, 247),
+            overlay_blur: Some(ColorDef::rgb(190, 199, 228)),
+            subtext_blur: Some(ColorDef::rgb(191, 200, 229)),
         }
     }
 
@@ -210,6 +219,8 @@ impl Theme {
             crust: ColorDef::rgb(28, 30, 38),
             focus_border: ColorDef::rgb(189, 147, 249),
             focus_tab: ColorDef::rgb(255, 121, 198),
+            overlay_blur: Some(ColorDef::rgb(210, 214, 222)),
+            subtext_blur: Some(ColorDef::rgb(212, 212, 208)),
         }
     }
 
@@ -241,6 +252,8 @@ impl Theme {
             crust: ColorDef::rgb(35, 40, 50),
             focus_border: ColorDef::rgb(136, 192, 208),
             focus_tab: ColorDef::rgb(180, 142, 173),
+            overlay_blur: Some(ColorDef::rgb(201, 204, 210)),
+            subtext_blur: Some(ColorDef::rgb(221, 226, 235)),
         }
     }
 
@@ -272,6 +285,8 @@ impl Theme {
             crust: ColorDef::rgb(20, 20, 20),
             focus_border: ColorDef::rgb(215, 153, 33),
             focus_tab: ColorDef::rgb(177, 98, 134),
+            overlay_blur: Some(ColorDef::rgb(213, 197, 162)),
+            subtext_blur: Some(ColorDef::rgb(212, 196, 162)),
         }
     }
 
@@ -303,6 +318,8 @@ impl Theme {
             crust: ColorDef::rgb(18, 19, 34),
             focus_border: ColorDef::rgb(122, 162, 247),
             focus_tab: ColorDef::rgb(198, 160, 246),
+            overlay_blur: Some(ColorDef::rgb(193, 196, 214)),
+            subtext_blur: Some(ColorDef::rgb(184, 193, 234)),
         }
     }
 
@@ -334,6 +351,37 @@ impl Theme {
             crust: ColorDef::rgb(27, 29, 35),
             focus_border: ColorDef::rgb(97, 175, 239),
             focus_tab: ColorDef::rgb(198, 120, 221),
+            overlay_blur: Some(ColorDef::rgb(190, 193, 198)),
+            subtext_blur: Some(ColorDef::rgb(190, 193, 198)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn all_built_ins_define_blur_palette() {
+        // Every built-in must ship explicit blur overrides (no None) so blur
+        // mode never falls back to derive_blur for shipped themes.
+        for (name, theme) in Theme::all_built_ins() {
+            assert!(
+                theme.overlay_blur.is_some(),
+                "{name} missing overlay_blur"
+            );
+            assert!(
+                theme.subtext_blur.is_some(),
+                "{name} missing subtext_blur"
+            );
+        }
+    }
+
+    #[test]
+    fn dracula_blur_values_match_spec() {
+        // Reach the configured default theme via the public lookup.
+        let t = Theme::load("dracula");
+        assert_eq!(t.overlay_blur, Some(ColorDef::rgb(210, 214, 222)));
+        assert_eq!(t.subtext_blur, Some(ColorDef::rgb(212, 212, 208)));
     }
 }

@@ -32,6 +32,11 @@ pub struct Config {
     /// Theme name: "catppuccin-macchiato", "catppuccin-mocha", "dracula", "nord", "gruvbox", "tokyo-night", "one-dark"
     #[serde(default = "default_theme")]
     pub theme: String,
+    /// Blur-friendly mode: brighten dim text (overlay/subtext) so it stays
+    /// readable under terminal compositor blur. Default off (no change for
+    /// non-blur users). Toggled live with `b`; set here for permanence.
+    #[serde(default)]
+    pub blur_friendly: bool,
 
     // ── Widget visibility toggles ─────────────────────────────────
     /// Show CPU history graph on dashboard.
@@ -136,6 +141,7 @@ impl Default for Config {
             default_tab: default_tab(),
             nerd_fonts: default_true(),
             theme: default_theme(),
+            blur_friendly: false,
             // Widget visibility
             show_cpu_graph: default_true(),
             show_per_core: default_true(),
@@ -434,5 +440,31 @@ mod tests {
             cfg.validate();
             assert_eq!(cfg.theme, *theme);
         }
+    }
+
+    #[test]
+    fn test_default_blur_friendly_is_false() {
+        assert!(!Config::default().blur_friendly);
+    }
+
+    #[test]
+    fn test_blur_friendly_round_trips() {
+        // A config that sets blur_friendly = true must deserialize back to true,
+        // and an old config without the key must default to false.
+        let with = toml::to_string(&Config {
+            blur_friendly: true,
+            ..Config::default()
+        })
+        .unwrap();
+        assert!(toml::from_str::<Config>(&with).unwrap().blur_friendly);
+
+        let legacy = r#"ui_tick_rate = 250
+data_refresh_rate = 1000
+show_braille_graphs = true
+show_disk_io = true
+temperature_unit = "celsius"
+max_processes = 50
+"#;
+        assert!(!toml::from_str::<Config>(legacy).unwrap().blur_friendly);
     }
 }

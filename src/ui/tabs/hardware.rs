@@ -855,25 +855,48 @@ fn render_temperatures(f: &mut Frame, app: &App, area: Rect, focused: bool) {
                 Layout::vertical([Constraint::Length(1), Constraint::Min(2)]).areas(chunk);
             let label_padded = truncate_str(base_label, 6).to_string();
             let temp_val = s.temp_c as f64;
-            let shown = if app.temp_celsius {
-                temp_val
-            } else {
-                temp_val * 9.0 / 5.0 + 32.0
+            let conv = |c: f64| {
+                if app.temp_celsius {
+                    c
+                } else {
+                    c * 9.0 / 5.0 + 32.0
+                }
             };
+            let shown = conv(temp_val);
             let color = temp_threshold_color(temp_val as f32);
-            // Label line: name (left) + current value (right) so the graph
-            // below has the full width for the trend.
-            let label = Line::from(vec![
+            // Session low/high: min/max over the rolling history — the graph's
+            // own envelope, so the ▲/▼ values match exactly what's visible.
+            let min_c = s.history.iter().copied().min().map(|v| v as f64);
+            let max_c = s.history.iter().copied().max().map(|v| v as f64);
+            // Label line: name + current (left), ▲max ▼min (right). The ▲/▼
+            // session-envelope convention matches the CPU frequency readout.
+            let cur_str = format!("{:>3.0}{}", shown, unit);
+            let mut spans: Vec<Span<'static>> = vec![
                 Span::styled(
                     format!("{:<6}", label_padded),
                     Style::default().fg(subtext()),
                 ),
                 Span::raw(" "),
-                Span::styled(
-                    format!("{:>3.0}{}", shown, unit),
-                    Style::default().fg(color),
-                ),
-            ]);
+                Span::styled(cur_str.clone(), Style::default().fg(color)),
+            ];
+            if let (Some(mn), Some(mx)) = (min_c, max_c) {
+                let max_str = format!("▲{:>3.0}", conv(mx));
+                let min_str = format!("▼{:>3.0}", conv(mn));
+                let left_w = 6 + 1 + cur_str.chars().count();
+                let right_w = max_str.chars().count() + 1 + min_str.chars().count();
+                let gap = (label_area.width as usize).saturating_sub(left_w + right_w);
+                spans.push(Span::raw(" ".repeat(gap)));
+                spans.push(Span::styled(
+                    max_str,
+                    Style::default().fg(temp_threshold_color(mx as f32)),
+                ));
+                spans.push(Span::raw(" "));
+                spans.push(Span::styled(
+                    min_str,
+                    Style::default().fg(temp_threshold_color(mn as f32)),
+                ));
+            }
+            let label = Line::from(spans);
             f.render_widget(Paragraph::new(label), label_area);
             // Fixed absolute thermal scale (30 °C floor → 80 °C ceiling): the
             // fill height tracks the real temperature — cool = low, hot = high

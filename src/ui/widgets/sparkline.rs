@@ -652,4 +652,46 @@ mod tests {
             "non-zero data must render a curve"
         );
     }
+
+    /// Regression guard for the Hardware-tab temperature trend graphs.
+    ///
+    /// The graphs are drawn right-to-left: only as many columns as there are
+    /// history samples are filled (the rest stay blank). So a full history must
+    /// fill the graph width (many braille cells), while a single sample must
+    /// render only the rightmost cell. This is exactly the "thin vertical bar
+    /// on the right" symptom the user reported when the live collector thread
+    /// reset its temperature buffer every tick, leaving every sensor's history
+    /// at a single sample. If the fill ever regresses (or history stops
+    /// accumulating upstream), the full-history cell count collapses toward the
+    /// single-sample count and this test fails.
+    #[test]
+    fn braille_area_graph_fill_width_scales_with_history() {
+        let w = 40u16;
+        let h = 4u16;
+        // Count braille cells in the bottom (fully-filled) row of an area graph.
+        let bottom_braille_cells = |hist: &[u64]| -> usize {
+            let d: VecDeque<u64> = hist.iter().copied().collect();
+            let lines = braille_smooth_graph(&d, w, h, "°C", true, false, 40.0);
+            lines
+                .last()
+                .map(row_to_string)
+                .map(|s| s.chars().filter(|c| *c >= '\u{2800}').count())
+                .unwrap_or(0)
+        };
+        let full: Vec<u64> = (0..60).map(|i| 45 + (i % 15) as u64).collect();
+        let full_cells = bottom_braille_cells(&full);
+        let one_cells = bottom_braille_cells(&[50]);
+        assert!(
+            full_cells > 20,
+            "full history must fill the graph width; got only {full_cells} braille cells"
+        );
+        assert!(
+            one_cells <= 2,
+            "a single sample must render only the rightmost cell(s); got {one_cells}"
+        );
+        assert!(
+            full_cells > one_cells,
+            "full history must render far more cells than a single sample"
+        );
+    }
 }

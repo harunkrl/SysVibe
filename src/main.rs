@@ -64,6 +64,14 @@ pub enum StateUpdate {
         // App side so the Dashboard/GPU-tab braille trend stays populated.
         // NVIDIA/Unknown advance inside set_gpu_stats at the 5 s sensor tier.
         gpu_usage_samples: Vec<(String, u64)>,
+        // Temperatures sampled at ~1 Hz (cheap sysfs hwmon reads) so the
+        // Hardware-tab CPU/GPU/NVMe braille trend graphs fill at the same
+        // cadence as the CPU/GPU/network/disk graphs. Per-sensor rolling
+        // history accumulates in the fast collector thread's persistent buffer
+        // (like network_stats / disk_io) — NOT reset each tick — so each
+        // sensor gains one sample per second instead of stalling at a single
+        // right-edge sample (the bug that drew the temp graphs as a thin bar).
+        temperatures: Vec<app::state::SensorReading>,
     },
 
     /// Tier 1b: Process list (every ~process_refresh_rate, decoupled from fast metrics)
@@ -72,9 +80,11 @@ pub enum StateUpdate {
         total: usize,
     },
 
-    /// Tier 3: Sensors, GPU, fans (every ~5s)
+    /// Tier 3: GPU stats, fans, power profile (every ~5s). Temperatures moved
+    /// to `FastMetrics` (1 Hz) so their trend graphs populate at the same
+    /// cadence as CPU/GPU; what stays here is the genuinely expensive work —
+    /// full GPU stats collection (nvidia-smi), fans, and the cooling profile.
     Sensors {
-        temperatures: Vec<app::state::SensorReading>,
         gpu_stats: Vec<app::state::GpuStats>,
         fans: Vec<app::state::FanReading>,
         power_profile: String,
@@ -235,6 +245,14 @@ fn spawn_collector_tasks(
         // be drawn (network/disk charts looked empty).
         let mut network_stats: Vec<app::state::NetworkStats> = Vec::new();
 
+        // Persistent temperature buffer: read_temperatures preserves each
+        // sensor's rolling history from this `prev` buffer across ticks, so the
+        // CPU/GPU/NVMe trend graphs gain a sample per second. Recreating it
+        // fresh each iteration (like the old sensor-thread path) left every
+        // sensor's history at a single sample, drawing the graphs as a thin
+        // right-edge bar.
+        let mut temperatures: Vec<app::state::SensorReading> = Vec::new();
+
         let (prev_disk_read, prev_disk_write) = app::collectors::disk::read_disk_bytes();
         let mut prev_disk_bytes = (prev_disk_read, prev_disk_write);
         let mut disk_io = app::state::DiskIoStats::default();
@@ -299,6 +317,13 @@ fn spawn_collector_tasks(
                 .map(|(id, usage)| (id, usage.round() as u64))
                 .collect();
 
+            // Temperatures at ~1 Hz (cheap sysfs hwmon reads). The persistent
+            // `temperatures` buffer above keeps each sensor's rolling history
+            // growing a sample per second — matching the CPU/GPU/network/disk
+            // graphs — so the Hardware-tab temp trends fill instead of stalling
+            // at a single right-edge sample.
+            app::collectors::sensors::read_temperatures(&mut temperatures);
+
             drop(tx_fast.blocking_send(StateUpdate::FastMetrics {
                 cpu_usage,
                 per_core_usage,
@@ -314,6 +339,7 @@ fn spawn_collector_tasks(
                 disk_io: disk_io.clone(),
                 battery,
                 gpu_usage_samples,
+                temperatures: temperatures.clone(),
             }));
         }
     });
@@ -360,14 +386,14 @@ fn spawn_collector_tasks(
         loop {
             std::thread::sleep(interval);
 
-            let mut temperatures = Vec::new();
-            app::collectors::sensors::read_temperatures(&mut temperatures);
+            // Temperatures are sampled on the fast (~1 s) task now; this slow
+            // tier keeps the genuinely expensive reads: full GPU stats
+            // (nvidia-smi), fans, and the power/cooling profile.
             let gpu_stats = app::collectors::gpu::collect_gpu_stats();
             let fans = app::collectors::sensors::read_fans();
             let power_profile = app::collectors::sensors::read_power_profile();
 
             drop(tx_sensor.blocking_send(StateUpdate::Sensors {
-                temperatures,
                 gpu_stats,
                 fans,
                 power_profile,
@@ -493,6 +519,7 @@ fn apply_state_update(app: &mut App, update: StateUpdate) {
             disk_io,
             battery,
             gpu_usage_samples,
+            temperatures,
         } => {
             // Push instantaneous CPU values into App-maintained history
             app::helpers::push_history(&mut app.cpu_history, cpu_usage);
@@ -536,17 +563,20 @@ fn apply_state_update(app: &mut App, update: StateUpdate) {
             // path), keeping the Dashboard/GPU-tab braille trend populated at
             // the same cadence as CPU. NVIDIA/Unknown advance in set_gpu_stats.
             app.push_gpu_usage_samples(gpu_usage_samples);
+            // Temperatures arrive at ~1 Hz carrying each sensor's accumulated
+            // rolling history (the fast collector thread preserves its buffer
+            // across ticks), so the Hardware-tab CPU/GPU/NVMe trend graphs fill
+            // like the CPU/GPU graphs instead of stalling at a single sample.
+            app.set_temperatures(temperatures);
         }
         StateUpdate::Processes { processes, total } => {
             app.set_top_processes(processes, total);
         }
         StateUpdate::Sensors {
-            temperatures,
             gpu_stats,
             fans,
             power_profile,
         } => {
-            app.set_temperatures(temperatures);
             app.set_gpu_stats(gpu_stats);
             app.set_fans(fans);
             app.set_power_profile(power_profile);

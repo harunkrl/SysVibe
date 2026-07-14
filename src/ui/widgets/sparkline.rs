@@ -53,6 +53,7 @@ fn subpixel_on(hb: usize, h: usize, area: bool) -> bool {
 /// `area = true` → filled area (btop-style gradient body). `area = false` →
 /// crisp 2-px gradient line. Vertical colour gradient from `color` (bright,
 /// near the line) to `fade_color` (dim, near the base).
+#[allow(clippy::too_many_arguments)]
 pub fn braille_smooth_graph(
     data: &VecDeque<u64>,
     area_width: u16,
@@ -62,8 +63,17 @@ pub fn braille_smooth_graph(
     show_y_labels: bool,
     // Y-axis floor: the scale never drops below this (so low values stay
     // visible), but grows above it when the peak exceeds it. CPU uses 50
-    // (idle tops out at half-height); battery power-draw uses ~10W.
+    // (idle tops out at half-height); battery power-draw uses ~10W. For
+    // temperatures this is the thermal CEILING (e.g. 80 °C): it both keeps
+    // the scale fixed so the fill level reflects absolute temperature, and
+    // grows above it only if a sensor genuinely exceeds it.
     y_floor: f64,
+    // Value-axis baseline (the bottom of the fill). 0.0 for percentage/speed
+    // graphs (CPU/GPU/network/disk/battery). For temperatures this is the
+    // thermal FLOOR (e.g. 30 °C): fill = (temp - y_min) / (y_max - y_min), so a
+    // cool temp renders low and a hot temp renders high — instead of the
+    // 0-anchored auto-range that pegged every temp near full.
+    y_min: f64,
 ) -> Vec<Line<'static>> {
     if data.is_empty() || area_width < 10 || area_height < 2 {
         return Vec::new();
@@ -100,13 +110,18 @@ pub fn braille_smooth_graph(
     let mut hy: Vec<usize> = vec![0; graph_w * 2];
     let off = graph_w * 2 - scaled_samples.len();
     for (i, &v) in scaled_samples.iter().enumerate() {
-        let h = ((v as f64 / y_max) * sub_h as f64).round() as usize;
+        // Baseline-shifted fill: (v - y_min) / (y_max - y_min). For y_min = 0
+        // this is plain v / y_max (CPU/GPU/network/disk/battery, unchanged).
+        // For temperatures y_min is a thermal floor, so the fill height tracks
+        // absolute temperature instead of auto-ranging to the peak.
+        let frac = ((v as f64 - y_min) / (y_max - y_min).max(1.0)).clamp(0.0, 1.0);
+        let h = (frac * sub_h as f64).round() as usize;
         // Clamp sampled columns to a 1-subpixel baseline so a 0% / very-low
-        // value (e.g. an idle GPU) still renders a visible flat line instead
-        // of a blank column — `subpixel_on(hb, 0, area)` is never true, so an
-        // unclamped 0 height draws nothing. Honours the `y_floor` intent of
-        // "no flat/empty graph". Gutter columns (no sample yet) keep h=0 and
-        // stay blank, preserving the right-to-left fill.
+        // value (e.g. an idle GPU, or a temp below the thermal floor) still
+        // renders a visible flat line instead of a blank column —
+        // `subpixel_on(hb, 0, area)` is never true, so an unclamped 0 height
+        // draws nothing. Gutter columns (no sample yet) keep h=0 and stay
+        // blank, preserving the right-to-left fill.
         hy[off + i] = h.max(1).min(sub_h);
     }
     // The left gutter stays 0 — subpixel_on(hb, 0, area) is always false, so
@@ -193,6 +208,7 @@ pub fn render_braille_smooth(
         is_area,
         true,
         y_floor,
+        0.0,
     );
     if !lines.is_empty() {
         frame.render_widget(ratatui::widgets::Paragraph::new(lines), area);
@@ -218,6 +234,42 @@ pub fn render_braille_smooth_nolabel(
         is_area,
         false,
         y_floor,
+        0.0,
+    );
+    if !lines.is_empty() {
+        frame.render_widget(ratatui::widgets::Paragraph::new(lines), area);
+    }
+}
+
+/// Temperature trend graph on a FIXED absolute thermal scale.
+///
+/// Fill height = `(temp - temp_floor) / (temp_ceil - temp_floor)`, so a cool
+/// temp renders LOW and a hot temp renders HIGH — an absolute thermal gauge.
+/// The vertical colour gradient (green at the base → red at the top) then
+/// aligns with the level: a hot temp fills up into the red zone, a cool temp
+/// stays in the green. The ceiling (`temp_ceil`) is fixed (so the level is
+/// stable and comparable across CPU/GPU/NVMe) but grows if a sensor genuinely
+/// exceeds it. History is always stored in °C, so the scale is in °C regardless
+/// of the °C/°F display toggle.
+pub fn render_braille_temp(
+    frame: &mut ratatui::Frame,
+    area: ratatui::layout::Rect,
+    data: &VecDeque<u64>,
+    temp_floor: f64,
+    temp_ceil: f64,
+) {
+    // core(y_floor = ceiling, y_min = baseline): the scale tops out at
+    // temp_ceil (growing only if the peak exceeds it) and bottoms out at
+    // temp_floor.
+    let lines = braille_smooth_graph(
+        data,
+        area.width,
+        area.height,
+        "°C",
+        true,
+        false,
+        temp_ceil,
+        temp_floor,
     );
     if !lines.is_empty() {
         frame.render_widget(ratatui::widgets::Paragraph::new(lines), area);
@@ -634,7 +686,7 @@ mod tests {
         // rather than a blank body — matching the CPU graph, which is rarely
         // zero. Regression guard for the empty-GPU-graph bug.
         let data: VecDeque<u64> = vec![0, 0, 0, 0, 0].into_iter().collect();
-        let lines = braille_smooth_graph(&data, 40, 5, "%", true, true, 50.0);
+        let lines = braille_smooth_graph(&data, 40, 5, "%", true, true, 50.0, 0.0);
         assert!(!lines.is_empty(), "graph must produce rows");
         assert!(
             lines.iter().any(|l| has_braille(l)),
@@ -646,7 +698,7 @@ mod tests {
     fn braille_smooth_renders_curve_for_nonzero_data() {
         // Non-zero data must still render a braille curve (no regression).
         let data: VecDeque<u64> = vec![10, 20, 30, 20, 10].into_iter().collect();
-        let lines = braille_smooth_graph(&data, 40, 5, "%", true, true, 50.0);
+        let lines = braille_smooth_graph(&data, 40, 5, "%", true, true, 50.0, 0.0);
         assert!(
             lines.iter().any(|l| has_braille(l)),
             "non-zero data must render a curve"
@@ -671,7 +723,7 @@ mod tests {
         // Count braille cells in the bottom (fully-filled) row of an area graph.
         let bottom_braille_cells = |hist: &[u64]| -> usize {
             let d: VecDeque<u64> = hist.iter().copied().collect();
-            let lines = braille_smooth_graph(&d, w, h, "°C", true, false, 40.0);
+            let lines = braille_smooth_graph(&d, w, h, "°C", true, false, 40.0, 0.0);
             lines
                 .last()
                 .map(row_to_string)
@@ -692,6 +744,43 @@ mod tests {
         assert!(
             full_cells > one_cells,
             "full history must render far more cells than a single sample"
+        );
+    }
+
+    /// On the fixed 30..80 °C thermal scale, a cool temp must render a LOW fill
+    /// (few braille rows) and a hot temp a HIGH fill (many rows) — the user's
+    /// "low temp = low level, high temp = high level" requirement. Guards
+    /// against the old 0-anchored auto-range that pegged every temp near full
+    /// regardless of the actual temperature.
+    #[test]
+    fn braille_temp_graph_level_tracks_absolute_temperature() {
+        let w = 40u16;
+        let h = 8u16; // tall enough that level differences are visible per-row
+        // render a flat constant-temp history and count how many
+        // rows contain any braille (≈ the fill height).
+        let filled_rows = |temp: u64| -> usize {
+            let d: VecDeque<u64> = vec![temp; 30].into_iter().collect();
+            let lines = braille_smooth_graph(&d, w, h, "°C", true, false, 80.0, 30.0);
+            lines.iter().filter(|l| has_braille(l)).count()
+        };
+        let cool = filled_rows(40); // (40-30)/50 = 20% → low
+        let warm = filled_rows(60); // (60-30)/50 = 60% → mid
+        let hot = filled_rows(75); //  (75-30)/50 = 90% → high
+        assert!(
+            cool < warm,
+            "cooler temp must fill fewer rows: cool={cool} warm={warm}"
+        );
+        assert!(
+            warm < hot,
+            "warmer temp must fill fewer rows than hot: warm={warm} hot={hot}"
+        );
+        assert!(
+            cool as f64 / h as f64 <= 0.45,
+            "40 °C must render LOW (<=~45% of height): {cool}/{h} rows"
+        );
+        assert!(
+            hot as f64 / h as f64 >= 0.8,
+            "75 °C must render HIGH (>=~80% of height): {hot}/{h} rows"
         );
     }
 }

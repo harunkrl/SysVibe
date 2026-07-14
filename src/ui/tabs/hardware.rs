@@ -875,7 +875,11 @@ fn render_temperatures(f: &mut Frame, app: &App, area: Rect, focused: bool) {
                 ),
             ]);
             f.render_widget(Paragraph::new(label), label_area);
-            sparkline::render_braille_smooth_nolabel(f, graph_area, &s.history, "°C", true, 40.0);
+            // Fixed absolute thermal scale (30 °C floor → 80 °C ceiling): the
+            // fill height tracks the real temperature — cool = low, hot = high
+            // — and aligns with the green→red vertical gradient, instead of the
+            // 0-anchored auto-range that pegged every temp near full.
+            sparkline::render_braille_temp(f, graph_area, &s.history, 30.0, 80.0);
         }
     }
 

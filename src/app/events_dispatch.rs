@@ -13,7 +13,6 @@ impl super::App {
 
     pub fn refresh_logs(&mut self) {
         self.log_collector.refresh();
-        self.last_log_refresh = std::time::Instant::now();
     }
 
     /// Export current system state to file (JSON or CSV).

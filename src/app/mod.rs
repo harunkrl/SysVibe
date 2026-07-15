@@ -16,7 +16,7 @@ use std::time::Instant;
 
 use crossterm::event::Event;
 use ratatui::widgets::TableState;
-use sysinfo::{Components, Networks, ProcessesToUpdate, System};
+use sysinfo::{Components, ProcessesToUpdate, System};
 
 use crate::config::Config;
 use error::AppResult;
@@ -29,7 +29,6 @@ use state::*;
 pub struct App {
     // sysinfo handles
     sys: System,
-    networks: Networks,
     components: Components,
 
     // Configuration
@@ -57,9 +56,6 @@ pub struct App {
     cached_swap_total: u64,
 
     // Network
-    prev_network_bytes: HashMap<String, (u64, u64)>,
-    /// Cached local IP address (resolved once at startup).
-    local_ip: Option<String>,
     /// Cached public IP address (resolved lazily in the background).
     public_ip: Arc<Mutex<Option<String>>>,
     network_stats: Vec<NetworkStats>,
@@ -71,13 +67,11 @@ pub struct App {
 
     // Disk I/O
     disk_io: DiskIoStats,
-    prev_disk_bytes: (u64, u64),
 
     // Sensors & Battery
     temperatures: Vec<SensorReading>,
     battery: Option<BatteryStatus>,
     pub battery_power_history: VecDeque<u64>,
-    pub battery_charge_history: VecDeque<u64>,
 
     // Processes
     top_processes: Vec<ProcessEntry>,
@@ -151,11 +145,6 @@ pub struct App {
     cpu_normalized: bool,
 
     // Timing
-    last_tick: Instant,
-    last_refresh: Instant,
-    last_sensor_refresh: Instant,
-    last_log_refresh: Instant,
-    last_partition_refresh: Instant,
     pub tick_count: u64,
 
     // Cached data (refreshed at lower rate)
@@ -202,16 +191,7 @@ impl App {
 
         let num_cores = sys.cpus().len().max(1);
 
-        let networks = Networks::new_with_refreshed_list();
-        let prev_network_bytes: HashMap<String, (u64, u64)> = networks
-            .list()
-            .iter()
-            .map(|(name, nd)| (name.clone(), (nd.received(), nd.transmitted())))
-            .collect();
-
         let components = Components::new_with_refreshed_list();
-
-        let (init_read, init_write) = collectors::disk::read_disk_bytes();
 
         let default_tab = match config.default_tab.to_lowercase().as_str() {
             "dashboard" => AppTab::Dashboard,
@@ -236,11 +216,8 @@ impl App {
         let mut log_collector = collectors::logs::LogCollector::new();
         log_collector.refresh();
 
-        let now = Instant::now();
-
         let mut app = Self {
             sys,
-            networks,
             components,
             config,
             mode: AppMode::Normal,
@@ -260,17 +237,15 @@ impl App {
             cached_ram_free: init_ram_free,
             cached_swap_used: init_swap_used,
             cached_swap_total: init_swap_total,
-            prev_network_bytes,
-            local_ip: collectors::network::resolve_local_ip(),
             public_ip: Arc::new(Mutex::new(None)),
             network_stats: Vec::new(),
-            network_visible_scale: 0.0,
+            // ~1 MB/s floor until the first live network sample arrives and
+            // `set_network_stats` recomputes the sticky ceiling.
+            network_visible_scale: 1000.0,
             disk_io: DiskIoStats::default(),
-            prev_disk_bytes: (init_read, init_write),
             temperatures: Vec::new(),
             battery: None,
             battery_power_history: VecDeque::with_capacity(HISTORY_LEN),
-            battery_charge_history: VecDeque::with_capacity(HISTORY_LEN),
             top_processes: Vec::new(),
             live_processes: Vec::new(),
             pending_top_processes: None,
@@ -307,12 +282,6 @@ impl App {
             tab_hit_regions: Vec::new(),
             tree_view: false,
             cpu_normalized: false,
-            last_tick: now,
-            last_refresh: now,
-
-            last_sensor_refresh: now,
-            last_log_refresh: now,
-            last_partition_refresh: now,
             tick_count: 0,
             cached_partitions: Vec::new(),
             gpu_stats: Vec::new(),
@@ -326,7 +295,6 @@ impl App {
         };
         app.cached_system_info = app.build_system_info();
 
-        app.refresh_data();
         app.refresh_top_processes();
         app.components.refresh(false);
         collectors::sensors::read_temperatures(&mut app.temperatures);
@@ -352,7 +320,6 @@ mod accessors;
 mod events_dispatch;
 mod mutations;
 mod process_ops;
-mod refresh;
 #[cfg(feature = "preview")]
 mod sample;
 mod state_update;

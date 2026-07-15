@@ -10,7 +10,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use sysinfo::{Components, Networks, System};
+use sysinfo::{Components, System};
 
 use ratatui::widgets::TableState;
 
@@ -121,7 +121,6 @@ impl super::App {
 
         let mut app = Self {
             sys: System::new(),
-            networks: Networks::new(),
             components: Components::new(),
             config,
             mode: AppMode::Normal,
@@ -146,8 +145,6 @@ impl super::App {
             cached_ram_free: free_ram,
             cached_swap_used: used_swap,
             cached_swap_total: total_swap,
-            prev_network_bytes: HashMap::new(),
-            local_ip: None,
             public_ip: Arc::new(Mutex::new(None)),
             network_stats: vec![
                 NetworkStats {
@@ -183,7 +180,6 @@ impl super::App {
                 prev_read_ops: None,
                 prev_write_ops: None,
             },
-            prev_disk_bytes: (0, 0),
             temperatures: vec![
                 SensorReading {
                     label: "CPU".into(),
@@ -227,7 +223,6 @@ impl super::App {
                 health_pct: Some(96.4),
             }),
             battery_power_history: sample_wave(HISTORY_LEN, 5, 8),
-            battery_charge_history: sample_wave(HISTORY_LEN, 80, 10),
             pending_top_processes: None,
             pending_total: 0,
             processes_initialized: true, // sample data is already displayed
@@ -302,11 +297,6 @@ impl super::App {
             tab_hit_regions: Vec::new(),
             tree_view: false,
             cpu_normalized: false,
-            last_tick: now,
-            last_refresh: now,
-            last_sensor_refresh: now,
-            last_log_refresh: now,
-            last_partition_refresh: now,
             tick_count: 0,
             cached_partitions: vec![
                 DiskPartitionInfo {

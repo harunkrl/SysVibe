@@ -123,8 +123,12 @@ pub fn refresh_disk(disk_stats: &mut DiskIoStats, prev_disk_bytes: &mut (u64, u6
     disk_stats.read_speed_bps = read_delta as f64 / elapsed;
     disk_stats.write_speed_bps = write_delta as f64 / elapsed;
 
-    let read_kbs = read_delta / 1024 / (elapsed.max(0.001) as u64).max(1);
-    let write_kbs = write_delta / 1024 / (elapsed.max(0.001) as u64).max(1);
+    // Reuse the float speed (bytes/s) so the history matches the live readout.
+    // Integer-dividing by a sub-second `elapsed` truncated it toward 0 (and
+    // `.max(1)` then divided by 1), making the sparkline disagree with the
+    // speed readout above and lagging ~4× at the 250 ms tick.
+    let read_kbs = (disk_stats.read_speed_bps / 1024.0) as u64;
+    let write_kbs = (disk_stats.write_speed_bps / 1024.0) as u64;
 
     push_history(&mut disk_stats.read_history, read_kbs);
     push_history(&mut disk_stats.write_history, write_kbs);

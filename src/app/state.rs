@@ -595,9 +595,6 @@ pub struct StatusMessage {
 /// Number of data points to keep in history buffers.
 pub const HISTORY_LEN: usize = 60;
 
-/// Default tick duration in seconds.
-pub const TICK_SECS: f64 = 0.25;
-
 /// How long status messages remain visible.
 pub const STATUS_TTL: Duration = Duration::from_secs(3);
 

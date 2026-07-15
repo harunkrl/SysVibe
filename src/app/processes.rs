@@ -14,7 +14,7 @@ pub fn build_process_list(
     max_procs: usize,
     cpu_normalized: bool,
 ) -> Vec<ProcessEntry> {
-    build_process_list_dir(sys, sort_by, SortDir::default(), max_procs, cpu_normalized)
+    build_process_list_dir(sys, sort_by, sort_by.default_dir(), max_procs, cpu_normalized)
 }
 
 /// Build the sorted top-N process list with an explicit sort direction.
@@ -106,7 +106,12 @@ pub fn kill_process(pid: u32) -> AppResult<()> {
             Some(false) => return Err(AppError::command("kill (SIGTERM)", "permission denied")),
         }
     }
-    Ok(())
+    // No such process: surface an error (matches POSIX ESRCH and the user's
+    // expectation that killing a vanished PID is a failure, not silent Ok).
+    Err(AppError::command(
+        "kill (SIGTERM)",
+        format!("PID {pid} not found"),
+    ))
 }
 
 /// Send SIGKILL (force kill) to a process.
@@ -125,7 +130,10 @@ pub fn kill_process_force(pid: u32) -> AppResult<()> {
                 Err(AppError::command("kill (SIGKILL)", "permission denied"))
             }
         }
-        None => Ok(()), // already gone
+        None => Err(AppError::command(
+            "kill (SIGKILL)",
+            format!("PID {pid} not found"),
+        )),
     }
 }
 

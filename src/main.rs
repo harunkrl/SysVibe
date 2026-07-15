@@ -41,10 +41,9 @@ pub enum StateUpdate {
     FastMetrics {
         cpu_usage: u64,
         per_core_usage: Vec<u64>,
-        // CPU frequency (MHz): current mean + session envelope of the peak core.
-        // Added because the live data path is the collector thread, not the
-        // dead refresh_data(); without this the frequency readout froze at
-        // its startup value.
+        // CPU frequency (MHz): current mean + session envelope of the peak
+        // (max) and idle (min) core. Carried on the live fast-metrics path so
+        // the readout updates each tick instead of freezing at startup.
         cpu_freq_mhz: u64,
         cpu_freq_min_mhz: u64,
         cpu_freq_max_mhz: u64,
@@ -282,6 +281,10 @@ fn spawn_collector_tasks(
                 cpu_freqs.iter().sum::<u64>() / cpu_freqs.len() as u64
             };
             let peak = cpu_freqs.iter().copied().max().unwrap_or(0);
+            // Lowest live core frequency (ignoring 0 = unreported) for the
+            // "min" envelope. Previously `peak` was sent here too, which froze
+            // the ▼ readout near turbo and never showed idle clocks.
+            let min_freq = cpu_freqs.iter().copied().filter(|&f| f > 0).min().unwrap_or(0);
             sys.refresh_memory();
 
             let ram_used = sys.used_memory();
@@ -328,7 +331,7 @@ fn spawn_collector_tasks(
                 cpu_usage,
                 per_core_usage,
                 cpu_freq_mhz: cur,
-                cpu_freq_min_mhz: peak,
+                cpu_freq_min_mhz: min_freq,
                 cpu_freq_max_mhz: peak,
                 ram_used,
                 ram_total,

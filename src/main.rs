@@ -204,6 +204,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 // Background collector tasks
 // ═══════════════════════════════════════════════════════════════════════
 
+/// Run a long-lived collector under a panic supervisor. The collector body
+/// (its setup + `loop { … }`) runs inside `catch_unwind`; if it panics, we
+/// log and restart it after a short backoff instead of letting the thread
+/// die and silently freeze that data source forever. Collectors re-derive
+/// their state from sysinfo/sysfs on every tick, so a restart resumes cleanly.
+fn supervise(name: &'static str, mut body: impl FnMut() + Send + 'static) {
+    std::thread::spawn(move || {
+        loop {
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(&mut body));
+            if let Err(payload) = outcome {
+                eprintln!(
+                    "vitalis: {name} collector panicked; restarting in 2s: {}",
+                    panic_payload_message(&payload)
+                );
+                std::thread::sleep(std::time::Duration::from_secs(2));
+            }
+        }
+    });
+}
+
+/// Best-effort stringification of a `catch_unwind` panic payload.
+fn panic_payload_message(payload: &(dyn std::any::Any + Send)) -> String {
+    payload
+        .downcast_ref::<&str>()
+        .copied()
+        .map(str::to_string)
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "<non-string panic payload>".to_string())
+}
+
 fn spawn_collector_tasks(
     tx: mpsc::Sender<StateUpdate>,
     config: &Config,
@@ -225,7 +255,7 @@ fn spawn_collector_tasks(
     // (Tier 1b) to avoid the expensive `refresh_processes` call blocking
     // the fast metrics loop.
     let tx_fast = tx.clone();
-    std::thread::spawn(move || {
+    supervise("fast-metrics", move || {
         let mut sys = sysinfo::System::new_all();
         sys.refresh_cpu_all();
         sys.refresh_memory();
@@ -357,7 +387,7 @@ fn spawn_collector_tasks(
     // By separating it from Tier 1+2, fast metrics (CPU, RAM, net, disk) stay
     // responsive while the process list updates at a lower, configurable rate.
     let tx_proc = tx.clone();
-    std::thread::spawn(move || {
+    supervise("processes", move || {
         let mut sys = sysinfo::System::new_all();
         let interval = std::time::Duration::from_millis(process_refresh_ms);
 
@@ -388,7 +418,7 @@ fn spawn_collector_tasks(
     // ── Task: Tier 3 — Sensors, GPU, fans ──
     // std::thread::spawn: all operations are blocking (sysfs reads, nvidia-smi)
     let tx_sensor = tx.clone();
-    std::thread::spawn(move || {
+    supervise("sensors", move || {
         let interval = std::time::Duration::from_millis(sensor_refresh_ms);
 
         loop {
@@ -412,7 +442,7 @@ fn spawn_collector_tasks(
     // ── Task: Tier 4 — Logs ──
     // std::thread::spawn: journalctl/dmesg are blocking subprocess calls
     let tx_logs = tx.clone();
-    std::thread::spawn(move || {
+    supervise("logs", move || {
         let mut log_collector = app::collectors::logs::LogCollector::new();
         let interval = std::time::Duration::from_secs(5);
 
@@ -440,7 +470,7 @@ fn spawn_collector_tasks(
     // ── Task: Tier 5 — Disk partitions ──
     // std::thread::spawn: sysinfo refresh and sysfs reads are blocking
     let tx_parts = tx;
-    std::thread::spawn(move || {
+    supervise("partitions", move || {
         let mut sys = sysinfo::System::new_all();
         let interval = std::time::Duration::from_secs(10);
 

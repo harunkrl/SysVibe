@@ -10,6 +10,47 @@ use std::process::Command;
 
 use crate::app::state::{LogEntry, LogLevel, MAX_LOG_LINES};
 
+/// Which log stream to collect.
+///
+/// Logcat has no kernel/system split (it merges kernel + userspace into one
+/// buffer), so on Android both variants fetch the same `logcat -d` tail and
+/// `set_scope` is effectively a no-op. The type mirrors the Linux collector's
+/// [`LogScope`](crate::app::collectors::linux::LogScope) so the shared
+/// app/UI code (`collectors::logs::LogScope`) compiles unchanged on both
+/// platforms.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LogScope {
+    /// Kernel + userspace logs (logcat merges them; same as `System` here).
+    #[default]
+    Kernel,
+    /// Whole-system logs — identical to [`Kernel`](Self::Kernel) on Android.
+    System,
+}
+
+impl LogScope {
+    pub fn label(self) -> &'static str {
+        match self {
+            LogScope::Kernel => "Kernel",
+            LogScope::System => "System",
+        }
+    }
+
+    pub fn as_u8(self) -> u8 {
+        match self {
+            LogScope::Kernel => 0,
+            LogScope::System => 1,
+        }
+    }
+
+    pub fn from_u8(v: u8) -> Self {
+        if v == 1 {
+            LogScope::System
+        } else {
+            LogScope::Kernel
+        }
+    }
+}
+
 /// Collector for Android log entries via logcat.
 pub struct LogCollector {
     entries: VecDeque<LogEntry>,
@@ -37,6 +78,17 @@ impl LogCollector {
             initialized: false,
             has_root,
         }
+    }
+
+    /// Set the collection scope. Logcat merges kernel and system logs, so this
+    /// is a no-op on Android (kept for API parity with the Linux collector).
+    pub fn set_scope(&mut self, _scope: LogScope) {}
+
+    /// Force the next refresh to re-fetch the whole tail (e.g. after the user
+    /// requests a manual refresh).
+    pub fn reset(&mut self) {
+        self.entries.clear();
+        self.initialized = false;
     }
 
     /// Refresh log entries from logcat.
@@ -97,7 +149,9 @@ impl LogCollector {
                     self.entries.clear();
                     self.entries.push_back(LogEntry {
                         timestamp: String::new(),
+                        timestamp_us: 0,
                         level: LogLevel::Warning,
+                        source: None,
                         message: "Requires READ_LOGS permission via ADB or root (su)".to_string(),
                     });
                 }
@@ -111,7 +165,9 @@ impl LogCollector {
             self.entries.clear();
             self.entries.push_back(LogEntry {
                 timestamp: String::new(),
+                timestamp_us: 0,
                 level: LogLevel::Warning,
+                source: None,
                 message: "logcat returned empty. Requires root or ADB permission.".to_string(),
             });
             return;
@@ -173,7 +229,9 @@ fn parse_logcat_line(line: &str) -> Option<LogEntry> {
         // Might be a header or malformed line
         return Some(LogEntry {
             timestamp: String::new(),
+            timestamp_us: 0,
             level: LogLevel::Unknown,
+            source: None,
             message: line.to_string(),
         });
     }
@@ -204,9 +262,18 @@ fn parse_logcat_line(line: &str) -> Option<LogEntry> {
 
     let message = parts[1].trim().to_string();
 
+    // The `LEVEL/TAG` field carries the source tag; surface it as the source.
+    let source = fields
+        .iter()
+        .find(|f| f.contains('/') && f.len() >= 3)
+        .and_then(|f| f.split_once('/'))
+        .map(|(_, tag)| tag.trim().to_string());
+
     Some(LogEntry {
         timestamp,
+        timestamp_us: 0, // logcat `-v time` has no epoch; kept for sort stability
         level,
+        source,
         message,
     })
 }

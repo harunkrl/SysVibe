@@ -15,6 +15,9 @@ pub fn fetch_hardware_data() -> HardwareData {
         motherboard: fetch_motherboard(),
         gpus: fetch_gpus(),
         ram: fetch_ram_details(),
+        // Android exposes no deep CPU-cache / storage-device / NIC-hardware
+        // inventory via getprop, so those fields stay at their defaults.
+        ..Default::default()
     }
 }
 

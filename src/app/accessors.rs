@@ -168,8 +168,9 @@ impl super::App {
         self.procs.total_process_count()
     }
 
-    /// Return the filtered process list, using a cache that is invalidated
-    /// when processes, filter, or sort order changes.
+    /// Return the filtered process list, recomputed on every call (no cache —
+    /// cheap given `max_processes` is bounded). Honours the text filter and,
+    /// in marked-only mode, the space-marked set.
     pub fn filtered_processes(&self) -> Vec<&ProcessEntry> {
         self.procs.filtered_processes()
     }

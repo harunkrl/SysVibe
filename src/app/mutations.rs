@@ -103,14 +103,20 @@ impl super::App {
         self.procs.filter_active = !self.procs.filter_input.is_empty();
         let len = self.process_list_len();
         self.procs.clamp(len);
+        // A filter change reshapes the tree view too — invalidate its cache so
+        // render_tree_view rebuilds on the next frame (the flat list recomputes
+        // every frame regardless, but the tree is cached behind is_tree_dirty()).
+        self.procs.set_tree_dirty();
     }
 
     pub fn filter_backspace(&mut self) {
         self.procs.filter_input.pop();
+        self.procs.set_tree_dirty();
     }
 
     pub fn filter_push(&mut self, c: char) {
         self.procs.filter_input.push(c);
+        self.procs.set_tree_dirty();
     }
 
     /// Delete the last word from the filter input (Ctrl+W behavior).
@@ -123,11 +129,13 @@ impl super::App {
         } else {
             self.procs.filter_input.clear();
         }
+        self.procs.set_tree_dirty();
     }
 
     /// Clear the entire filter input (Ctrl+U behavior).
     pub fn filter_clear_line(&mut self) {
         self.procs.filter_input.clear();
+        self.procs.set_tree_dirty();
     }
 
     // ── Navigation (App-level tab dispatcher) ───────────────────
@@ -293,5 +301,34 @@ mod tests {
 
         // reset global state for other tests
         crate::ui::palette::set_blur_active(false);
+    }
+
+    #[test]
+    fn filter_op_invalidates_tree_cache() {
+        // Regression guard: a text-filter change must invalidate the tree cache
+        // so the tree view (F5/p) refreshes — not just the flat list (which
+        // recomputes every frame). Pre-fix, filter ops never flagged tree_dirty,
+        // so tree rows stayed stale until the next process-refresh tick
+        // (pi audit finding, Medium).
+        let mut app = crate::app::App::new_sample(Config::default());
+        // Clean the tree cache so is_tree_dirty() is observably false.
+        app.set_cached_tree_rows(Vec::new());
+        assert!(
+            !app.is_tree_dirty(),
+            "set_cached_tree_rows clears the dirty flag"
+        );
+
+        app.filter_push('x');
+        assert!(
+            app.is_tree_dirty(),
+            "filter_push must flag the tree cache dirty"
+        );
+
+        app.set_cached_tree_rows(Vec::new());
+        app.filter_backspace();
+        assert!(
+            app.is_tree_dirty(),
+            "filter_backspace must flag the tree cache dirty"
+        );
     }
 }

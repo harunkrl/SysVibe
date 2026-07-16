@@ -558,7 +558,7 @@ mod tests {
         let view = terminal.backend().buffer();
         let mut s = String::new();
         for cell in view.content() {
-            s.push_str(&cell.symbol());
+            s.push_str(cell.symbol());
         }
         assert!(s.contains("GPU Processes"), "header missing: {s}");
         assert!(s.contains("blender"), "process name missing: {s}");

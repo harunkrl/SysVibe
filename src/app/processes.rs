@@ -14,7 +14,13 @@ pub fn build_process_list(
     max_procs: usize,
     cpu_normalized: bool,
 ) -> Vec<ProcessEntry> {
-    build_process_list_dir(sys, sort_by, sort_by.default_dir(), max_procs, cpu_normalized)
+    build_process_list_dir(
+        sys,
+        sort_by,
+        sort_by.default_dir(),
+        max_procs,
+        cpu_normalized,
+    )
 }
 
 /// Build the sorted top-N process list with an explicit sort direction.

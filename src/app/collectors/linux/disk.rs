@@ -397,7 +397,7 @@ mod tests {
     fn parse_diskstats_short_lines_ignored() {
         let content = "8 0 sda\n"; // only 4 fields (< 10) → skipped
         let set = whole(&["sda"]);
-        let (read, write, reads, writes) = parse_diskstats(&content, &set);
+        let (read, write, reads, writes) = parse_diskstats(content, &set);
         assert_eq!((read, write, reads, writes), (0, 0, None, None));
     }
 

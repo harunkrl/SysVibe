@@ -18,6 +18,8 @@ required-features = ["preview"]
 name = "vitalis"
 version = "0.5.0"
 edition = "2024"
+# MSRV: the codebase uses let-chains (`if .. && let ..`), stable since 1.88.
+rust-version = "1.88"
 description = "A modern, zero-flicker system monitor TUI for Linux & Android (Termux)"
 authors = ["Vitalis Team"]
 license = "MIT"

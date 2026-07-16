@@ -284,7 +284,12 @@ fn spawn_collector_tasks(
             // Lowest live core frequency (ignoring 0 = unreported) for the
             // "min" envelope. Previously `peak` was sent here too, which froze
             // the ▼ readout near turbo and never showed idle clocks.
-            let min_freq = cpu_freqs.iter().copied().filter(|&f| f > 0).min().unwrap_or(0);
+            let min_freq = cpu_freqs
+                .iter()
+                .copied()
+                .filter(|&f| f > 0)
+                .min()
+                .unwrap_or(0);
             sys.refresh_memory();
 
             let ram_used = sys.used_memory();

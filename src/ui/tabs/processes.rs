@@ -118,7 +118,7 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
         &procs.iter().map(|p| p.cpu_pct).collect::<Vec<_>>(),
         app.num_cores(),
     );
-    let sel_n = app.selected_pids.len();
+    let sel_n = app.selected_pids().len();
     let sel_suffix = if sel_n > 0 {
         format!("  sel:{}", sel_n)
     } else {
@@ -168,15 +168,15 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
 
     // Sort direction indicator: ▲ ascending, ▼ descending.
     let sort_indicator = |col: SortBy| -> String {
-        if app.sort_by == col {
-            let arrow = if matches!(app.sort_dir, crate::app::state::SortDir::Ascending) {
+        if app.sort_by() == col {
+            let arrow = if matches!(app.sort_dir(), crate::app::state::SortDir::Ascending) {
                 '▲'
             } else {
                 '▼'
             };
             if nf && !icons::SORT_DOWN.is_empty() {
                 // Prefer icon set for the down case; fall back to the unicode arrow.
-                if matches!(app.sort_dir, crate::app::state::SortDir::Descending) {
+                if matches!(app.sort_dir(), crate::app::state::SortDir::Descending) {
                     format!(" {}", icons::SORT_DOWN)
                 } else {
                     " ↑".to_string()
@@ -194,22 +194,22 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
         .fg(focus_border())
         .add_modifier(Modifier::BOLD);
 
-    let pid_style = if app.sort_by == SortBy::Pid {
+    let pid_style = if app.sort_by() == SortBy::Pid {
         header_active
     } else {
         header_base
     };
-    let name_style = if app.sort_by == SortBy::Name {
+    let name_style = if app.sort_by() == SortBy::Name {
         header_active
     } else {
         header_base
     };
-    let cpu_style = if app.sort_by == SortBy::Cpu {
+    let cpu_style = if app.sort_by() == SortBy::Cpu {
         header_active
     } else {
         header_base
     };
-    let mem_style = if app.sort_by == SortBy::Mem {
+    let mem_style = if app.sort_by() == SortBy::Mem {
         header_active
     } else {
         header_base
@@ -253,7 +253,7 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
         let cpu_color = usage_color(cpu_disp);
         let mem_color = usage_color(p.mem_pct);
 
-        let is_selected = app.selected_pids.iter().any(|(pid, _)| *pid == p.pid);
+        let is_selected = app.selected_pids().iter().any(|(pid, _)| *pid == p.pid);
         let prefix = if is_selected { "● " } else { "  " };
         let name_color = if is_selected { peach() } else { text() };
 
@@ -340,11 +340,11 @@ fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
         )
         .highlight_symbol("> ");
 
-    f.render_stateful_widget(table, area, &mut app.proc_table_state);
+    f.render_stateful_widget(table, area, app.proc_table_state_mut());
 
     // ── Viewport indicator (mini scrollbar) ──
     if total_procs > viewport {
-        let offset = app.proc_table_state.offset();
+        let offset = app.proc_table_state_offset();
         render_scroll_indicator(f, inner, offset, total_procs, viewport);
     }
 }
@@ -505,7 +505,7 @@ fn render_tree_view(f: &mut Frame, app: &mut App, area: Rect) {
     let procs = app.filtered_processes();
     let nf = app.config().nerd_fonts;
 
-    let sel_n = app.selected_pids.len();
+    let sel_n = app.selected_pids().len();
     let sel_suffix = if sel_n > 0 {
         format!("  sel:{}", sel_n)
     } else {
@@ -564,8 +564,7 @@ fn render_tree_view(f: &mut Frame, app: &mut App, area: Rect) {
 
     let visible_height = inner.height as usize;
     let start = app
-        .proc_table_state
-        .selected()
+        .proc_table_state_selected()
         .map(|s| s.saturating_sub(visible_height.saturating_sub(1)))
         .unwrap_or(0);
 
@@ -596,7 +595,7 @@ fn render_tree_view(f: &mut Frame, app: &mut App, area: Rect) {
         Style::default().fg(surface1()),
     )));
 
-    let selected_idx = app.proc_table_state.selected().unwrap_or(0);
+    let selected_idx = app.proc_table_state_selected().unwrap_or(0);
 
     for (idx, row) in tree_rows
         .iter()
@@ -607,7 +606,7 @@ fn render_tree_view(f: &mut Frame, app: &mut App, area: Rect) {
         let (pid, name, cpu_pct, mem_pct, indent, _is_last) = row;
         let actual_idx = start + idx;
         let is_selected =
-            actual_idx == selected_idx || app.selected_pids.iter().any(|(spid, _)| *spid == *pid);
+            actual_idx == selected_idx || app.selected_pids().iter().any(|(spid, _)| *spid == *pid);
 
         let cpu_color = usage_color(*cpu_pct);
         let mem_color = usage_color(*mem_pct);

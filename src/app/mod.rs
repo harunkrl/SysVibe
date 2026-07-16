@@ -14,7 +14,6 @@ use std::collections::VecDeque;
 use std::time::Instant;
 
 use crossterm::event::Event;
-use ratatui::widgets::TableState;
 use sysinfo::{Components, ProcessesToUpdate, System};
 
 use crate::config::Config;
@@ -67,13 +66,8 @@ pub struct App {
 
     // Processes (list + filter + tree + view + kill) — see `process_view::ProcessView`.
     procs: ProcessView,
-    pub proc_table_state: TableState,
     pub tab: AppTab,
-    pub sort_by: SortBy,
-    /// Sort direction (ascending/descending) for the process table.
-    pub sort_dir: SortDir,
     pub temp_celsius: bool,
-    pub selected_pids: Vec<(u32, String)>,
 
     // Command palette (input + selection) — see `command_palette::CommandPalette`.
     command: CommandPalette,
@@ -174,11 +168,7 @@ impl App {
             battery: None,
             battery_power_history: VecDeque::with_capacity(HISTORY_LEN),
             procs: ProcessView::new(),
-            proc_table_state: TableState::default(),
-            sort_by: SortBy::default(),
-            sort_dir: SortDir::default(),
             temp_celsius: true,
-            selected_pids: Vec::new(),
             tab: default_tab,
             command: CommandPalette::new(),
             status_message: None,

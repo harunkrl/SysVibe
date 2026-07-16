@@ -8,7 +8,9 @@
 //! Stage 5a (this commit): the 17 non-`pub` fields. The 4 `pub` table-state
 //! fields (table_state/sort_by/sort_dir/selected_pids) join in Stage 5b.
 
-use super::state::ProcessEntry;
+use ratatui::widgets::TableState;
+
+use super::state::{ProcessEntry, SortBy, SortDir};
 
 pub(crate) struct ProcessView {
     // ── Liste ──
@@ -18,6 +20,11 @@ pub(crate) struct ProcessView {
     pub(crate) pending_total: usize,
     pub(crate) processes_initialized: bool,
     pub(crate) total_process_count_fresh: usize,
+    // ── Tablo durumu (Stage 5b) ──
+    pub(crate) table_state: TableState,
+    pub(crate) sort_by: SortBy,
+    pub(crate) sort_dir: SortDir,
+    pub(crate) selected_pids: Vec<(u32, String)>,
     // ── Filtre ──
     pub(crate) filter_input: String,
     pub(crate) filter_active: bool,
@@ -44,6 +51,10 @@ impl ProcessView {
             pending_total: 0,
             processes_initialized: false,
             total_process_count_fresh: 0,
+            table_state: TableState::default(),
+            sort_by: SortBy::default(),
+            sort_dir: SortDir::default(),
+            selected_pids: Vec::new(),
             filter_input: String::new(),
             filter_active: false,
             cached_filtered_processes: Vec::new(),
@@ -107,6 +118,253 @@ impl ProcessView {
     pub(crate) fn mark_filtered_dirty(&mut self) {
         self.filtered_processes_dirty = true;
         self.tree_dirty = true;
+    }
+
+    /// Does a process match the current filter query? Matches NAME, full
+    /// COMMAND LINE, or (all-digit query) the PID.
+    fn process_matches_filter(p: &ProcessEntry, query: &str) -> bool {
+        if p.name.to_lowercase().contains(query) || p.cmdline.to_lowercase().contains(query) {
+            return true;
+        }
+        if query.chars().all(|c| c.is_ascii_digit()) && !query.is_empty() {
+            return p.pid.to_string().contains(query);
+        }
+        false
+    }
+
+    fn is_marked(&self, pid: u32) -> bool {
+        self.selected_pids.iter().any(|(spid, _)| *spid == pid)
+    }
+
+    pub(crate) fn filtered_processes(&self) -> Vec<&ProcessEntry> {
+        let text_match = |p: &ProcessEntry| {
+            if !self.filter_active || self.filter_input.is_empty() {
+                true
+            } else {
+                Self::process_matches_filter(p, &self.filter_input.to_lowercase())
+            }
+        };
+        self.top_processes
+            .iter()
+            .filter(|p| text_match(p))
+            .filter(|p| !self.show_selected_only || self.is_marked(p.pid))
+            .collect()
+    }
+
+    pub(crate) fn rebuild_filtered_cache(&mut self) {
+        let query = self.filter_input.to_lowercase();
+        let text_active = self.filter_active && !self.filter_input.is_empty();
+        let marked_only = self.show_selected_only;
+        self.cached_filtered_processes = self
+            .top_processes
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| {
+                let text_ok = if text_active {
+                    Self::process_matches_filter(p, &query)
+                } else {
+                    true
+                };
+                let marked_ok = !marked_only || self.is_marked(p.pid);
+                text_ok && marked_ok
+            })
+            .map(|(i, _)| i)
+            .collect();
+        self.filtered_processes_dirty = false;
+    }
+
+    /// Number of items in the current process view (flat or tree).
+    pub(crate) fn list_len(&self) -> usize {
+        if self.tree_view {
+            self.cached_tree_rows.len()
+        } else {
+            self.filtered_processes().len()
+        }
+    }
+
+    // ── Pure scroll ops (extracted from App::navigate_* / clamp_selection) ──
+
+    pub(crate) fn scroll_down(&mut self, len: usize) {
+        if len == 0 {
+            return;
+        }
+        let i = self
+            .table_state
+            .selected()
+            .map_or(0, |i| (i + 1).min(len - 1));
+        self.table_state.select(Some(i));
+    }
+
+    pub(crate) fn scroll_up(&mut self, len: usize) {
+        if len == 0 {
+            return;
+        }
+        let i = self
+            .table_state
+            .selected()
+            .map_or(0, |i| i.saturating_sub(1));
+        self.table_state.select(Some(i));
+    }
+
+    pub(crate) fn page_down(&mut self, len: usize) {
+        if len == 0 {
+            return;
+        }
+        let current = self.table_state.selected().unwrap_or(0);
+        let target = (current + 20).min(len - 1);
+        self.table_state.select(Some(target));
+    }
+
+    pub(crate) fn page_up(&mut self, len: usize) {
+        if len == 0 {
+            return;
+        }
+        let current = self.table_state.selected().unwrap_or(0);
+        let target = current.saturating_sub(20);
+        self.table_state.select(Some(target));
+    }
+
+    pub(crate) fn select_first(&mut self, len: usize) {
+        if len > 0 {
+            self.table_state.select(Some(0));
+        }
+    }
+
+    pub(crate) fn select_last(&mut self, len: usize) {
+        if len > 0 {
+            self.table_state.select(Some(len - 1));
+        }
+    }
+
+    pub(crate) fn clamp(&mut self, len: usize) {
+        if len == 0 {
+            self.table_state.select(None);
+            return;
+        }
+        if let Some(i) = self.table_state.selected() {
+            if i >= len {
+                self.table_state.select(Some(len - 1));
+            }
+        } else {
+            self.table_state.select(Some(0));
+        }
+    }
+
+    // ── Marks (space/c/m handlers) ──
+
+    /// Toggle the space-mark on the currently-selected row. Returns true if a
+    /// mark changed (so the caller can refresh the marked-only view).
+    pub(crate) fn toggle_mark_at_selection(&mut self) -> bool {
+        if let Some(idx) = self.table_state.selected()
+            && let Some((pid, name)) = self
+                .filtered_processes()
+                .get(idx)
+                .map(|p| (p.pid, p.name.clone()))
+        {
+            if let Some(pos) = self.selected_pids.iter().position(|(p, _)| *p == pid) {
+                self.selected_pids.remove(pos);
+            } else {
+                self.selected_pids.push((pid, name));
+            }
+            return true;
+        }
+        false
+    }
+
+    pub(crate) fn clear_marks(&mut self) {
+        self.selected_pids.clear();
+    }
+
+    pub(crate) fn marks_len(&self) -> usize {
+        self.selected_pids.len()
+    }
+
+    pub(crate) fn marks_is_empty(&self) -> bool {
+        self.selected_pids.is_empty()
+    }
+
+    // ── Sort ──
+
+    pub(crate) fn set_sort(&mut self, by: SortBy, dir: SortDir) {
+        self.sort_by = by;
+        self.sort_dir = dir;
+    }
+
+    /// Re-sort the displayed list in place (sort column/direction changed).
+    pub(crate) fn resort_displayed(&mut self) {
+        super::processes::sort_process_entries_dir(
+            &mut self.top_processes,
+            &self.sort_by,
+            self.sort_dir,
+        );
+        self.filtered_processes_dirty = true;
+        self.tree_dirty = true;
+    }
+
+    /// Swap the buffered snapshot into the displayed table (first load / `r`).
+    pub(crate) fn apply_pending(&mut self) {
+        use super::processes::sort_process_entries_dir;
+        if let Some(mut processes) = self.pending_top_processes.take() {
+            let selected_pid = self
+                .table_state
+                .selected()
+                .and_then(|idx| self.top_processes.get(idx).map(|p| p.pid));
+
+            sort_process_entries_dir(&mut processes, &self.sort_by, self.sort_dir);
+            self.top_processes = processes;
+            self.total_process_count_fresh = self.pending_total;
+
+            let len = self.top_processes.len();
+            let new_idx = selected_pid
+                .and_then(|pid| self.top_processes.iter().position(|p| p.pid == pid))
+                .unwrap_or_else(|| {
+                    self.table_state
+                        .selected()
+                        .unwrap_or(0)
+                        .min(len.saturating_sub(1))
+                });
+            if len > 0 {
+                self.table_state.select(Some(new_idx.min(len - 1)));
+            }
+
+            self.filtered_processes_dirty = true;
+            self.tree_dirty = true;
+            self.processes_initialized = true;
+        }
+    }
+
+    /// Collector entry point: live copy for Dashboard + buffered snapshot.
+    pub(crate) fn set_top_processes(&mut self, processes: Vec<ProcessEntry>, total: usize) {
+        use super::processes::sort_process_entries_dir;
+        self.live_processes = processes.clone();
+        sort_process_entries_dir(&mut self.live_processes, &self.sort_by, self.sort_dir);
+        self.pending_top_processes = Some(processes);
+        self.pending_total = total;
+        if !self.processes_initialized {
+            self.apply_pending();
+        }
+    }
+
+    // ── Toggles (return status String; App applies via set_status) ──
+
+    pub(crate) fn toggle_tree_view(&mut self) -> String {
+        self.tree_view = !self.tree_view;
+        self.tree_dirty = true;
+        self.table_state.select(Some(0));
+        if self.tree_view {
+            "Tree".to_string()
+        } else {
+            "Flat".to_string()
+        }
+    }
+
+    pub(crate) fn toggle_cpu_normalized(&mut self) -> String {
+        self.cpu_normalized = !self.cpu_normalized;
+        if self.cpu_normalized {
+            "Normalized (0-100%)".to_string()
+        } else {
+            "Per-Core (0-N*100%)".to_string()
+        }
     }
 
     /// Build a ProcessView populated with representative SAMPLE data (no I/O).
@@ -400,6 +658,10 @@ impl ProcessView {
             pending_total: 0,
             processes_initialized: true,
             total_process_count_fresh: 247,
+            table_state: TableState::default(),
+            sort_by: SortBy::Cpu,
+            sort_dir: SortDir::Descending,
+            selected_pids: Vec::new(),
             filter_input: String::new(),
             filter_active: false,
             cached_filtered_processes: Vec::new(),
@@ -412,5 +674,68 @@ impl ProcessView {
             kill_target_pid: None,
             kill_target_name: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scroll_down_from_none_selects_zero_then_advances() {
+        let mut p = ProcessView::new();
+        assert_eq!(p.table_state.selected(), None);
+        p.scroll_down(5);
+        assert_eq!(p.table_state.selected(), Some(0));
+        p.scroll_down(5);
+        assert_eq!(p.table_state.selected(), Some(1));
+    }
+
+    #[test]
+    fn scroll_down_clamps_at_last_no_wrap() {
+        let mut p = ProcessView::new();
+        p.select_last(5);
+        assert_eq!(p.table_state.selected(), Some(4));
+        for _ in 0..5 {
+            p.scroll_down(5);
+        }
+        assert_eq!(p.table_state.selected(), Some(4));
+    }
+
+    #[test]
+    fn scroll_up_clamps_at_zero_no_wrap() {
+        let mut p = ProcessView::new();
+        p.table_state.select(Some(2));
+        p.scroll_up(5);
+        assert_eq!(p.table_state.selected(), Some(1));
+        p.scroll_up(5);
+        p.scroll_up(5);
+        assert_eq!(p.table_state.selected(), Some(0));
+    }
+
+    #[test]
+    fn scroll_ops_noop_on_empty_list() {
+        let mut p = ProcessView::new();
+        p.table_state.select(Some(3));
+        p.scroll_down(0);
+        p.scroll_up(0);
+        p.page_down(0);
+        p.page_up(0);
+        p.select_first(0);
+        p.select_last(0);
+        assert_eq!(p.table_state.selected(), Some(3));
+    }
+
+    #[test]
+    fn clamp_clears_empty_and_seeds_nonempty() {
+        let mut p = ProcessView::new();
+        p.clamp(0);
+        assert_eq!(p.table_state.selected(), None);
+        p.table_state.select(None);
+        p.clamp(5);
+        assert_eq!(p.table_state.selected(), Some(0));
+        p.table_state.select(Some(9));
+        p.clamp(5);
+        assert_eq!(p.table_state.selected(), Some(4));
     }
 }

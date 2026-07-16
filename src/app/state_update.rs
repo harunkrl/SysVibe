@@ -97,71 +97,19 @@ impl super::App {
     }
 
     pub fn set_top_processes(&mut self, processes: Vec<ProcessEntry>, total: usize) {
-        // The Dashboard smart list ALWAYS reflects the latest snapshot, so it
-        // gets a live copy (sorted for display). The Processes TAB table stays
-        // FROZEN by design (swapped in only on first load / `r`) so sorting and
-        // browsing aren't disrupted by auto-refresh — it buffers to
-        // `pending_top_processes` and applies conditionally below.
-        self.procs.live_processes = processes.clone();
-        processes::sort_process_entries_dir(
-            &mut self.procs.live_processes,
-            &self.sort_by,
-            self.sort_dir,
-        );
-
-        self.procs.pending_top_processes = Some(processes);
-        self.procs.pending_total = total;
-        if !self.procs.processes_initialized {
-            self.apply_pending_processes();
-        }
+        self.procs.set_top_processes(processes, total);
     }
 
     /// Swap the buffered snapshot into the displayed table (re-sorted by the
     /// current column/direction). Called on first load and on `r`.
     pub fn apply_pending_processes(&mut self) {
-        if let Some(mut processes) = self.procs.pending_top_processes.take() {
-            // Remember the selected PID so the view doesn't jump when the
-            // underlying list is replaced (first load, or an explicit `r`
-            // refresh re-sorts the data).
-            let selected_pid = self
-                .proc_table_state
-                .selected()
-                .and_then(|idx| self.procs.top_processes.get(idx).map(|p| p.pid));
-
-            processes::sort_process_entries_dir(&mut processes, &self.sort_by, self.sort_dir);
-            self.procs.top_processes = processes;
-            self.procs.total_process_count_fresh = self.procs.pending_total;
-
-            // Restore the selection onto the same PID (clamp to range).
-            let len = self.procs.top_processes.len();
-            let new_idx = selected_pid
-                .and_then(|pid| self.procs.top_processes.iter().position(|p| p.pid == pid))
-                .unwrap_or_else(|| {
-                    self.proc_table_state
-                        .selected()
-                        .unwrap_or(0)
-                        .min(len.saturating_sub(1))
-                });
-            if len > 0 {
-                self.proc_table_state.select(Some(new_idx.min(len - 1)));
-            }
-
-            self.procs.filtered_processes_dirty = true;
-            self.set_tree_dirty();
-            self.procs.processes_initialized = true;
-        }
+        self.procs.apply_pending();
     }
 
     /// Re-sort the currently-displayed process list in place (used when the
     /// sort column/direction changes while the table is frozen).
     pub fn resort_displayed_processes(&mut self) {
-        processes::sort_process_entries_dir(
-            &mut self.procs.top_processes,
-            &self.sort_by,
-            self.sort_dir,
-        );
-        self.procs.filtered_processes_dirty = true;
-        self.set_tree_dirty();
+        self.procs.resort_displayed();
     }
 
     /// Toggle showing only space-marked processes.

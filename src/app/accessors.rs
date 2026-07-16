@@ -170,41 +170,8 @@ impl super::App {
 
     /// Return the filtered process list, using a cache that is invalidated
     /// when processes, filter, or sort order changes.
-    /// Does a process match the current filter query? The query matches the
-    /// process NAME, full COMMAND LINE, or (if it's all digits) the PID.
-    fn process_matches_filter(p: &ProcessEntry, query: &str) -> bool {
-        if p.name.to_lowercase().contains(query) || p.cmdline.to_lowercase().contains(query) {
-            return true;
-        }
-        // Pure-number query → also match PID (prefix).
-        if query.chars().all(|c| c.is_ascii_digit()) && !query.is_empty() {
-            return p.pid.to_string().contains(query);
-        }
-        false
-    }
-
-    /// Is a process currently space-marked?
-    fn is_marked(&self, pid: u32) -> bool {
-        self.selected_pids.iter().any(|(spid, _)| *spid == pid)
-    }
-
     pub fn filtered_processes(&self) -> Vec<&ProcessEntry> {
-        // Note: we can't mutate self here, so the cache is rebuilt lazily
-        // via rebuild_filtered_cache() called from apply_state_update().
-        // This accessor is cheap: it just indexes into top_processes.
-        let text_match = |p: &ProcessEntry| {
-            if !self.procs.filter_active || self.procs.filter_input.is_empty() {
-                true
-            } else {
-                Self::process_matches_filter(p, &self.procs.filter_input.to_lowercase())
-            }
-        };
-        self.procs
-            .top_processes
-            .iter()
-            .filter(|p| text_match(p))
-            .filter(|p| !self.procs.show_selected_only || self.is_marked(p.pid))
-            .collect()
+        self.procs.filtered_processes()
     }
 
     /// Live (always-current) top-process snapshot for the Dashboard smart list.
@@ -219,26 +186,7 @@ impl super::App {
 
     /// Rebuild the filtered process cache. Called when processes or filter changes.
     pub(super) fn rebuild_filtered_cache(&mut self) {
-        let query = self.procs.filter_input.to_lowercase();
-        let text_active = self.procs.filter_active && !self.procs.filter_input.is_empty();
-        let marked_only = self.procs.show_selected_only;
-        self.procs.cached_filtered_processes = self
-            .procs
-            .top_processes
-            .iter()
-            .enumerate()
-            .filter(|(_, p)| {
-                let text_ok = if text_active {
-                    Self::process_matches_filter(p, &query)
-                } else {
-                    true
-                };
-                let marked_ok = !marked_only || self.is_marked(p.pid);
-                text_ok && marked_ok
-            })
-            .map(|(i, _)| i)
-            .collect();
-        self.procs.filtered_processes_dirty = false;
+        self.procs.rebuild_filtered_cache();
     }
 
     pub fn kill_target(&self) -> Option<(u32, &str)> {
@@ -509,21 +457,13 @@ impl super::App {
     }
 
     pub fn toggle_tree_view(&mut self) {
-        self.procs.tree_view = !self.procs.tree_view;
-        self.set_tree_dirty();
-        // Reset selection when toggling view mode
-        self.proc_table_state.select(Some(0));
-        let state = if self.procs.tree_view { "Tree" } else { "Flat" };
+        let state = self.procs.toggle_tree_view();
         self.set_status(format!("Process view: {}", state));
     }
 
     /// Returns the number of items in the current process view (flat or tree).
     pub(super) fn process_list_len(&self) -> usize {
-        if self.procs.tree_view {
-            self.procs.cached_tree_rows.len()
-        } else {
-            self.filtered_processes().len()
-        }
+        self.procs.list_len()
     }
 
     /// Get the cached tree rows (rebuilt when dirty).
@@ -559,12 +499,7 @@ impl super::App {
     }
 
     pub fn toggle_cpu_normalized(&mut self) {
-        self.procs.cpu_normalized = !self.procs.cpu_normalized;
-        let state = if self.procs.cpu_normalized {
-            "Normalized (0-100%)"
-        } else {
-            "Per-Core (0-N*100%)"
-        };
+        let state = self.procs.toggle_cpu_normalized();
         self.set_status(format!("CPU view: {}", state));
     }
 
@@ -575,6 +510,42 @@ impl super::App {
     /// Force the filtered-process + tree caches to rebuild on the next render.
     pub fn mark_filtered_dirty(&mut self) {
         self.procs.mark_filtered_dirty();
+    }
+
+    // ── Process table-state accessors (4 retired `pub` fields) ──────
+
+    pub fn proc_table_state_mut(&mut self) -> &mut ratatui::widgets::TableState {
+        &mut self.procs.table_state
+    }
+    pub fn proc_table_state_offset(&self) -> usize {
+        self.procs.table_state.offset()
+    }
+    pub fn proc_table_state_selected(&self) -> Option<usize> {
+        self.procs.table_state.selected()
+    }
+    pub fn sort_by(&self) -> SortBy {
+        self.procs.sort_by
+    }
+    pub fn sort_dir(&self) -> SortDir {
+        self.procs.sort_dir
+    }
+    pub fn selected_pids(&self) -> &[(u32, String)] {
+        &self.procs.selected_pids
+    }
+    pub fn set_sort(&mut self, by: SortBy, dir: SortDir) {
+        self.procs.set_sort(by, dir);
+    }
+    pub fn toggle_mark_at_selection(&mut self) -> bool {
+        self.procs.toggle_mark_at_selection()
+    }
+    pub fn clear_marks(&mut self) {
+        self.procs.clear_marks();
+    }
+    pub fn marks_len(&self) -> usize {
+        self.procs.marks_len()
+    }
+    pub fn marks_is_empty(&self) -> bool {
+        self.procs.marks_is_empty()
     }
 
     pub fn log_filter_input(&self) -> &str {

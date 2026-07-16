@@ -12,13 +12,11 @@ use std::time::Instant;
 
 use sysinfo::{Components, System};
 
-use ratatui::widgets::TableState;
-
 use crate::app::state;
 use crate::app::state::{
     AppMode, AppTab, BatteryStatus, CpuDetails, DiskIoStats, DiskPartitionInfo, FanReading,
     GpuInfo, GpuStats, HardwareData, LogEntry, LogLevel, MotherboardInfo, NetInterfaceHw,
-    NetworkStats, PanelFocus, RamInfo, SensorReading, SortBy, SortDir, StorageDevice, SystemInfo,
+    NetworkStats, PanelFocus, RamInfo, SensorReading, StorageDevice, SystemInfo,
 };
 use crate::app::{Config, HISTORY_LEN};
 
@@ -216,11 +214,7 @@ impl super::App {
             }),
             battery_power_history: sample_wave(HISTORY_LEN, 5, 8),
             procs: super::ProcessView::new_sample(),
-            proc_table_state: TableState::default(),
-            sort_by: SortBy::Cpu,
-            sort_dir: SortDir::Descending,
             temp_celsius: true,
-            selected_pids: Vec::new(),
             tab: AppTab::Dashboard,
             command: super::CommandPalette::new(),
             status_message: None,

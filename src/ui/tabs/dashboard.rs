@@ -869,8 +869,8 @@ fn render_memory_panel(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: P
 /// columns. Pure (testable): reads the app's sort state for a given column.
 fn smart_sort_arrow(app: &App, col: crate::app::state::SortBy) -> &'static str {
     use crate::app::state::SortDir;
-    if app.sort_by == col {
-        if matches!(app.sort_dir, SortDir::Ascending) {
+    if app.sort_by() == col {
+        if matches!(app.sort_dir(), SortDir::Ascending) {
             "▲"
         } else {
             "▼"
@@ -902,7 +902,7 @@ fn render_top_processes(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: 
         .fg(focus_border())
         .add_modifier(Modifier::BOLD);
     let cell = |label: &str, col: SortBy| -> Cell<'_> {
-        let style = if app.sort_by == col {
+        let style = if app.sort_by() == col {
             header_active
         } else {
             header_idle
@@ -976,13 +976,13 @@ fn render_top_processes(f: &mut Frame, app: &App, area: Rect, _nf: bool, focus: 
     // primary indicator; this caption reinforces it for the current sort).
     let sort_caption = format!(
         "{} {}",
-        match app.sort_by {
+        match app.sort_by() {
             SortBy::Cpu => "CPU%",
             SortBy::Mem => "MEM%",
             SortBy::Pid => "PID",
             SortBy::Name => "NAME",
         },
-        smart_sort_arrow(app, app.sort_by),
+        smart_sort_arrow(app, app.sort_by()),
     );
     f.render_widget(
         Paragraph::new(Line::from(vec![
@@ -1246,13 +1246,11 @@ mod tests {
         use crate::config::Config;
         // Active ascending -> up arrow (set explicitly; default is Descending).
         let mut app_asc = App::new_sample(Config::default());
-        app_asc.sort_by = SortBy::Cpu;
-        app_asc.sort_dir = SortDir::Ascending;
+        app_asc.set_sort(SortBy::Cpu, SortDir::Ascending);
         assert_eq!(smart_sort_arrow(&app_asc, SortBy::Cpu), "▲");
         // Descending -> down arrow.
         let mut app_desc = App::new_sample(Config::default());
-        app_desc.sort_dir = SortDir::Descending;
-        app_desc.sort_by = SortBy::Cpu;
+        app_desc.set_sort(SortBy::Cpu, SortDir::Descending);
         assert_eq!(smart_sort_arrow(&app_desc, SortBy::Cpu), "▼");
         // Inactive column -> empty.
         assert_eq!(smart_sort_arrow(&app_asc, SortBy::Mem), "");

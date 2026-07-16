@@ -237,7 +237,7 @@ pub fn render_kill_confirm_modal(f: &mut Frame, area: Rect, app: &App) {
         .title_alignment(Alignment::Center)
         .style(Style::default().bg(surface0()));
 
-    let selected_count = app.selected_pids.len();
+    let selected_count = app.selected_pids().len();
 
     let lines = if selected_count > 1 {
         vec![

@@ -15,14 +15,15 @@ impl super::App {
         // Phase 2: build the list from the delta computed between now and
         // whenever processes were last refreshed.
         let selected_pid: Option<u32> = self
-            .proc_table_state
+            .procs
+            .table_state
             .selected()
             .and_then(|idx| self.procs.top_processes.get(idx).map(|p| p.pid));
 
         self.procs.top_processes = processes::build_process_list_dir(
             &self.sys,
-            &self.sort_by,
-            self.sort_dir,
+            &self.procs.sort_by,
+            self.procs.sort_dir,
             self.config.max_processes,
             self.procs.cpu_normalized,
         );
@@ -36,17 +37,17 @@ impl super::App {
                     .iter()
                     .position(|p| p.pid == target_pid)
                 {
-                    self.proc_table_state.select(Some(new_idx));
+                    self.procs.table_state.select(Some(new_idx));
                 } else {
-                    let clamped = self.proc_table_state.selected().unwrap_or(0).min(len - 1);
-                    self.proc_table_state.select(Some(clamped));
+                    let clamped = self.procs.table_state.selected().unwrap_or(0).min(len - 1);
+                    self.procs.table_state.select(Some(clamped));
                 }
-            } else if self.proc_table_state.selected().is_none() {
-                self.proc_table_state.select(Some(0));
-            } else if let Some(i) = self.proc_table_state.selected()
+            } else if self.procs.table_state.selected().is_none() {
+                self.procs.table_state.select(Some(0));
+            } else if let Some(i) = self.procs.table_state.selected()
                 && i >= len
             {
-                self.proc_table_state.select(Some(len - 1));
+                self.procs.table_state.select(Some(len - 1));
             }
         }
     }

@@ -102,7 +102,8 @@ impl super::App {
     pub fn apply_filter(&mut self) {
         self.procs.filter_active = !self.procs.filter_input.is_empty();
         self.procs.filtered_processes_dirty = true;
-        self.clamp_selection();
+        let len = self.process_list_len();
+        self.procs.clamp(len);
     }
 
     pub fn filter_backspace(&mut self) {
@@ -134,7 +135,7 @@ impl super::App {
         self.procs.filtered_processes_dirty = true;
     }
 
-    // ── Navigation ──────────────────────────────────────────────
+    // ── Navigation (App-level tab dispatcher) ───────────────────
 
     pub fn navigate_down(&mut self) {
         if self.tab == AppTab::Gpu {
@@ -146,16 +147,7 @@ impl super::App {
             return;
         }
         let len = self.process_list_len();
-        if len == 0 {
-            return;
-        }
-        // Stop at the bottom (no wrap) — wrapping to the top felt like the
-        // view "jumping" while browsing.
-        let i = self
-            .proc_table_state
-            .selected()
-            .map_or(0, |i| (i + 1).min(len - 1));
-        self.proc_table_state.select(Some(i));
+        self.procs.scroll_down(len);
     }
 
     pub fn navigate_up(&mut self) {
@@ -168,15 +160,7 @@ impl super::App {
             return;
         }
         let len = self.process_list_len();
-        if len == 0 {
-            return;
-        }
-        // Stop at the top (no wrap).
-        let i = self
-            .proc_table_state
-            .selected()
-            .map_or(0, |i| i.saturating_sub(1));
-        self.proc_table_state.select(Some(i));
+        self.procs.scroll_up(len);
     }
 
     pub fn navigate_page_down(&mut self) {
@@ -185,12 +169,7 @@ impl super::App {
             return;
         }
         let len = self.process_list_len();
-        if len == 0 {
-            return;
-        }
-        let current = self.proc_table_state.selected().unwrap_or(0);
-        let target = (current + 20).min(len - 1);
-        self.proc_table_state.select(Some(target));
+        self.procs.page_down(len);
     }
 
     pub fn navigate_page_up(&mut self) {
@@ -199,12 +178,7 @@ impl super::App {
             return;
         }
         let len = self.process_list_len();
-        if len == 0 {
-            return;
-        }
-        let current = self.proc_table_state.selected().unwrap_or(0);
-        let target = current.saturating_sub(20);
-        self.proc_table_state.select(Some(target));
+        self.procs.page_up(len);
     }
 
     pub fn navigate_home(&mut self) {
@@ -213,9 +187,7 @@ impl super::App {
             return;
         }
         let len = self.process_list_len();
-        if len > 0 {
-            self.proc_table_state.select(Some(0));
-        }
+        self.procs.select_first(len);
     }
 
     pub fn navigate_end(&mut self) {
@@ -224,34 +196,17 @@ impl super::App {
             return;
         }
         let len = self.process_list_len();
-        if len > 0 {
-            self.proc_table_state.select(Some(len - 1));
-        }
-    }
-
-    fn clamp_selection(&mut self) {
-        let len = self.process_list_len();
-        if len == 0 {
-            self.proc_table_state.select(None);
-            return;
-        }
-        if let Some(i) = self.proc_table_state.selected() {
-            if i >= len {
-                self.proc_table_state.select(Some(len - 1));
-            }
-        } else {
-            self.proc_table_state.select(Some(0));
-        }
+        self.procs.select_last(len);
     }
 
     // ── Kill ────────────────────────────────────────────────────
 
     pub fn request_kill(&mut self) {
-        if !self.selected_pids.is_empty() {
+        if !self.procs.selected_pids.is_empty() {
             self.mode = AppMode::KillConfirm;
             return;
         }
-        let Some(idx) = self.proc_table_state.selected() else {
+        let Some(idx) = self.procs.table_state.selected() else {
             self.set_error("No process selected".into());
             return;
         };
@@ -269,14 +224,14 @@ impl super::App {
     }
 
     pub fn confirm_kill(&mut self, force: bool) {
-        if !self.selected_pids.is_empty() {
+        if !self.procs.selected_pids.is_empty() {
             let mut killed = 0;
             let kill_fn = if force {
                 processes::kill_process_force
             } else {
                 processes::kill_process
             };
-            for (pid, _) in self.selected_pids.drain(..) {
+            for (pid, _) in self.procs.selected_pids.drain(..) {
                 if kill_fn(pid).is_ok() {
                     killed += 1;
                 }
@@ -318,7 +273,7 @@ impl super::App {
     pub fn cancel_kill(&mut self) {
         self.procs.kill_target_pid = None;
         self.procs.kill_target_name = None;
-        self.selected_pids.clear();
+        self.procs.selected_pids.clear();
     }
 }
 

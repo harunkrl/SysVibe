@@ -50,21 +50,20 @@ fn handle_normal_key(app: &mut App, code: KeyCode, _mods: KeyModifiers) {
             if app.tab == AppTab::Logs {
                 app.toggle_log_scope();
             } else {
-                let next = match app.sort_by {
+                let next = match app.sort_by() {
                     SortBy::Cpu => SortBy::Mem,
                     SortBy::Mem => SortBy::Pid,
                     SortBy::Pid => SortBy::Name,
                     SortBy::Name => SortBy::Cpu,
                 };
                 // Switching column resets to that column's natural direction.
-                app.sort_dir = next.default_dir();
-                app.sort_by = next;
+                app.set_sort(next, next.default_dir());
                 app.resort_displayed_processes();
             }
         }
         KeyCode::Char('S') => {
             // Shift+S — flip the process table sort direction (asc/desc).
-            app.sort_dir = app.sort_dir.toggle();
+            app.set_sort(app.sort_by(), app.sort_dir().toggle());
             app.resort_displayed_processes();
         }
         KeyCode::Char('r') => {
@@ -151,28 +150,16 @@ fn handle_normal_key(app: &mut App, code: KeyCode, _mods: KeyModifiers) {
             }
         }
         KeyCode::Char(' ') => {
-            if let Some(idx) = app.proc_table_state.selected() {
-                let info = app
-                    .filtered_processes()
-                    .get(idx)
-                    .map(|p| (p.pid, p.name.clone()));
-                if let Some((pid, name)) = info {
-                    if let Some(pos) = app.selected_pids.iter().position(|(p, _)| *p == pid) {
-                        app.selected_pids.remove(pos);
-                    } else {
-                        app.selected_pids.push((pid, name));
-                    }
-                }
-            }
+            let changed = app.toggle_mark_at_selection();
             // Keep the "marked only" view in sync as the selection changes.
-            if app.show_selected_only() {
+            if changed && app.show_selected_only() {
                 app.mark_filtered_dirty();
             }
             app.navigate_down();
         }
-        KeyCode::Char('c') if !app.selected_pids.is_empty() => {
-            let count = app.selected_pids.len();
-            app.selected_pids.clear();
+        KeyCode::Char('c') if !app.marks_is_empty() => {
+            let count = app.marks_len();
+            app.clear_marks();
             // Leaving "marked only" view on with no marks would blank the list.
             if app.show_selected_only() {
                 app.toggle_show_selected_only();
@@ -182,7 +169,7 @@ fn handle_normal_key(app: &mut App, code: KeyCode, _mods: KeyModifiers) {
         KeyCode::Char('m')
             // Toggle showing only space-marked processes.
             if app.tab == AppTab::Processes => {
-                if app.selected_pids.is_empty() && !app.show_selected_only() {
+                if app.marks_is_empty() && !app.show_selected_only() {
                     app.set_status("Mark processes with Space first".into());
                 } else {
                     app.toggle_show_selected_only();

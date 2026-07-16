@@ -210,24 +210,28 @@ src/
 ├── main.rs              # entry: terminal setup, async event loop (tokio::select!),
 │                        # background collector threads -> mpsc StateUpdate channel
 ├── app/
-│   ├── mod.rs           # App struct + constructor + static helpers
-│   ├── accessors.rs     # public read-only accessors (data the UI renders)
-│   ├── mutations.rs     # event-driven state mutations
-│   ├── state_update.rs  # apply StateUpdate messages from collector threads
-│   ├── tick.rs          # lightweight per-tick update
-│   ├── refresh.rs       # tiered heavy data refresh
-│   ├── process_ops.rs   # process refresh/kill/mark/sort
-│   ├── events_dispatch.rs # top-level key routing
-│   ├── sample.rs        # preview-only sample data (svshot; behind `preview` feature)
-│   ├── state.rs         # data structs, AppTab, AppMode
-│   ├── events.rs        # key/mouse dispatch
-│   ├── processes.rs     # process table/tree logic
-│   ├── error.rs         # typed errors (thiserror)
+│   ├── mod.rs             # App struct + constructor
+│   ├── messages.rs        # StateUpdate enum + apply (collector→state ingest)
+│   ├── accessors.rs       # public read accessors (data the UI renders)
+│   ├── mutations.rs       # event-driven state mutations
+│   ├── state_update.rs    # setters applying StateUpdate messages
+│   ├── tick.rs            # per-tick update (alerts, dynamic SystemInfo)
+│   ├── process_ops.rs     # process refresh/kill/mark/sort
+│   ├── events_dispatch.rs # top-level key routing + export/logs refresh
+│   ├── log_view.rs        # Logs view: collector + viewport + filter
+│   ├── command_palette.rs # command-palette input state
+│   ├── network_view.rs    # network stats + public IP + graph scale
+│   ├── gpu_view.rs        # GPU stats + per-GPU history + scroll
+│   ├── sample.rs          # preview-only sample data (svshot; `preview` feature)
+│   ├── state.rs           # data structs, AppTab, AppMode
+│   ├── events.rs          # key/mouse dispatch
+│   ├── processes.rs       # process table/tree logic
+│   ├── error.rs           # typed errors (thiserror)
 │   └── collectors/
 │       ├── mod.rs
-│       ├── cpu.rs memory.rs network.rs sensors.rs disk.rs  # cross-platform
-│       └── linux/  android/                            # platform backends
-│           (linux: battery, logs(journalctl -o json), gpu, hardware, sensors)
+│       ├── cpu.rs network.rs sensors.rs export.rs   # cross-platform
+│       └── linux/  android/                          # platform backends
+│           (battery, disk, gpu, hardware, logs)
 ├── config.rs            # XDG TOML config + validation + auto-generation
 └── ui/
     ├── mod.rs           # draw: header / tabs / footer / toast / modals

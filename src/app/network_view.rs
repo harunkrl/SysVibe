@@ -3,6 +3,7 @@
 //! resolved public IP, and the smoothed graph ceiling recomputed on each live
 //! sample.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use super::*;
@@ -13,6 +14,9 @@ pub struct NetworkView {
     pub(crate) stats: Vec<NetworkStats>,
     pub(crate) public_ip: Arc<Mutex<Option<String>>>,
     pub(crate) visible_scale: f64,
+    /// In-flight flag for the public-IP resolver (prevents a new thread on every
+    /// refresh while a resolve is still pending).
+    pub(crate) resolving: Arc<AtomicBool>,
 }
 
 impl NetworkView {
@@ -23,6 +27,7 @@ impl NetworkView {
             // ~1 MB/s floor until the first live sample arrives and set_stats
             // recomputes the sticky ceiling.
             visible_scale: 1000.0,
+            resolving: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -62,11 +67,12 @@ impl NetworkView {
     }
 
     /// Spawn a background thread to resolve the public IP (if not already
-    /// resolved and the feature is enabled).
+    /// resolved, not already in flight, and the feature is enabled).
     pub fn spawn_ip_resolve(&self, resolve_enabled: bool) {
         if !resolve_enabled {
             return;
         }
+        // Already resolved — nothing to do.
         let already = self
             .public_ip
             .lock()
@@ -76,12 +82,20 @@ impl NetworkView {
         if already {
             return;
         }
+        // A resolve is already in flight — don't stack another thread. This is
+        // called every ~20 ticks; a slow/failing resolve (curl --max-time 3)
+        // would otherwise spawn a fresh thread on every boundary.
+        if self.resolving.swap(true, Ordering::SeqCst) {
+            return;
+        }
         let shared = Arc::clone(&self.public_ip);
+        let resolving = Arc::clone(&self.resolving);
         std::thread::spawn(move || {
             let ip = collectors::network::resolve_public_ip();
             if let Ok(mut guard) = shared.lock() {
                 *guard = ip;
             }
+            resolving.store(false, Ordering::SeqCst);
         });
     }
 }

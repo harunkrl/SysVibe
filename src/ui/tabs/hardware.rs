@@ -863,7 +863,7 @@ fn render_temperatures(f: &mut Frame, app: &App, area: Rect, focused: bool) {
                 }
             };
             let shown = conv(temp_val);
-            let color = temp_threshold_color(temp_val as f32);
+            let color = temp_color(temp_val as f32);
             // Session low/high: min/max over the rolling history — the graph's
             // own envelope, so the ▲/▼ values match exactly what's visible.
             let min_c = s.history.iter().copied().min().map(|v| v as f64);
@@ -888,12 +888,12 @@ fn render_temperatures(f: &mut Frame, app: &App, area: Rect, focused: bool) {
                 spans.push(Span::raw(" ".repeat(gap)));
                 spans.push(Span::styled(
                     max_str,
-                    Style::default().fg(temp_threshold_color(mx as f32)),
+                    Style::default().fg(temp_color(mx as f32)),
                 ));
                 spans.push(Span::raw(" "));
                 spans.push(Span::styled(
                     min_str,
-                    Style::default().fg(temp_threshold_color(mn as f32)),
+                    Style::default().fg(temp_color(mn as f32)),
                 ));
             }
             let label = Line::from(spans);
@@ -1082,16 +1082,6 @@ fn two_span_line(
         Span::raw(" ".repeat(gap)),
         Span::styled(right, Style::default().fg(right_color)),
     ])
-}
-
-fn temp_threshold_color(temp: f32) -> Color {
-    if temp < 40.0 {
-        green()
-    } else if temp < 75.0 {
-        yellow()
-    } else {
-        red()
-    }
 }
 
 #[cfg(test)]

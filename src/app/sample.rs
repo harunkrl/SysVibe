@@ -161,6 +161,7 @@ impl super::App {
                 ],
                 public_ip: Arc::new(Mutex::new(None)),
                 visible_scale: 5000.0,
+                resolving: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             },
             disk_io: DiskIoStats {
                 read_speed_bps: 105_000_000.0,

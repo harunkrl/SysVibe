@@ -127,12 +127,7 @@ Edit it to change theme, refresh rates, alert thresholds, and more.
 | `m` | Toggle showing only marked processes |
 | `c` | Clear the selection (unmark all) |
 | `x` | Kill the selected process (confirms before sending the signal) |
-| `Space` | Toggle select |
-| `m` | Toggle marked-only view (show just space-selected processes) |
-| `x` | Kill selected (confirm) |
-| `p` / `F5` | Toggle tree view |
-| `c` | Clear selection |
-| `E` | Export snapshot (JSON) |
+| `e` / `E` | Export snapshot (JSON) |
 
 ### Logs tab
 

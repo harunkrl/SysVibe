@@ -402,12 +402,21 @@ mod tests {
 
     #[test]
     fn read_disk_bytes_consistent_with_diskstats() {
-        // read_disk_bytes should be a pure subset (bytes only) of read_diskstats.
-        // Both read the same real /proc/diskstats + /sys/block, so counts match.
+        // read_disk_bytes is a pure subset (bytes only) of read_diskstats: both
+        // parse the same /proc/diskstats + /sys/block. They're called
+        // back-to-back here, so cumulative disk counters can tick up a few
+        // sectors between the two LIVE reads — require near-equality (within
+        // 0.1%) rather than exact equality. This still catches any real
+        // computational divergence (a 0 or wildly-off value fails it) while
+        // tolerating normal inter-read I/O.
         let (rb, wb) = read_disk_bytes();
         let (rb2, wb2, _, _) = read_diskstats();
-        assert_eq!(rb, rb2);
-        assert_eq!(wb, wb2);
+        let close = |a: u64, b: u64| {
+            let (lo, hi) = (a.min(b), a.max(b));
+            hi - lo <= hi / 1000 + 1
+        };
+        assert!(close(rb, rb2), "read bytes diverge: {rb} vs {rb2}");
+        assert!(close(wb, wb2), "write bytes diverge: {wb} vs {wb2}");
     }
 
     // ── parent_block_dev (pure partition→parent resolution) ──────────────

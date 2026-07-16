@@ -59,10 +59,9 @@ fn collect_adreno_stats() -> Option<Vec<GpuStats>> {
             .and_then(|v| v.trim().parse::<u64>().ok())
             .map(|bytes| bytes / (1024 * 1024))
             .unwrap_or(0);
-        let total = read_with_root_fallback("/sys/class/kgsl/kgsl-3d0/gpubusy")
-            .is_some()
-            .then_some(0u64) // No direct total VRAM exposed
-            .unwrap_or(0);
+        // No total-VRAM sysfs node is exposed on Adreno/KGSL; leave it 0 so the
+        // UI shows "unknown" rather than a fabricated ceiling.
+        let total: u64 = 0;
         (used, total)
     };
 
@@ -159,12 +158,11 @@ fn read_with_root_fallback(path: &str) -> Option<String> {
     if let Ok(output) = Command::new("su")
         .args(["-c", &format!("cat {}", path)])
         .output()
+        && output.status.success()
     {
-        if output.status.success() {
-            let val = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !val.is_empty() {
-                return Some(val);
-            }
+        let val = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !val.is_empty() {
+            return Some(val);
         }
     }
 
@@ -197,16 +195,16 @@ fn read_thermal_zone(type_hint: &str) -> Option<f32> {
         }
 
         let temp_path = format!("{}/{}/temp", tz_path, name);
-        if let Some(val) = read_with_root_fallback(&temp_path) {
-            if let Ok(millidegrees) = val.parse::<f32>() {
-                // Some zones report in millidegrees, some in degrees
-                let temp = if millidegrees > 1000.0 {
-                    millidegrees / 1000.0
-                } else {
-                    millidegrees
-                };
-                return Some(temp);
-            }
+        if let Some(val) = read_with_root_fallback(&temp_path)
+            && let Ok(millidegrees) = val.parse::<f32>()
+        {
+            // Some zones report in millidegrees, some in degrees
+            let temp = if millidegrees > 1000.0 {
+                millidegrees / 1000.0
+            } else {
+                millidegrees
+            };
+            return Some(temp);
         }
     }
 

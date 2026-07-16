@@ -50,11 +50,7 @@ fn read_termux_battery() -> Option<BatteryStatus> {
         model: None,
         technology,
         cycle_count: None,
-        health_pct: health.map(|_| {
-            // "GOOD" → 100%, "OVERHEAT" → lower etc.
-            // Simplified: if health is present and "GOOD", report ~100%
-            100.0
-        }),
+        health_pct: health.as_deref().map(map_android_battery_health),
     })
 }
 
@@ -76,7 +72,7 @@ fn read_root_dumpsys_battery() -> Option<BatteryStatus> {
 /// Layer 3: Read from `/sys/class/power_supply/battery/`.
 fn read_sysfs_battery() -> Option<BatteryStatus> {
     let path = "/sys/class/power_supply/battery";
-    if !fs::metadata(path).is_ok() {
+    if fs::metadata(path).is_err() {
         // Try alternate path for some devices
         return read_sysfs_battery_alt();
     }
@@ -121,7 +117,7 @@ fn read_sysfs_battery() -> Option<BatteryStatus> {
 /// Alternative sysfs path for devices using `bms` instead of `battery`.
 fn read_sysfs_battery_alt() -> Option<BatteryStatus> {
     let path = "/sys/class/power_supply/bms";
-    if !fs::metadata(path).is_ok() {
+    if fs::metadata(path).is_err() {
         return None;
     }
 

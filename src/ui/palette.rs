@@ -21,6 +21,9 @@ thread_local! {
 // theme's brighter *_blur variant (or a derived fallback) so dim text stays
 // readable under terminal compositor blur. Default false → current behaviour.
 thread_local! {
+    // `const {}` is already used; clippy 1.96's missing_const_for_thread_local
+    // still flags it under some targets (a known FP), so allow it on the item.
+    #[allow(clippy::missing_const_for_thread_local)]
     static BLUR_ACTIVE: Cell<bool> = const { Cell::new(false) };
 }
 

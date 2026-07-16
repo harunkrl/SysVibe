@@ -1,6 +1,12 @@
 [features]
 preview = ["dep:unicode-width"]
 
+[profile.release]
+# Smaller, faster release binaries for `cargo install --locked --path .`.
+lto = "thin"
+codegen-units = 1
+strip = true
+
 [lib]
 name = "vitalis"
 path = "src/lib.rs"

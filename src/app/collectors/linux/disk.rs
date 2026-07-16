@@ -258,19 +258,11 @@ fn disk_hardware_info(
         .or_else(|| sys_attr(&parent, "serial"))
         .map(|s| s.trim().to_string());
 
-    let rpm = if !is_ssd_val {
-        // For HDDs, rotational=1 but no RPM field in /sys; default to 5400/7200 heuristic
-        // The rotational flag itself isn't useful as RPM data, so return None.
-        if !is_ssd_val {
-            sys_attr(&parent, "queue/rotational")
-                .and(Some(None))
-                .flatten()
-        } else {
-            Some(0)
-        }
-    } else {
-        Some(0)
-    };
+    // HDDs expose no RPM via /sys (only the rotational flag), and SSDs have no
+    // spindle — None for HDDs, Some(0) for SSDs. (The old form nested an
+    // identical `!is_ssd_val` test and always reduced to this via an obscure
+    // `.and(Some(None)).flatten()` that discarded the sysfs read.)
+    let rpm = if is_ssd_val { Some(0) } else { None };
 
     (model, disk_type, vendor, serial, rpm)
 }

@@ -158,7 +158,7 @@ to (re)generate it with comments. Key fields:
 
 | Field | Default | Description |
 |---|---|---|
-| `theme` | `catppuccin-macchiato` | One of the built-in themes (see below) |
+| `theme` | `dracula` | A built-in theme, or a custom theme name (see below) |
 | `blur_friendly` | `false` | Brighten dim text (`overlay`/`subtext`) for readability under terminal blur; toggle live with `b` |
 | `default_tab` | `dashboard` | Startup tab |
 | `nerd_fonts` | `true` | Nerd Font icons; `false` for the geometric fallback (Termux-friendly) |
@@ -168,7 +168,7 @@ to (re)generate it with comments. Key fields:
 | `max_processes` | `50` | Max processes shown |
 | `temperature_unit` | `celsius` | `celsius` or `fahrenheit` |
 | `log_source` | `auto` | `journalctl`, `dmesg`, `logcat`, or `auto` (kernel/system scope also toggles live with `s`) |
-| `log_max_lines` | `1000` | Log buffer size |
+| `log_max_lines` | `500` | Log buffer size |
 | `show_gpu` | `true` | Show GPU tab/card |
 | `show_battery` | `true` | Show battery panel/card |
 | `resolve_public_ip` | `false` | Opt-in: resolve public IP via HTTPS request |

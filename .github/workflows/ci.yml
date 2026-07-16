@@ -34,19 +34,21 @@ jobs:
         run: cargo test --all-features --locked
 
   android:
-    name: check (aarch64-linux-android)
+    name: check + clippy (aarch64-linux-android)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android
+          components: clippy
       - uses: Swatinem/rust-cache@v2
-      # Compile gate for the Termux/Android target — guards the K-1 regression
-      # (the shared LogEntry/HardwareData/LogScope types drifting from the
-      # android collectors). Style lints run only on the host (linux) job.
+      # Compile gate (K-1 regression guard) + lints for the Termux/Android
+      # target, where the cfg-gated android collectors only build.
       - name: cargo check
         run: cargo check --target aarch64-linux-android --locked
+      - name: clippy
+        run: cargo clippy --target aarch64-linux-android --locked -- -D warnings
 
   audit:
     name: cargo audit

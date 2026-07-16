@@ -8,6 +8,11 @@
 #
 set -euo pipefail
 
+# Always build from the script's own directory so `curl … | bash` or running
+# the installer from elsewhere still installs *this* crate, not whatever CWD
+# the user happened to be in.
+cd "$(dirname "$(readlink -f "$0")")"
+
 echo "========================================="
 echo "   Installing Vitalis System Monitor"
 echo "========================================="
@@ -28,7 +33,7 @@ fi
 
 # 2. Build & install
 echo "--> Compiling and installing Vitalis via Cargo..."
-cargo install --path .
+cargo install --locked --path .
 CARGO_BIN="${CARGO_HOME:-$HOME/.cargo}/bin"
 BIN="$CARGO_BIN/vitalis"
 

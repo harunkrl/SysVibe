@@ -78,16 +78,17 @@ fn map_gpu_name(raw: &str) -> String {
     let lower = raw.to_lowercase();
     if lower.contains("adreno") || lower.contains("msm") {
         format!("Adreno GPU ({})", raw)
-    } else if lower.contains("mali") || lower.contains("exynos") {
+    } else if lower.contains("mali")
+        || lower.contains("exynos")
+        || lower.contains("kirin")
+        || lower.contains("mt")
+        || lower.contains("dimensity")
+    {
         format!("Mali GPU ({})", raw)
     } else if lower.contains("powervr") || lower.contains("img") {
         format!("PowerVR GPU ({})", raw)
     } else if lower.contains("qcom") || lower.contains("sdm") || lower.contains("sm") {
         format!("Qualcomm Adreno ({})", raw)
-    } else if lower.contains("kirin") {
-        format!("Mali GPU ({})", raw)
-    } else if lower.contains("mt") || lower.contains("dimensity") {
-        format!("Mali GPU ({})", raw)
     } else {
         format!("GPU ({})", raw)
     }

@@ -3,7 +3,7 @@
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
 };
@@ -243,8 +243,8 @@ fn render_log_entries(f: &mut Frame, app: &App, area: Rect) {
                         icons::fallback::LOG_ERROR
                     },
                     "ERR",
-                    Color::Rgb(180, 40, 50),   // dark red bg
-                    Color::Rgb(255, 255, 255), // white fg
+                    red(),
+                    text(),
                 ),
                 LogLevel::Warning => (
                     yellow(),
@@ -254,8 +254,8 @@ fn render_log_entries(f: &mut Frame, app: &App, area: Rect) {
                         icons::fallback::LOG_WARN
                     },
                     "WRN",
-                    Color::Rgb(200, 170, 60), // amber/yellow bg
-                    Color::Rgb(30, 30, 30),   // dark fg
+                    yellow(),
+                    crust(),
                 ),
                 LogLevel::Info => (
                     blue(),
@@ -265,29 +265,29 @@ fn render_log_entries(f: &mut Frame, app: &App, area: Rect) {
                         icons::fallback::LOG_INFO
                     },
                     "INF",
-                    Color::Rgb(50, 80, 180),   // blue bg
-                    Color::Rgb(220, 230, 255), // light fg
+                    blue(),
+                    text(),
                 ),
                 LogLevel::Notice => (
                     peach(),
                     if nf { icons::LOG_WARN } else { "●" },
                     "NTC",
-                    Color::Rgb(190, 100, 60),  // warm/peach bg
-                    Color::Rgb(255, 255, 255), // white fg
+                    peach(),
+                    text(),
                 ),
                 LogLevel::Debug => (
                     overlay(),
                     if nf { icons::LOG_DEBUG } else { "●" },
                     "DBG",
-                    Color::Rgb(90, 95, 115),   // gray bg
-                    Color::Rgb(200, 205, 220), // light fg
+                    overlay(),
+                    text(),
                 ),
                 LogLevel::Unknown => (
                     subtext(),
                     if nf { icons::LOG_TRACE } else { "●" },
                     "---",
-                    Color::Rgb(70, 74, 95),    // dim gray bg
-                    Color::Rgb(140, 145, 165), // dim fg
+                    subtext(),
+                    text(),
                 ),
             };
             // Reserve the leading columns (timestamp + icon + badge +

@@ -8,6 +8,7 @@ use std::path::PathBuf;
 
 /// Application configuration loaded from `~/.config/vitalis/config.toml`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     pub ui_tick_rate: u64,
     pub data_refresh_rate: u64,
@@ -175,7 +176,19 @@ impl Config {
         if path.exists()
             && let Ok(content) = std::fs::read_to_string(&path)
         {
-            let mut config: Config = toml::from_str(&content).unwrap_or_default();
+            let mut config: Config = match toml::from_str(&content) {
+                Ok(c) => c,
+                Err(e) => {
+                    // Surface parse errors (incl. unknown-field typos, caught by
+                    // deny_unknown_fields) instead of silently dropping the whole
+                    // user config — then fall back to defaults so the app runs.
+                    eprintln!(
+                        "vitalis: failed to parse {} ({e}); using defaults.",
+                        path.display()
+                    );
+                    Config::default()
+                }
+            };
             config.validate();
             return config;
         }
@@ -242,17 +255,14 @@ impl Config {
         if !valid_tabs.contains(&self.default_tab.to_lowercase().as_str()) {
             self.default_tab = "dashboard".to_string();
         }
-        let valid_themes = [
-            "catppuccin-macchiato",
-            "catppuccin-mocha",
-            "dracula",
-            "nord",
-            "gruvbox",
-            "tokyo-night",
-            "one-dark",
-        ];
-        if !valid_themes.contains(&self.theme.to_lowercase().as_str()) {
-            self.theme = "dracula".to_string();
+        // Theme names are NOT checked against the built-in list here: a custom
+        // TOML theme (~/.config/vitalis/themes/<name>.toml) is a valid value,
+        // and resolution (built-in → custom file → fallback) happens in
+        // Theme::load at apply time. The built-in-only clobber used to silently
+        // rewrite custom names to "dracula", defeating the feature. Only an
+        // empty name falls back to the configured default.
+        if self.theme.trim().is_empty() {
+            self.theme = default_theme();
         }
 
         // Validate alert thresholds
@@ -413,9 +423,22 @@ mod tests {
     }
 
     #[test]
-    fn test_config_invalid_theme() {
+    fn test_config_custom_theme_passes_through_validate() {
+        // A custom theme name must survive validate() unchanged so Theme::load
+        // can resolve it against ~/.config/vitalis/themes/<name>.toml. The old
+        // built-in-only clobber silently rewrote it to "dracula".
         let mut cfg = Config {
-            theme: "nonexistent-theme".to_string(),
+            theme: "my-custom-theme".to_string(),
+            ..Config::default()
+        };
+        cfg.validate();
+        assert_eq!(cfg.theme, "my-custom-theme");
+    }
+
+    #[test]
+    fn test_config_empty_theme_falls_back_to_default() {
+        let mut cfg = Config {
+            theme: "   ".to_string(),
             ..Config::default()
         };
         cfg.validate();

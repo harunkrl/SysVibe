@@ -102,12 +102,16 @@ impl super::App {
         // FROZEN by design (swapped in only on first load / `r`) so sorting and
         // browsing aren't disrupted by auto-refresh — it buffers to
         // `pending_top_processes` and applies conditionally below.
-        self.live_processes = processes.clone();
-        processes::sort_process_entries_dir(&mut self.live_processes, &self.sort_by, self.sort_dir);
+        self.procs.live_processes = processes.clone();
+        processes::sort_process_entries_dir(
+            &mut self.procs.live_processes,
+            &self.sort_by,
+            self.sort_dir,
+        );
 
-        self.pending_top_processes = Some(processes);
-        self.pending_total = total;
-        if !self.processes_initialized {
+        self.procs.pending_top_processes = Some(processes);
+        self.procs.pending_total = total;
+        if !self.procs.processes_initialized {
             self.apply_pending_processes();
         }
     }
@@ -115,23 +119,23 @@ impl super::App {
     /// Swap the buffered snapshot into the displayed table (re-sorted by the
     /// current column/direction). Called on first load and on `r`.
     pub fn apply_pending_processes(&mut self) {
-        if let Some(mut processes) = self.pending_top_processes.take() {
+        if let Some(mut processes) = self.procs.pending_top_processes.take() {
             // Remember the selected PID so the view doesn't jump when the
             // underlying list is replaced (first load, or an explicit `r`
             // refresh re-sorts the data).
             let selected_pid = self
                 .proc_table_state
                 .selected()
-                .and_then(|idx| self.top_processes.get(idx).map(|p| p.pid));
+                .and_then(|idx| self.procs.top_processes.get(idx).map(|p| p.pid));
 
             processes::sort_process_entries_dir(&mut processes, &self.sort_by, self.sort_dir);
-            self.top_processes = processes;
-            self.total_process_count_fresh = self.pending_total;
+            self.procs.top_processes = processes;
+            self.procs.total_process_count_fresh = self.procs.pending_total;
 
             // Restore the selection onto the same PID (clamp to range).
-            let len = self.top_processes.len();
+            let len = self.procs.top_processes.len();
             let new_idx = selected_pid
-                .and_then(|pid| self.top_processes.iter().position(|p| p.pid == pid))
+                .and_then(|pid| self.procs.top_processes.iter().position(|p| p.pid == pid))
                 .unwrap_or_else(|| {
                     self.proc_table_state
                         .selected()
@@ -142,26 +146,30 @@ impl super::App {
                 self.proc_table_state.select(Some(new_idx.min(len - 1)));
             }
 
-            self.filtered_processes_dirty = true;
+            self.procs.filtered_processes_dirty = true;
             self.set_tree_dirty();
-            self.processes_initialized = true;
+            self.procs.processes_initialized = true;
         }
     }
 
     /// Re-sort the currently-displayed process list in place (used when the
     /// sort column/direction changes while the table is frozen).
     pub fn resort_displayed_processes(&mut self) {
-        processes::sort_process_entries_dir(&mut self.top_processes, &self.sort_by, self.sort_dir);
-        self.filtered_processes_dirty = true;
+        processes::sort_process_entries_dir(
+            &mut self.procs.top_processes,
+            &self.sort_by,
+            self.sort_dir,
+        );
+        self.procs.filtered_processes_dirty = true;
         self.set_tree_dirty();
     }
 
     /// Toggle showing only space-marked processes.
     pub fn toggle_show_selected_only(&mut self) {
-        self.show_selected_only = !self.show_selected_only;
-        self.filtered_processes_dirty = true;
+        self.procs.show_selected_only = !self.procs.show_selected_only;
+        self.procs.filtered_processes_dirty = true;
         self.set_tree_dirty();
-        let state = if self.show_selected_only {
+        let state = if self.procs.show_selected_only {
             "Marked only"
         } else {
             "All"
@@ -169,18 +177,8 @@ impl super::App {
         self.set_status(format!("Processes: {}", state));
     }
 
-    pub fn show_selected_only(&self) -> bool {
-        self.show_selected_only
-    }
-
-    /// Force the filtered-process + tree caches to rebuild on the next render.
-    pub fn mark_filtered_dirty(&mut self) {
-        self.filtered_processes_dirty = true;
-        self.set_tree_dirty();
-    }
-
     pub fn has_pending_processes(&self) -> bool {
-        self.pending_top_processes.is_some()
+        self.procs.has_pending_processes()
     }
 
     pub fn set_per_core_history(&mut self, history: Vec<VecDeque<u64>>) {

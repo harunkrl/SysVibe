@@ -100,38 +100,38 @@ impl super::App {
     // ── Filter ──────────────────────────────────────────────────
 
     pub fn apply_filter(&mut self) {
-        self.filter_active = !self.filter_input.is_empty();
-        self.filtered_processes_dirty = true;
+        self.procs.filter_active = !self.procs.filter_input.is_empty();
+        self.procs.filtered_processes_dirty = true;
         self.clamp_selection();
     }
 
     pub fn filter_backspace(&mut self) {
-        self.filter_input.pop();
-        self.filtered_processes_dirty = true;
+        self.procs.filter_input.pop();
+        self.procs.filtered_processes_dirty = true;
     }
 
     pub fn filter_push(&mut self, c: char) {
-        self.filter_input.push(c);
-        self.filtered_processes_dirty = true;
+        self.procs.filter_input.push(c);
+        self.procs.filtered_processes_dirty = true;
     }
 
     /// Delete the last word from the filter input (Ctrl+W behavior).
     pub fn filter_delete_word(&mut self) {
-        while self.filter_input.ends_with(' ') {
-            self.filter_input.pop();
+        while self.procs.filter_input.ends_with(' ') {
+            self.procs.filter_input.pop();
         }
-        if let Some(pos) = self.filter_input.rfind(' ') {
-            self.filter_input.truncate(pos);
+        if let Some(pos) = self.procs.filter_input.rfind(' ') {
+            self.procs.filter_input.truncate(pos);
         } else {
-            self.filter_input.clear();
+            self.procs.filter_input.clear();
         }
-        self.filtered_processes_dirty = true;
+        self.procs.filtered_processes_dirty = true;
     }
 
     /// Clear the entire filter input (Ctrl+U behavior).
     pub fn filter_clear_line(&mut self) {
-        self.filter_input.clear();
-        self.filtered_processes_dirty = true;
+        self.procs.filter_input.clear();
+        self.procs.filtered_processes_dirty = true;
     }
 
     // ── Navigation ──────────────────────────────────────────────
@@ -263,8 +263,8 @@ impl super::App {
             };
             (proc_entry.pid, proc_entry.name.clone())
         };
-        self.kill_target_pid = Some(target.0);
-        self.kill_target_name = Some(target.1);
+        self.procs.kill_target_pid = Some(target.0);
+        self.procs.kill_target_name = Some(target.1);
         self.mode = AppMode::KillConfirm;
     }
 
@@ -286,14 +286,18 @@ impl super::App {
             return;
         }
 
-        let pid = match self.kill_target_pid {
+        let pid = match self.procs.kill_target_pid {
             Some(p) => p,
             None => {
                 self.set_error("No target".into());
                 return;
             }
         };
-        let name = self.kill_target_name.clone().unwrap_or_else(|| "?".into());
+        let name = self
+            .procs
+            .kill_target_name
+            .clone()
+            .unwrap_or_else(|| "?".into());
 
         let result = if force {
             processes::kill_process_force(pid)
@@ -307,13 +311,13 @@ impl super::App {
             Err(e) => self.set_error(e.to_string()),
         }
 
-        self.kill_target_pid = None;
-        self.kill_target_name = None;
+        self.procs.kill_target_pid = None;
+        self.procs.kill_target_name = None;
     }
 
     pub fn cancel_kill(&mut self) {
-        self.kill_target_pid = None;
-        self.kill_target_name = None;
+        self.procs.kill_target_pid = None;
+        self.procs.kill_target_name = None;
         self.selected_pids.clear();
     }
 }

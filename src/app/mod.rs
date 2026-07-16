@@ -65,24 +65,8 @@ pub struct App {
     battery: Option<BatteryStatus>,
     pub battery_power_history: VecDeque<u64>,
 
-    // Processes
-    top_processes: Vec<ProcessEntry>,
-    /// Live (always-current) top-process snapshot for the Dashboard smart list.
-    /// Unlike [`top_processes`] (frozen by design for the Processes tab, swapped
-    /// in only on first load / `r`), this updates on every collector tick so the
-    /// Dashboard reflects current CPU/MEM usage.
-    live_processes: Vec<ProcessEntry>,
-    /// Most recent process list from the background collector, held in a
-    /// pending buffer and only swapped into `top_processes` on the first load
-    /// or an explicit refresh (`r`). This keeps the displayed table FROZEN so
-    /// sorting/browsing isn't disrupted by every auto-refresh.
-    pending_top_processes: Option<Vec<ProcessEntry>>,
-    pending_total: usize,
-    /// True once the initial process list has been applied to the display.
-    processes_initialized: bool,
-    /// When true, the process view shows only space-marked entries.
-    show_selected_only: bool,
-    total_process_count_fresh: usize,
+    // Processes (list + filter + tree + view + kill) — see `process_view::ProcessView`.
+    procs: ProcessView,
     pub proc_table_state: TableState,
     pub tab: AppTab,
     pub sort_by: SortBy,
@@ -91,24 +75,8 @@ pub struct App {
     pub temp_celsius: bool,
     pub selected_pids: Vec<(u32, String)>,
 
-    // Filter state
-    filter_input: String,
-    filter_active: bool,
-
     // Command palette (input + selection) — see `command_palette::CommandPalette`.
     command: CommandPalette,
-
-    // Cached filtered process list (invalidated on process/filter/sort change)
-    cached_filtered_processes: Vec<usize>, // indices into top_processes
-    filtered_processes_dirty: bool,
-
-    // Cached process tree (rebuilt when process list changes)
-    cached_tree_rows: Vec<(u32, String, f32, f32, String, bool)>, // (pid, name, cpu, mem, indent, is_last)
-    tree_dirty: bool,
-
-    // Kill confirmation target
-    kill_target_pid: Option<u32>,
-    kill_target_name: Option<String>,
 
     // Transient UI feedback
     pub status_message: Option<StatusMessage>,
@@ -121,10 +89,6 @@ pub struct App {
 
     // Tab hit regions for mouse click detection
     tab_hit_regions: Vec<crate::app::state::TabRectEntry>,
-
-    // View toggles
-    tree_view: bool,
-    cpu_normalized: bool,
 
     // Timing
     pub tick_count: u64,
@@ -209,34 +173,18 @@ impl App {
             temperatures: Vec::new(),
             battery: None,
             battery_power_history: VecDeque::with_capacity(HISTORY_LEN),
-            top_processes: Vec::new(),
-            live_processes: Vec::new(),
-            pending_top_processes: None,
-            pending_total: 0,
-            processes_initialized: false,
-            show_selected_only: false,
-            total_process_count_fresh: 0,
+            procs: ProcessView::new(),
             proc_table_state: TableState::default(),
             sort_by: SortBy::default(),
             sort_dir: SortDir::default(),
             temp_celsius: true,
             selected_pids: Vec::new(),
             tab: default_tab,
-            filter_input: String::new(),
-            filter_active: false,
             command: CommandPalette::new(),
-            cached_filtered_processes: Vec::new(),
-            filtered_processes_dirty: true,
-            cached_tree_rows: Vec::new(),
-            tree_dirty: true,
-            kill_target_pid: None,
-            kill_target_name: None,
             status_message: None,
             logs: LogView::new(),
             panel_focus: PanelFocus::default(),
             tab_hit_regions: Vec::new(),
-            tree_view: false,
-            cpu_normalized: false,
             tick_count: 0,
             cached_partitions: Vec::new(),
             gpus: GpuView::new(),
@@ -279,6 +227,7 @@ mod messages;
 mod mutations;
 mod network_view;
 mod process_ops;
+mod process_view;
 #[cfg(feature = "preview")]
 mod sample;
 mod state_update;
@@ -291,6 +240,7 @@ pub(crate) use gpu_view::GpuView;
 pub(crate) use log_view::LogView;
 pub use messages::StateUpdate;
 pub(crate) use network_view::NetworkView;
+pub(crate) use process_view::ProcessView;
 
 // ═══════════════════════════════════════════════════════════════════════
 // Preview-only: deterministic sample-data builder for the `svshot` tool.

@@ -38,7 +38,7 @@ impl super::App {
             &self.disk_io,
             &self.cached_partitions,
             self.gpu_stats(),
-            &self.top_processes,
+            &self.procs.top_processes,
         );
 
         match export::export_to_file(&snapshot, format) {

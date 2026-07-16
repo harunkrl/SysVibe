@@ -18,7 +18,7 @@ impl super::App {
     }
 
     pub fn filter_input(&self) -> &str {
-        &self.filter_input
+        &self.procs.filter_input
     }
 
     // ── Command palette ─────────────────────────────────────
@@ -165,7 +165,7 @@ impl super::App {
     }
 
     pub fn total_process_count(&self) -> usize {
-        self.total_process_count_fresh
+        self.procs.total_process_count()
     }
 
     /// Return the filtered process list, using a cache that is invalidated
@@ -193,16 +193,17 @@ impl super::App {
         // via rebuild_filtered_cache() called from apply_state_update().
         // This accessor is cheap: it just indexes into top_processes.
         let text_match = |p: &ProcessEntry| {
-            if !self.filter_active || self.filter_input.is_empty() {
+            if !self.procs.filter_active || self.procs.filter_input.is_empty() {
                 true
             } else {
-                Self::process_matches_filter(p, &self.filter_input.to_lowercase())
+                Self::process_matches_filter(p, &self.procs.filter_input.to_lowercase())
             }
         };
-        self.top_processes
+        self.procs
+            .top_processes
             .iter()
             .filter(|p| text_match(p))
-            .filter(|p| !self.show_selected_only || self.is_marked(p.pid))
+            .filter(|p| !self.procs.show_selected_only || self.is_marked(p.pid))
             .collect()
     }
 
@@ -213,15 +214,16 @@ impl super::App {
     /// Dashboard doesn't honour the Processes-tab filter/marked-only toggles
     /// (those are tab-specific); it shows the live sorted top-N.
     pub fn live_processes(&self) -> &[ProcessEntry] {
-        &self.live_processes
+        self.procs.live_processes()
     }
 
     /// Rebuild the filtered process cache. Called when processes or filter changes.
     pub(super) fn rebuild_filtered_cache(&mut self) {
-        let query = self.filter_input.to_lowercase();
-        let text_active = self.filter_active && !self.filter_input.is_empty();
-        let marked_only = self.show_selected_only;
-        self.cached_filtered_processes = self
+        let query = self.procs.filter_input.to_lowercase();
+        let text_active = self.procs.filter_active && !self.procs.filter_input.is_empty();
+        let marked_only = self.procs.show_selected_only;
+        self.procs.cached_filtered_processes = self
+            .procs
             .top_processes
             .iter()
             .enumerate()
@@ -236,12 +238,11 @@ impl super::App {
             })
             .map(|(i, _)| i)
             .collect();
-        self.filtered_processes_dirty = false;
+        self.procs.filtered_processes_dirty = false;
     }
 
     pub fn kill_target(&self) -> Option<(u32, &str)> {
-        self.kill_target_pid
-            .map(|pid| (pid, self.kill_target_name.as_deref().unwrap_or("?")))
+        self.procs.kill_target()
     }
 
     pub fn per_core_usage(&self) -> Vec<f32> {
@@ -504,22 +505,22 @@ impl super::App {
     }
 
     pub fn tree_view(&self) -> bool {
-        self.tree_view
+        self.procs.tree_view()
     }
 
     pub fn toggle_tree_view(&mut self) {
-        self.tree_view = !self.tree_view;
+        self.procs.tree_view = !self.procs.tree_view;
         self.set_tree_dirty();
         // Reset selection when toggling view mode
         self.proc_table_state.select(Some(0));
-        let state = if self.tree_view { "Tree" } else { "Flat" };
+        let state = if self.procs.tree_view { "Tree" } else { "Flat" };
         self.set_status(format!("Process view: {}", state));
     }
 
     /// Returns the number of items in the current process view (flat or tree).
     pub(super) fn process_list_len(&self) -> usize {
-        if self.tree_view {
-            self.cached_tree_rows.len()
+        if self.procs.tree_view {
+            self.procs.cached_tree_rows.len()
         } else {
             self.filtered_processes().len()
         }
@@ -527,22 +528,21 @@ impl super::App {
 
     /// Get the cached tree rows (rebuilt when dirty).
     pub fn cached_tree_rows(&self) -> &Vec<(u32, String, f32, f32, String, bool)> {
-        &self.cached_tree_rows
+        self.procs.cached_tree_rows()
     }
 
     /// Mark that tree cache needs rebuild.
     pub fn set_tree_dirty(&mut self) {
-        self.tree_dirty = true;
+        self.procs.set_tree_dirty();
     }
 
     /// Update the cached tree rows.
     pub fn set_cached_tree_rows(&mut self, rows: Vec<(u32, String, f32, f32, String, bool)>) {
-        self.cached_tree_rows = rows;
-        self.tree_dirty = false;
+        self.procs.set_cached_tree_rows(rows);
     }
 
     pub fn is_tree_dirty(&self) -> bool {
-        self.tree_dirty
+        self.procs.is_tree_dirty()
     }
 
     /// Convert a raw per-core CPU% to the value shown in the process table:
@@ -550,7 +550,7 @@ impl super::App {
     /// per-core mode is on. Process entries always store the raw value so the
     /// `g` toggle takes effect instantly even on the frozen table.
     pub fn cpu_display(&self, raw: f32) -> f32 {
-        if self.cpu_normalized {
+        if self.procs.cpu_normalized {
             let cores = self.num_cores().max(1) as f32;
             raw / cores
         } else {
@@ -559,13 +559,22 @@ impl super::App {
     }
 
     pub fn toggle_cpu_normalized(&mut self) {
-        self.cpu_normalized = !self.cpu_normalized;
-        let state = if self.cpu_normalized {
+        self.procs.cpu_normalized = !self.procs.cpu_normalized;
+        let state = if self.procs.cpu_normalized {
             "Normalized (0-100%)"
         } else {
             "Per-Core (0-N*100%)"
         };
         self.set_status(format!("CPU view: {}", state));
+    }
+
+    pub fn show_selected_only(&self) -> bool {
+        self.procs.show_selected_only()
+    }
+
+    /// Force the filtered-process + tree caches to rebuild on the next render.
+    pub fn mark_filtered_dirty(&mut self) {
+        self.procs.mark_filtered_dirty();
     }
 
     pub fn log_filter_input(&self) -> &str {

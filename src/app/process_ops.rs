@@ -17,20 +17,25 @@ impl super::App {
         let selected_pid: Option<u32> = self
             .proc_table_state
             .selected()
-            .and_then(|idx| self.top_processes.get(idx).map(|p| p.pid));
+            .and_then(|idx| self.procs.top_processes.get(idx).map(|p| p.pid));
 
-        self.top_processes = processes::build_process_list_dir(
+        self.procs.top_processes = processes::build_process_list_dir(
             &self.sys,
             &self.sort_by,
             self.sort_dir,
             self.config.max_processes,
-            self.cpu_normalized,
+            self.procs.cpu_normalized,
         );
 
-        let len = self.top_processes.len();
+        let len = self.procs.top_processes.len();
         if len > 0 {
             if let Some(target_pid) = selected_pid {
-                if let Some(new_idx) = self.top_processes.iter().position(|p| p.pid == target_pid) {
+                if let Some(new_idx) = self
+                    .procs
+                    .top_processes
+                    .iter()
+                    .position(|p| p.pid == target_pid)
+                {
                     self.proc_table_state.select(Some(new_idx));
                 } else {
                     let clamped = self.proc_table_state.selected().unwrap_or(0).min(len - 1);

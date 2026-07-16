@@ -11,7 +11,6 @@ pub mod processes;
 pub mod state;
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use crossterm::event::Event;
@@ -55,15 +54,8 @@ pub struct App {
     cached_swap_used: u64,
     cached_swap_total: u64,
 
-    // Network
-    /// Cached public IP address (resolved lazily in the background).
-    public_ip: Arc<Mutex<Option<String>>>,
-    network_stats: Vec<NetworkStats>,
-    /// Visible (smoothed) network graph ceiling in KiB/s — sticky: only rises
-    /// toward a new nice-numbered peak, and decays slowly downward so the
-    /// graph doesn't "breathe" as traffic wavers. Owned here (data layer),
-    /// read by the network render.
-    pub network_visible_scale: f64,
+    // Network (stats + public IP + sticky graph scale) — see `network_view::NetworkView`.
+    network: NetworkView,
 
     // Disk I/O
     disk_io: DiskIoStats,
@@ -224,11 +216,7 @@ impl App {
             cached_ram_free: init_ram_free,
             cached_swap_used: init_swap_used,
             cached_swap_total: init_swap_total,
-            public_ip: Arc::new(Mutex::new(None)),
-            network_stats: Vec::new(),
-            // ~1 MB/s floor until the first live network sample arrives and
-            // `set_network_stats` recomputes the sticky ceiling.
-            network_visible_scale: 1000.0,
+            network: NetworkView::new(),
             disk_io: DiskIoStats::default(),
             temperatures: Vec::new(),
             battery: None,
@@ -301,6 +289,7 @@ mod events_dispatch;
 mod log_view;
 mod messages;
 mod mutations;
+mod network_view;
 mod process_ops;
 #[cfg(feature = "preview")]
 mod sample;
@@ -312,6 +301,7 @@ mod tick;
 pub(crate) use command_palette::CommandPalette;
 pub(crate) use log_view::LogView;
 pub use messages::StateUpdate;
+pub(crate) use network_view::NetworkView;
 
 // ═══════════════════════════════════════════════════════════════════════
 // Preview-only: deterministic sample-data builder for the `svshot` tool.

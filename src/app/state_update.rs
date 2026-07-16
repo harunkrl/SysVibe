@@ -8,26 +8,7 @@ use super::*;
 
 impl super::App {
     pub fn set_network_stats(&mut self, stats: Vec<NetworkStats>) {
-        self.network_stats = stats;
-        // Sticky network graph ceiling: target = nice-numbered raw peak (with a
-        // ~1 MB/s floor), then keep the max of target and a slow decay of the
-        // previous visible value. The scale rises instantly with real peaks but
-        // sinks gradually (~8% / tick), so the mirrored graph stops "breathing"
-        // as traffic wavers while still tracking it over the session. This is
-        // the live entry point for network data (the background fast collector
-        // calls here ~1 Hz), so the scale tracks real traffic instead of being
-        // frozen at the startup value.
-        const NET_FLOOR_KIB: f64 = 1000.0;
-        const DECAY: f64 = 0.92;
-        let raw_peak = self
-            .network_stats
-            .iter()
-            .flat_map(|s| s.rx_history.iter().chain(s.tx_history.iter()))
-            .copied()
-            .map(|v| v as f64)
-            .fold(0.0_f64, f64::max);
-        let target = helpers::nice_number_ceiling(raw_peak.max(NET_FLOOR_KIB));
-        self.network_visible_scale = target.max(self.network_visible_scale * DECAY).max(1.0);
+        self.network.set_stats(stats);
     }
 
     pub fn set_disk_io(&mut self, io: DiskIoStats) {

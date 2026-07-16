@@ -1111,7 +1111,7 @@ fn render_network_panel(f: &mut Frame, app: &App, area: Rect, nf: bool, focus: P
             green(),
             peach(),
             "k",
-            app.network_visible_scale,
+            app.network_visible_scale(),
             false, // no left gutter — peak shown in the header row
         );
     }

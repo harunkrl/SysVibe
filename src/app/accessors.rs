@@ -4,6 +4,8 @@
 //! inherent methods on [`App`] (via `impl super::App`), so they keep direct
 //! access to private fields. Behavior is unchanged — this is a pure move.
 
+use std::sync::Arc;
+
 use super::*;
 
 impl super::App {
@@ -280,34 +282,20 @@ impl super::App {
     }
 
     pub fn network_stats(&self) -> &[NetworkStats] {
-        &self.network_stats
+        self.network.stats()
+    }
+
+    pub fn network_visible_scale(&self) -> f64 {
+        self.network.visible_scale()
     }
 
     pub fn public_ip(&self) -> Option<String> {
-        self.public_ip.lock().ok().and_then(|g| g.clone())
+        self.network.public_ip()
     }
 
     /// Spawn a background thread to resolve the public IP (if not already resolved).
     pub fn spawn_public_ip_resolve(&self) {
-        if !self.config.resolve_public_ip {
-            return;
-        }
-        let shared = Arc::clone(&self.public_ip);
-        let already = self
-            .public_ip
-            .lock()
-            .ok()
-            .map(|g| g.is_some())
-            .unwrap_or(false);
-        if already {
-            return;
-        }
-        std::thread::spawn(move || {
-            let ip = collectors::network::resolve_public_ip();
-            if let Ok(mut guard) = shared.lock() {
-                *guard = ip;
-            }
-        });
+        self.network.spawn_ip_resolve(self.config.resolve_public_ip);
     }
 
     pub fn temperatures(&self) -> &[SensorReading] {

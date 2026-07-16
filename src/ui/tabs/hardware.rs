@@ -624,7 +624,7 @@ fn render_network(f: &mut Frame, app: &App, area: Rect, focused: bool) {
             green(),
             peach(),
             "k",
-            app.network_visible_scale,
+            app.network_visible_scale(),
             false, // no left gutter — peak shown in the header row
         );
     }

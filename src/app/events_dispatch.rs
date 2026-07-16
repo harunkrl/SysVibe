@@ -34,7 +34,7 @@ impl super::App {
             ram_total,
             swap_used,
             swap_total,
-            &self.network_stats,
+            self.network_stats(),
             &self.disk_io,
             &self.cached_partitions,
             &self.gpu_stats,

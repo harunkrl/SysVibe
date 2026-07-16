@@ -184,11 +184,6 @@ impl super::App {
         self.procs.live_processes()
     }
 
-    /// Rebuild the filtered process cache. Called when processes or filter changes.
-    pub(super) fn rebuild_filtered_cache(&mut self) {
-        self.procs.rebuild_filtered_cache();
-    }
-
     pub fn kill_target(&self) -> Option<(u32, &str)> {
         self.procs.kill_target()
     }
@@ -505,11 +500,6 @@ impl super::App {
 
     pub fn show_selected_only(&self) -> bool {
         self.procs.show_selected_only()
-    }
-
-    /// Force the filtered-process + tree caches to rebuild on the next render.
-    pub fn mark_filtered_dirty(&mut self) {
-        self.procs.mark_filtered_dirty();
     }
 
     // ── Process table-state accessors (4 retired `pub` fields) ──────

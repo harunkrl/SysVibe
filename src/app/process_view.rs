@@ -28,8 +28,6 @@ pub(crate) struct ProcessView {
     // ── Filtre ──
     pub(crate) filter_input: String,
     pub(crate) filter_active: bool,
-    pub(crate) cached_filtered_processes: Vec<usize>,
-    pub(crate) filtered_processes_dirty: bool,
     pub(crate) show_selected_only: bool,
     // ── Ağaç ──
     pub(crate) cached_tree_rows: Vec<(u32, String, f32, f32, String, bool)>,
@@ -57,8 +55,6 @@ impl ProcessView {
             selected_pids: Vec::new(),
             filter_input: String::new(),
             filter_active: false,
-            cached_filtered_processes: Vec::new(),
-            filtered_processes_dirty: true,
             show_selected_only: false,
             cached_tree_rows: Vec::new(),
             tree_dirty: true,
@@ -114,12 +110,6 @@ impl ProcessView {
         self.show_selected_only
     }
 
-    /// Force the filtered-process + tree caches to rebuild on the next render.
-    pub(crate) fn mark_filtered_dirty(&mut self) {
-        self.filtered_processes_dirty = true;
-        self.tree_dirty = true;
-    }
-
     /// Does a process match the current filter query? Matches NAME, full
     /// COMMAND LINE, or (all-digit query) the PID.
     fn process_matches_filter(p: &ProcessEntry, query: &str) -> bool {
@@ -149,28 +139,6 @@ impl ProcessView {
             .filter(|p| text_match(p))
             .filter(|p| !self.show_selected_only || self.is_marked(p.pid))
             .collect()
-    }
-
-    pub(crate) fn rebuild_filtered_cache(&mut self) {
-        let query = self.filter_input.to_lowercase();
-        let text_active = self.filter_active && !self.filter_input.is_empty();
-        let marked_only = self.show_selected_only;
-        self.cached_filtered_processes = self
-            .top_processes
-            .iter()
-            .enumerate()
-            .filter(|(_, p)| {
-                let text_ok = if text_active {
-                    Self::process_matches_filter(p, &query)
-                } else {
-                    true
-                };
-                let marked_ok = !marked_only || self.is_marked(p.pid);
-                text_ok && marked_ok
-            })
-            .map(|(i, _)| i)
-            .collect();
-        self.filtered_processes_dirty = false;
     }
 
     /// Number of items in the current process view (flat or tree).
@@ -297,7 +265,6 @@ impl ProcessView {
             &self.sort_by,
             self.sort_dir,
         );
-        self.filtered_processes_dirty = true;
         self.tree_dirty = true;
     }
 
@@ -327,7 +294,6 @@ impl ProcessView {
                 self.table_state.select(Some(new_idx.min(len - 1)));
             }
 
-            self.filtered_processes_dirty = true;
             self.tree_dirty = true;
             self.processes_initialized = true;
         }
@@ -664,8 +630,6 @@ impl ProcessView {
             selected_pids: Vec::new(),
             filter_input: String::new(),
             filter_active: false,
-            cached_filtered_processes: Vec::new(),
-            filtered_processes_dirty: true,
             show_selected_only: false,
             cached_tree_rows: Vec::new(),
             tree_dirty: true,

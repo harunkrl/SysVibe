@@ -153,7 +153,7 @@ fn handle_normal_key(app: &mut App, code: KeyCode, _mods: KeyModifiers) {
             let changed = app.toggle_mark_at_selection();
             // Keep the "marked only" view in sync as the selection changes.
             if changed && app.show_selected_only() {
-                app.mark_filtered_dirty();
+                app.set_tree_dirty();
             }
             app.navigate_down();
         }

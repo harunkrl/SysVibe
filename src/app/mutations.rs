@@ -101,19 +101,16 @@ impl super::App {
 
     pub fn apply_filter(&mut self) {
         self.procs.filter_active = !self.procs.filter_input.is_empty();
-        self.procs.filtered_processes_dirty = true;
         let len = self.process_list_len();
         self.procs.clamp(len);
     }
 
     pub fn filter_backspace(&mut self) {
         self.procs.filter_input.pop();
-        self.procs.filtered_processes_dirty = true;
     }
 
     pub fn filter_push(&mut self, c: char) {
         self.procs.filter_input.push(c);
-        self.procs.filtered_processes_dirty = true;
     }
 
     /// Delete the last word from the filter input (Ctrl+W behavior).
@@ -126,13 +123,11 @@ impl super::App {
         } else {
             self.procs.filter_input.clear();
         }
-        self.procs.filtered_processes_dirty = true;
     }
 
     /// Clear the entire filter input (Ctrl+U behavior).
     pub fn filter_clear_line(&mut self) {
         self.procs.filter_input.clear();
-        self.procs.filtered_processes_dirty = true;
     }
 
     // ── Navigation (App-level tab dispatcher) ───────────────────

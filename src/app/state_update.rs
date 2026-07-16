@@ -115,7 +115,6 @@ impl super::App {
     /// Toggle showing only space-marked processes.
     pub fn toggle_show_selected_only(&mut self) {
         self.procs.show_selected_only = !self.procs.show_selected_only;
-        self.procs.filtered_processes_dirty = true;
         self.set_tree_dirty();
         let state = if self.procs.show_selected_only {
             "Marked only"

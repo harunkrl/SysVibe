@@ -15,9 +15,6 @@ impl super::App {
             self.status_message = None;
         }
         self.maybe_refresh_system_info();
-        if self.procs.filtered_processes_dirty {
-            self.rebuild_filtered_cache();
-        }
         // Retry public IP resolution every ~20 ticks if still unresolved
         if self.tick_count.is_multiple_of(20) {
             self.spawn_public_ip_resolve();

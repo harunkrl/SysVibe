@@ -21,16 +21,15 @@ impl super::App {
 
     // ── Command palette ─────────────────────────────────────
     pub fn command_input(&self) -> &str {
-        &self.command_input
+        self.command.input()
     }
 
     pub fn command_selected(&self) -> usize {
-        self.command_selected
+        self.command.selected()
     }
 
     pub fn open_command(&mut self) {
-        self.command_input.clear();
-        self.command_selected = 0;
+        self.command.reset();
         self.set_mode(AppMode::Command);
     }
 
@@ -39,34 +38,29 @@ impl super::App {
     }
 
     pub fn command_push(&mut self, c: char) {
-        if self.command_input.chars().count() < 40 {
-            self.command_input.push(c);
-            self.command_selected = 0;
-        }
+        self.command.push(c);
     }
 
     pub fn command_backspace(&mut self) {
-        self.command_input.pop();
-        self.command_selected = 0;
+        self.command.backspace();
     }
 
     pub fn command_clear(&mut self) {
-        self.command_input.clear();
-        self.command_selected = 0;
+        self.command.clear();
     }
 
     pub fn command_next(&mut self) {
-        self.command_selected = self.command_selected.saturating_add(1);
+        self.command.next();
     }
 
     pub fn command_prev(&mut self) {
-        self.command_selected = self.command_selected.saturating_sub(1);
+        self.command.prev();
     }
 
     pub fn run_selected_command(&mut self) {
         let label = {
-            let indices = crate::ui::widgets::modal::filtered_palette_indices(&self.command_input);
-            let sel = self.command_selected.min(indices.len().saturating_sub(1));
+            let indices = crate::ui::widgets::modal::filtered_palette_indices(self.command.input());
+            let sel = self.command.selected().min(indices.len().saturating_sub(1));
             match indices.get(sel) {
                 Some(&idx) => crate::ui::widgets::modal::palette_commands()[idx].label,
                 None => {

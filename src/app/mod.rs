@@ -103,9 +103,8 @@ pub struct App {
     filter_input: String,
     filter_active: bool,
 
-    // Command palette state
-    command_input: String,
-    command_selected: usize,
+    // Command palette (input + selection) — see `command_palette::CommandPalette`.
+    command: CommandPalette,
 
     // Cached filtered process list (invalidated on process/filter/sort change)
     cached_filtered_processes: Vec<usize>, // indices into top_processes
@@ -249,8 +248,7 @@ impl App {
             tab: default_tab,
             filter_input: String::new(),
             filter_active: false,
-            command_input: String::new(),
-            command_selected: 0,
+            command: CommandPalette::new(),
             cached_filtered_processes: Vec::new(),
             filtered_processes_dirty: true,
             cached_tree_rows: Vec::new(),
@@ -298,6 +296,7 @@ impl App {
 // The implementation is split across submodules (each is an `impl App`
 // block in its own file) to keep mod.rs focused on the struct + ctor.
 mod accessors;
+mod command_palette;
 mod events_dispatch;
 mod log_view;
 mod messages;
@@ -310,6 +309,7 @@ mod tick;
 
 // The collector→state message type is part of the app's public API so
 // integration tests can drive an App with synthetic updates.
+pub(crate) use command_palette::CommandPalette;
 pub(crate) use log_view::LogView;
 pub use messages::StateUpdate;
 

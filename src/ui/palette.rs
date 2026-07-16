@@ -47,11 +47,14 @@ fn derive_blur(orig: ColorDef, text: ColorDef) -> Color {
             .round()
             .clamp(0.0, 255.0) as u8
     };
-    Color::Rgb(
+    // Route through `to_color` so the blur blend respects the color-capacity
+    // fallback (256/16-color) the same way authored theme colors do.
+    ColorDef::rgb(
         lerp(orig.r, text.r),
         lerp(orig.g, text.g),
         lerp(orig.b, text.b),
     )
+    .to_color()
 }
 
 /// Apply a theme as the current active palette.

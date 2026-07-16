@@ -6,6 +6,7 @@
 
 use ratatui::style::Color;
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicU8, Ordering};
 
 /// Complete color theme for the UI.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -61,9 +62,202 @@ impl ColorDef {
         Self { r, g, b }
     }
 
-    #[allow(dead_code)]
     pub fn to_color(self) -> Color {
-        Color::Rgb(self.r, self.g, self.b)
+        match color_capacity() {
+            ColorCapacity::Truecolor => Color::Rgb(self.r, self.g, self.b),
+            ColorCapacity::TwoFiftySix => Color::Indexed(quantize_to_256(self.r, self.g, self.b)),
+            ColorCapacity::Sixteen => Color::Indexed(quantize_to_16(self.r, self.g, self.b)),
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Terminal color-capacity detection + fallback quantization (audit O-5).
+//
+// Themes are authored in truecolor RGB. On limited terminals (older
+// emulators, some Termux builds) the palette is quantized to the terminal's
+// actual color space so it degrades gracefully instead of rendering as
+// garbage. Detection runs once at startup; `ColorDef::to_color` — the single
+// color chokepoint every palette accessor goes through — consults it on each
+// call. The truecolor path is a pure identity, so dev, `cargo test`, and
+// svshot rendering stay byte-identical when no limited terminal is detected.
+// ═══════════════════════════════════════════════════════════════════════
+
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ColorCapacity {
+    Truecolor = 0,
+    TwoFiftySix = 1,
+    Sixteen = 2,
+}
+
+static COLOR_CAPACITY: AtomicU8 = AtomicU8::new(ColorCapacity::Truecolor as u8);
+
+fn color_capacity() -> ColorCapacity {
+    match COLOR_CAPACITY.load(Ordering::Relaxed) {
+        1 => ColorCapacity::TwoFiftySix,
+        2 => ColorCapacity::Sixteen,
+        _ => ColorCapacity::Truecolor,
+    }
+}
+
+/// Install the terminal's color capacity. Call once at startup, before render.
+pub fn set_color_capacity(cap: ColorCapacity) {
+    COLOR_CAPACITY.store(cap as u8, Ordering::Relaxed);
+}
+
+/// Detect the terminal's color capacity from `COLORTERM` / `TERM`. Defaults to
+/// Truecolor when no limiting signal is present (modern emulators, `cargo
+/// test`, svshot) so output stays full-color unless a limited terminal is
+/// actually detected.
+pub fn detect_color_capacity() -> ColorCapacity {
+    detect_from(
+        std::env::var("COLORTERM").ok().as_deref(),
+        std::env::var("TERM").ok().as_deref(),
+    )
+}
+
+fn detect_from(colorterm: Option<&str>, term: Option<&str>) -> ColorCapacity {
+    if let Some(ct) = colorterm {
+        let ct = ct.to_lowercase();
+        if ct.contains("truecolor") || ct.contains("24bit") {
+            return ColorCapacity::Truecolor;
+        }
+    }
+    if let Some(term) = term {
+        if term.contains("256") {
+            return ColorCapacity::TwoFiftySix;
+        }
+        let lower = term.to_lowercase();
+        if lower == "dumb" || lower.starts_with("linux") || lower.starts_with("vt") {
+            return ColorCapacity::Sixteen;
+        }
+    }
+    ColorCapacity::Truecolor
+}
+
+/// Nearest of the xterm 216-color cube's 6 levels for one channel.
+fn cube_level(channel: u8) -> u8 {
+    const LEVELS: [u8; 6] = [0, 95, 135, 175, 215, 255];
+    let mut best = 0u8;
+    let mut best_dist = u32::MAX;
+    for (i, &level) in LEVELS.iter().enumerate() {
+        let d = (channel as i32 - level as i32).unsigned_abs();
+        if d < best_dist {
+            best_dist = d;
+            best = i as u8;
+        }
+    }
+    best
+}
+
+/// Quantize RGB to the nearest xterm 256-color index (the 216-color cube,
+/// indices 16..=231). Greyscales and the 16 system colors are intentionally
+/// unused — the cube alone covers the themed palette well enough for a fallback.
+fn quantize_to_256(r: u8, g: u8, b: u8) -> u8 {
+    16 + 36 * cube_level(r) + 6 * cube_level(g) + cube_level(b)
+}
+
+/// Quantize RGB to the nearest of the 16 ANSI colors. Channels are binarized
+/// at a threshold; the on/off pattern maps to the 8 base colors, promoted to
+/// the bright range (8..=15) when a channel is intense. Coarse but robust for
+/// the worst-case terminal.
+fn quantize_to_16(r: u8, g: u8, b: u8) -> u8 {
+    let base = match (r > 64, g > 64, b > 64) {
+        (false, false, false) => 0, // black
+        (true, false, false) => 1,  // red
+        (false, true, false) => 2,  // green
+        (true, true, false) => 3,   // yellow
+        (false, false, true) => 4,  // blue
+        (true, false, true) => 5,   // magenta
+        (false, true, true) => 6,   // cyan
+        (true, true, true) => 7,    // white
+    };
+    if r > 200 || g > 200 || b > 200 {
+        base + 8
+    } else {
+        base
+    }
+}
+
+#[cfg(test)]
+mod color_capacity_tests {
+    use super::*;
+
+    struct CapacityGuard;
+    impl Drop for CapacityGuard {
+        fn drop(&mut self) {
+            set_color_capacity(ColorCapacity::Truecolor);
+        }
+    }
+
+    #[test]
+    fn to_color_truecolor_is_rgb_identity() {
+        let _g = CapacityGuard;
+        set_color_capacity(ColorCapacity::Truecolor);
+        assert_eq!(ColorDef::rgb(10, 20, 30).to_color(), Color::Rgb(10, 20, 30));
+    }
+
+    #[test]
+    fn to_color_256_yields_indexed() {
+        let _g = CapacityGuard;
+        set_color_capacity(ColorCapacity::TwoFiftySix);
+        assert_eq!(ColorDef::rgb(0, 0, 0).to_color(), Color::Indexed(16));
+        assert_eq!(ColorDef::rgb(255, 255, 255).to_color(), Color::Indexed(231));
+        assert_eq!(ColorDef::rgb(255, 0, 0).to_color(), Color::Indexed(196));
+    }
+
+    #[test]
+    fn to_color_16_yields_basic_ansi() {
+        let _g = CapacityGuard;
+        set_color_capacity(ColorCapacity::Sixteen);
+        assert_eq!(ColorDef::rgb(0, 0, 0).to_color(), Color::Indexed(0));
+        assert_eq!(ColorDef::rgb(255, 255, 255).to_color(), Color::Indexed(15));
+        assert_eq!(ColorDef::rgb(255, 0, 0).to_color(), Color::Indexed(9));
+    }
+
+    #[test]
+    fn detect_pure_logic() {
+        // COLORTERM wins over a 256-color TERM.
+        assert_eq!(
+            detect_from(Some("truecolor"), Some("xterm-256color")),
+            ColorCapacity::Truecolor
+        );
+        assert_eq!(detect_from(Some("24bit"), None), ColorCapacity::Truecolor);
+        // TERM signals 256-color.
+        assert_eq!(
+            detect_from(None, Some("xterm-256color")),
+            ColorCapacity::TwoFiftySix
+        );
+        assert_eq!(
+            detect_from(None, Some("screen-256color")),
+            ColorCapacity::TwoFiftySix
+        );
+        // 16-color consoles.
+        assert_eq!(detect_from(None, Some("linux")), ColorCapacity::Sixteen);
+        assert_eq!(detect_from(None, Some("dumb")), ColorCapacity::Sixteen);
+        assert_eq!(detect_from(None, Some("vt100")), ColorCapacity::Sixteen);
+        // No limiting signal → Truecolor (safe default).
+        assert_eq!(detect_from(None, None), ColorCapacity::Truecolor);
+        assert_eq!(detect_from(None, Some("xterm")), ColorCapacity::Truecolor);
+    }
+
+    #[test]
+    fn quantize_256_corners() {
+        assert_eq!(quantize_to_256(0, 0, 0), 16);
+        assert_eq!(quantize_to_256(255, 255, 255), 231);
+        assert_eq!(quantize_to_256(255, 0, 0), 196); // 16 + 36*5
+        assert_eq!(quantize_to_256(0, 255, 0), 46); // 16 + 6*5
+        assert_eq!(quantize_to_256(0, 0, 255), 21); // 16 + 5
+    }
+
+    #[test]
+    fn quantize_16_corners() {
+        assert_eq!(quantize_to_16(0, 0, 0), 0);
+        assert_eq!(quantize_to_16(255, 255, 255), 15);
+        assert_eq!(quantize_to_16(255, 0, 0), 9);
+        assert_eq!(quantize_to_16(0, 255, 0), 10);
+        assert_eq!(quantize_to_16(0, 0, 255), 12);
     }
 }
 

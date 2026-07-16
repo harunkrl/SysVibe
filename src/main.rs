@@ -109,6 +109,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 4. Apply theme from config, then blur-friendly flag
     ui::palette::load_and_apply(&config.theme);
     ui::palette::set_blur_active(config.blur_friendly);
+    // Quantize the palette to the terminal's actual color depth (truecolor /
+    // 256 / 16) so themes degrade gracefully on limited terminals (audit O-5).
+    ui::theme::set_color_capacity(ui::theme::detect_color_capacity());
 
     // 5. Create channel for background→UI updates
     let (tx, mut rx) = mpsc::channel::<StateUpdate>(64);

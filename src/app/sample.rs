@@ -17,9 +17,9 @@ use ratatui::widgets::TableState;
 use crate::app::state;
 use crate::app::state::{
     AppMode, AppTab, BatteryStatus, CpuDetails, DiskIoStats, DiskPartitionInfo, FanReading,
-    GpuInfo, GpuStats, HardwareData, LogEntry, LogLevel, LogLevelFilter, MotherboardInfo,
-    NetInterfaceHw, NetworkStats, PanelFocus, ProcessEntry, RamInfo, SensorReading, SortBy,
-    SortDir, StorageDevice, SystemInfo,
+    GpuInfo, GpuStats, HardwareData, LogEntry, LogLevel, MotherboardInfo, NetInterfaceHw,
+    NetworkStats, PanelFocus, ProcessEntry, RamInfo, SensorReading, SortBy, SortDir, StorageDevice,
+    SystemInfo,
 };
 use crate::app::{Config, HISTORY_LEN};
 
@@ -109,8 +109,6 @@ impl super::App {
     /// Build an `App` populated with representative SAMPLE data, performing
     /// **no** collector I/O. Used only by the `svshot` preview tool.
     pub fn new_sample(config: Config) -> Self {
-        use crate::app::collectors::logs::LogCollector;
-
         let num_cores = 8usize;
         let now = Instant::now();
         let total_ram = 16u64 * 1_073_741_824;
@@ -285,14 +283,7 @@ impl super::App {
             kill_target_pid: None,
             kill_target_name: None,
             status_message: None,
-            log_collector: LogCollector::new(),
-            log_follow: true,
-            log_scroll_offset: 0,
-            log_scope: Arc::new(std::sync::atomic::AtomicU8::new(0)),
-            log_reset: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            log_filter_input: String::new(),
-            log_filter_active: false,
-            log_level_filter: LogLevelFilter::all(),
+            logs: super::LogView::new_sample(),
             panel_focus: PanelFocus::default(),
             tab_hit_regions: Vec::new(),
             tree_view: false,

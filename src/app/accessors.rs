@@ -440,91 +440,59 @@ impl super::App {
     }
 
     pub fn log_entries(&self) -> &std::collections::VecDeque<LogEntry> {
-        self.log_collector.entries()
+        self.logs.entries()
     }
 
     pub fn log_follow(&self) -> bool {
-        self.log_follow
+        self.logs.follow()
     }
 
     pub fn log_scroll_offset(&self) -> usize {
-        self.log_scroll_offset
-    }
-
-    /// Number of entries currently passing the log level + text filter.
-    fn log_visible_count(&self) -> usize {
-        self.filtered_log_entries().len()
+        self.logs.scroll_offset()
     }
 
     /// Scroll the log view up (toward older entries). Auto-disables follow so
     /// the offset takes effect. The offset is measured as "rows back from the
     /// newest entry", so it scrolls correctly regardless of viewport height.
     pub fn log_scroll_up(&mut self, amount: usize) {
-        self.log_follow = false;
-        let count = self.log_visible_count();
-        let _ = count;
-        self.log_scroll_offset = self.log_scroll_offset.saturating_add(amount);
+        self.logs.scroll_up(amount);
     }
 
     /// Scroll the log view down (toward newer entries). A no-op while follow
     /// is on (already at the newest). Re-enables follow when the bottom is
     /// reached.
     pub fn log_scroll_down(&mut self, amount: usize) {
-        if self.log_follow {
-            return;
-        }
-        self.log_scroll_offset = self.log_scroll_offset.saturating_sub(amount);
-        if self.log_scroll_offset == 0 {
-            self.log_follow = true;
-        }
+        self.logs.scroll_down(amount);
     }
 
     /// Jump to the oldest entry (top).
     pub fn log_scroll_home(&mut self) {
-        self.log_follow = false;
-        let count = self.log_visible_count();
-        self.log_scroll_offset = count;
+        self.logs.scroll_home();
     }
 
     /// Jump to the newest entry (bottom) and re-enable follow.
     pub fn log_scroll_end(&mut self) {
-        self.log_follow = true;
-        self.log_scroll_offset = 0;
+        self.logs.scroll_end();
     }
 
     /// Handles shared with the background log collector thread.
     pub fn log_scope_handle(&self) -> Arc<std::sync::atomic::AtomicU8> {
-        Arc::clone(&self.log_scope)
+        self.logs.scope_handle()
     }
     pub fn log_reset_handle(&self) -> Arc<std::sync::atomic::AtomicBool> {
-        Arc::clone(&self.log_reset)
+        self.logs.reset_handle()
     }
 
     /// Current log collection scope (Kernel / System).
     pub fn log_scope(&self) -> collectors::logs::LogScope {
-        collectors::logs::LogScope::from_u8(
-            self.log_scope.load(std::sync::atomic::Ordering::Relaxed),
-        )
+        self.logs.scope()
     }
 
     /// Toggle between Kernel-only and full-system journal scope. Signals the
     /// background collector to re-fetch with the new scope.
     pub fn toggle_log_scope(&mut self) {
-        let cur = self.log_scope();
-        let next = if matches!(cur, collectors::logs::LogScope::Kernel) {
-            collectors::logs::LogScope::System
-        } else {
-            collectors::logs::LogScope::Kernel
-        };
-        self.log_scope
-            .store(next.as_u8(), std::sync::atomic::Ordering::Relaxed);
-        self.log_reset
-            .store(true, std::sync::atomic::Ordering::Release);
-        self.log_collector.set_scope(next);
-        self.set_status(format!("Log scope: {}", next.label()));
-        // Return to following so the re-fetched tail is visible.
-        self.log_follow = true;
-        self.log_scroll_offset = 0;
+        let status = self.logs.toggle_scope();
+        self.set_status(status);
     }
 
     pub fn tree_view(&self) -> bool {
@@ -593,111 +561,67 @@ impl super::App {
     }
 
     pub fn log_filter_input(&self) -> &str {
-        &self.log_filter_input
+        self.logs.filter_input()
     }
 
     pub fn log_level_filter(&self) -> &LogLevelFilter {
-        &self.log_level_filter
+        self.logs.level_filter()
     }
 
     pub fn log_filter_active(&self) -> bool {
-        self.log_filter_active
+        self.logs.filter_active()
     }
 
     /// Returns filtered log entries based on level filter and text filter.
     pub fn filtered_log_entries(&self) -> Vec<&LogEntry> {
-        let query = if self.log_filter_active && !self.log_filter_input.is_empty() {
-            Some(self.log_filter_input.to_lowercase())
-        } else {
-            None
-        };
-        self.log_entries()
-            .iter()
-            .filter(|e| self.log_level_filter.allows(&e.level))
-            .filter(|e| match &query {
-                Some(q) => e.message.to_lowercase().contains(q.as_str()),
-                None => true,
-            })
-            .collect()
+        self.logs.filtered_entries()
     }
 
     pub fn apply_log_filter(&mut self) {
-        self.log_filter_active = !self.log_filter_input.is_empty();
+        self.logs.apply_filter();
     }
 
     pub fn log_filter_backspace(&mut self) {
-        self.log_filter_input.pop();
+        self.logs.filter_backspace();
     }
 
     pub fn log_filter_push(&mut self, c: char) {
-        self.log_filter_input.push(c);
+        self.logs.filter_push(c);
     }
 
     /// Delete the last word from the log filter input (Ctrl+W behavior).
     pub fn log_filter_delete_word(&mut self) {
-        while self.log_filter_input.ends_with(' ') {
-            self.log_filter_input.pop();
-        }
-        if let Some(pos) = self.log_filter_input.rfind(' ') {
-            self.log_filter_input.truncate(pos);
-        } else {
-            self.log_filter_input.clear();
-        }
+        self.logs.filter_delete_word();
     }
 
     /// Clear the entire log filter input (Ctrl+U behavior).
     pub fn log_filter_clear_line(&mut self) {
-        self.log_filter_input.clear();
+        self.logs.filter_clear_line();
     }
 
     pub fn toggle_log_level_error(&mut self) {
-        self.log_level_filter.show_errors = !self.log_level_filter.show_errors;
-        let state = if self.log_level_filter.show_errors {
-            "ON"
-        } else {
-            "OFF"
-        };
-        self.set_status(format!("Error logs: {}", state));
+        let status = self.logs.toggle_level_error();
+        self.set_status(status);
     }
 
     pub fn toggle_log_level_warn(&mut self) {
-        self.log_level_filter.show_warnings = !self.log_level_filter.show_warnings;
-        let state = if self.log_level_filter.show_warnings {
-            "ON"
-        } else {
-            "OFF"
-        };
-        self.set_status(format!("Warning logs: {}", state));
+        let status = self.logs.toggle_level_warn();
+        self.set_status(status);
     }
 
     pub fn toggle_log_level_info(&mut self) {
-        self.log_level_filter.show_info = !self.log_level_filter.show_info;
-        let state = if self.log_level_filter.show_info {
-            "ON"
-        } else {
-            "OFF"
-        };
-        self.set_status(format!("Info logs: {}", state));
+        let status = self.logs.toggle_level_info();
+        self.set_status(status);
     }
 
     pub fn toggle_log_level_notice(&mut self) {
-        self.log_level_filter.show_notice = !self.log_level_filter.show_notice;
-        let state = if self.log_level_filter.show_notice {
-            "ON"
-        } else {
-            "OFF"
-        };
-        self.set_status(format!("Notice logs: {}", state));
+        let status = self.logs.toggle_level_notice();
+        self.set_status(status);
     }
 
     pub fn toggle_log_level_debug(&mut self) {
-        self.log_level_filter.show_debug = !self.log_level_filter.show_debug;
-        let state = if self.log_level_filter.show_debug {
-            "ON"
-        } else {
-            "OFF"
-        };
-        self.set_status(format!("Debug logs: {}", state));
+        let status = self.logs.toggle_level_debug();
+        self.set_status(status);
     }
 
     /// GPU live stats.

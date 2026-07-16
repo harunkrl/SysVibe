@@ -47,9 +47,8 @@ impl super::App {
     }
 
     pub fn toggle_log_follow(&mut self) {
-        self.log_follow = !self.log_follow;
-        let state = if self.log_follow { "ON" } else { "OFF" };
-        self.set_status(format!("Log follow: {}", state));
+        let status = self.logs.toggle_follow();
+        self.set_status(status);
     }
 
     pub fn set_status(&mut self, text: String) {

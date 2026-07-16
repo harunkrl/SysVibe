@@ -12,7 +12,7 @@ impl super::App {
     }
 
     pub fn refresh_logs(&mut self) {
-        self.log_collector.refresh();
+        self.logs.refresh();
     }
 
     /// Export current system state to file (JSON or CSV).

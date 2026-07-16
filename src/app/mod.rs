@@ -122,17 +122,8 @@ pub struct App {
     // Transient UI feedback
     pub status_message: Option<StatusMessage>,
 
-    // Logs
-    log_collector: collectors::logs::LogCollector,
-    log_follow: bool,
-    log_scroll_offset: usize,
-    /// Shared with the background log collector thread: 0 = Kernel, 1 = System.
-    log_scope: Arc<std::sync::atomic::AtomicU8>,
-    /// Shared reset signal: set to true to force the collector to re-fetch.
-    log_reset: Arc<std::sync::atomic::AtomicBool>,
-    log_filter_input: String,
-    log_filter_active: bool,
-    log_level_filter: LogLevelFilter,
+    // Logs (collector + viewport + filter) — see `log_view::LogView`.
+    logs: LogView,
 
     // Panel focus tracking
     panel_focus: PanelFocus,
@@ -213,9 +204,6 @@ impl App {
         // into Self). `min` starts at the current reading and only decreases.
         let init_freq = collectors::cpu::mean_freq_mhz(&sys);
 
-        let mut log_collector = collectors::logs::LogCollector::new();
-        log_collector.refresh();
-
         let mut app = Self {
             sys,
             components,
@@ -270,14 +258,7 @@ impl App {
             kill_target_pid: None,
             kill_target_name: None,
             status_message: None,
-            log_collector,
-            log_follow: true,
-            log_scroll_offset: 0,
-            log_scope: Arc::new(std::sync::atomic::AtomicU8::new(0)),
-            log_reset: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            log_filter_input: String::new(),
-            log_filter_active: false,
-            log_level_filter: LogLevelFilter::all(),
+            logs: LogView::new(),
             panel_focus: PanelFocus::default(),
             tab_hit_regions: Vec::new(),
             tree_view: false,
@@ -318,6 +299,7 @@ impl App {
 // block in its own file) to keep mod.rs focused on the struct + ctor.
 mod accessors;
 mod events_dispatch;
+mod log_view;
 mod messages;
 mod mutations;
 mod process_ops;
@@ -328,6 +310,7 @@ mod tick;
 
 // The collector→state message type is part of the app's public API so
 // integration tests can drive an App with synthetic updates.
+pub(crate) use log_view::LogView;
 pub use messages::StateUpdate;
 
 // ═══════════════════════════════════════════════════════════════════════

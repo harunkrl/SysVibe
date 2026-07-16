@@ -138,7 +138,7 @@ impl super::App {
     }
 
     pub fn set_log_entries(&mut self, entries: std::collections::VecDeque<LogEntry>) {
-        self.log_collector.set_entries(entries);
+        self.logs.set_entries(entries);
     }
 
     pub fn set_partitions(&mut self, partitions: Vec<DiskPartitionInfo>) {

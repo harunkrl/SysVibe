@@ -30,8 +30,9 @@ fn on_off(on: bool) -> &'static str {
 
 impl LogView {
     /// Production constructor: a fresh collector with an initial fetch.
-    pub fn new() -> Self {
-        let mut collector = collectors::logs::LogCollector::new();
+    /// `log_source` is forwarded to the collector ("auto"/"journalctl"/"dmesg").
+    pub fn new(log_source: &str) -> Self {
+        let mut collector = collectors::logs::LogCollector::new(log_source);
         collector.refresh();
         Self::from_collector(collector)
     }
@@ -40,7 +41,7 @@ impl LogView {
     /// via [`LogView::set_entries`]), so svshot avoids spawning journalctl/logcat.
     #[cfg(feature = "preview")]
     pub(crate) fn new_sample() -> Self {
-        Self::from_collector(collectors::logs::LogCollector::new())
+        Self::from_collector(collectors::logs::LogCollector::new("auto"))
     }
 
     fn from_collector(collector: collectors::logs::LogCollector) -> Self {

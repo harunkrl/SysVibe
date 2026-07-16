@@ -60,13 +60,15 @@ pub struct LogCollector {
 
 impl Default for LogCollector {
     fn default() -> Self {
-        Self::new()
+        Self::new("auto")
     }
 }
 
 impl LogCollector {
-    /// Create a new log collector, probing for root access.
-    pub fn new() -> Self {
+    /// Create a new log collector, probing for root access. `log_source` is
+    /// accepted for API parity with the Linux collector but ignored — Android
+    /// always reads `logcat`.
+    pub fn new(_log_source: &str) -> Self {
         let has_root = Command::new("su")
             .args(["-c", "id"])
             .output()

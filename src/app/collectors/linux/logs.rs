@@ -122,18 +122,25 @@ pub struct LogCollector {
 
 impl Default for LogCollector {
     fn default() -> Self {
-        Self::new()
+        Self::new("auto")
     }
 }
 
 impl LogCollector {
-    /// Create a new log collector, auto-detecting whether journalctl is available.
-    pub fn new() -> Self {
-        let use_journalctl = Command::new("journalctl")
-            .arg("--version")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
+    /// Create a new log collector. `log_source` selects the backend:
+    /// `"journalctl"` forces the systemd journal, `"dmesg"` forces the kernel
+    /// ring buffer, and `"auto"` (the default, and any unrecognized value)
+    /// auto-detects journalctl and falls back to dmesg when unavailable.
+    pub fn new(log_source: &str) -> Self {
+        let use_journalctl = match log_source.trim().to_lowercase().as_str() {
+            "journalctl" => true,
+            "dmesg" => false,
+            _ => Command::new("journalctl")
+                .arg("--version")
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false),
+        };
 
         Self {
             entries: VecDeque::with_capacity(MAX_LOG_LINES),

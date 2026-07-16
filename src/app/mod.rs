@@ -142,6 +142,8 @@ impl App {
         // Seed frequency trackers from the initial sample (before `sys` moves
         // into Self). `min` starts at the current reading and only decreases.
         let init_freq = collectors::cpu::mean_freq_mhz(&sys);
+        // Clone before `config` is moved into the struct literal below.
+        let log_source = config.log_source.clone();
 
         let mut app = Self {
             sys,
@@ -172,7 +174,7 @@ impl App {
             tab: default_tab,
             command: CommandPalette::new(),
             status_message: None,
-            logs: LogView::new(),
+            logs: LogView::new(&log_source),
             panel_focus: PanelFocus::default(),
             tab_hit_regions: Vec::new(),
             tick_count: 0,

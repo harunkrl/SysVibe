@@ -179,6 +179,7 @@ fn spawn_collector_tasks(
     let sensor_refresh_ms = config.sensor_refresh_rate;
     let process_refresh_ms = config.process_refresh_rate;
     let max_procs = config.max_processes;
+    let log_source = config.log_source.clone();
     let _cpu_normalized = !config.default_tab.is_empty(); // placeholder for runtime toggle
 
     // ── Task: Tier 1+2 — CPU, Memory, Network, Disk (fast metrics only) ──
@@ -378,7 +379,7 @@ fn spawn_collector_tasks(
     // std::thread::spawn: journalctl/dmesg are blocking subprocess calls
     let tx_logs = tx.clone();
     supervise("logs", move || {
-        let mut log_collector = app::collectors::logs::LogCollector::new();
+        let mut log_collector = app::collectors::logs::LogCollector::new(&log_source);
         let interval = std::time::Duration::from_secs(5);
 
         loop {

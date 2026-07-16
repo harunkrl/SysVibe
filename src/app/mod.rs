@@ -318,12 +318,17 @@ impl App {
 // block in its own file) to keep mod.rs focused on the struct + ctor.
 mod accessors;
 mod events_dispatch;
+mod messages;
 mod mutations;
 mod process_ops;
 #[cfg(feature = "preview")]
 mod sample;
 mod state_update;
 mod tick;
+
+// The collector→state message type is part of the app's public API so
+// integration tests can drive an App with synthetic updates.
+pub use messages::StateUpdate;
 
 // ═══════════════════════════════════════════════════════════════════════
 // Preview-only: deterministic sample-data builder for the `svshot` tool.

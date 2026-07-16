@@ -304,6 +304,9 @@ pub struct LogEntry {
     pub timestamp: String,
     /// Real-time timestamp in microseconds since the Unix epoch, used for
     /// accurate ordering/dedup (the display string alone can't be sorted).
+    /// Only read on the Linux (journalctl) path; logcat carries no epoch, so
+    /// the android collector writes 0.
+    #[allow(dead_code)]
     pub timestamp_us: u64,
     pub level: LogLevel,
     /// Source identifier (e.g. "kernel", "systemd", "NetworkManager").
@@ -316,6 +319,7 @@ pub struct LogEntry {
 pub enum LogLevel {
     Error,
     Warning,
+    #[allow(dead_code)] // constructed by journalctl (linux); logcat has no Notice
     Notice,
     Info,
     #[allow(dead_code)]
@@ -335,7 +339,9 @@ pub enum VramKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum GpuVendor {
     Nvidia,
+    #[allow(dead_code)] // constructed by linux GPU detection; android GPUs → Unknown
     Amd,
+    #[allow(dead_code)]
     Intel,
     #[default]
     Unknown,

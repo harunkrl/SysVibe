@@ -634,26 +634,27 @@ impl super::App {
 
     /// GPU live stats.
     pub fn gpu_stats(&self) -> &[GpuStats] {
-        &self.gpu_stats
+        self.gpus.stats()
     }
 
     /// GPU scroll offset for multi-GPU navigation.
     pub fn gpu_scroll(&self) -> usize {
-        self.gpu_scroll
+        self.gpus.scroll()
     }
 
     /// Scroll GPU list down.
     pub fn gpu_scroll_down(&mut self) {
-        let max = self.gpu_stats.len().saturating_sub(1);
-        if self.gpu_scroll < max {
-            self.gpu_scroll += 1;
-        }
+        self.gpus.scroll_down();
     }
 
     /// Scroll GPU list up.
     pub fn gpu_scroll_up(&mut self) {
-        if self.gpu_scroll > 0 {
-            self.gpu_scroll -= 1;
-        }
+        self.gpus.scroll_up();
+    }
+
+    /// Clear all per-GPU history (preview-test helper).
+    #[cfg(all(test, feature = "preview"))]
+    pub fn clear_gpu_history(&mut self) {
+        self.gpus.clear_history();
     }
 }

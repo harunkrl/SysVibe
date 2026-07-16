@@ -124,13 +124,6 @@ impl super::App {
             mode: AppMode::Normal,
             should_quit: false,
             cpu_history: sample_wave(HISTORY_LEN, 10, 25),
-            gpu_usage_history: {
-                let mut m = HashMap::new();
-                m.insert("0000:73:00.0".to_string(), sample_wave(HISTORY_LEN, 10, 30));
-                m.insert("GPU-rtx3060".to_string(), sample_wave(HISTORY_LEN, 40, 70));
-                m
-            },
-            gpu_history_empty: VecDeque::new(),
             per_core_history: (0..num_cores)
                 .map(|i| sample_wave(HISTORY_LEN, 20 + i as u64 * 8, 25))
                 .collect(),
@@ -330,37 +323,46 @@ impl super::App {
                     rpm: None,
                 },
             ],
-            gpu_stats: vec![
-                GpuStats {
-                    id: "0000:73:00.0".into(),
-                    name: "AMD Radeon 680M".into(),
-                    usage_pct: 28.0,
-                    vram_used_mb: 498,
-                    vram_total_mb: 512,
-                    temperature: 44.0,
-                    power_w: Some(7.3),
-                    fan_speed_pct: None,
-                    clock_mhz: Some(2400),
-                    vram_kind: crate::app::state::VramKind::Shared,
-                    vendor: crate::app::state::GpuVendor::Amd,
-                    processes: Vec::new(),
+            gpus: super::GpuView {
+                stats: vec![
+                    GpuStats {
+                        id: "0000:73:00.0".into(),
+                        name: "AMD Radeon 680M".into(),
+                        usage_pct: 28.0,
+                        vram_used_mb: 498,
+                        vram_total_mb: 512,
+                        temperature: 44.0,
+                        power_w: Some(7.3),
+                        fan_speed_pct: None,
+                        clock_mhz: Some(2400),
+                        vram_kind: crate::app::state::VramKind::Shared,
+                        vendor: crate::app::state::GpuVendor::Amd,
+                        processes: Vec::new(),
+                    },
+                    GpuStats {
+                        id: "GPU-rtx3060".into(),
+                        name: "NVIDIA GeForce RTX 3060".into(),
+                        usage_pct: 64.0,
+                        vram_used_mb: 5320,
+                        vram_total_mb: 12288,
+                        temperature: 61.0,
+                        power_w: Some(132.0),
+                        fan_speed_pct: Some(48.0),
+                        clock_mhz: Some(1920),
+                        vram_kind: crate::app::state::VramKind::Dedicated,
+                        vendor: crate::app::state::GpuVendor::Nvidia,
+                        processes: Vec::new(),
+                    },
+                ],
+                history: {
+                    let mut m = HashMap::new();
+                    m.insert("0000:73:00.0".to_string(), sample_wave(HISTORY_LEN, 10, 30));
+                    m.insert("GPU-rtx3060".to_string(), sample_wave(HISTORY_LEN, 40, 70));
+                    m
                 },
-                GpuStats {
-                    id: "GPU-rtx3060".into(),
-                    name: "NVIDIA GeForce RTX 3060".into(),
-                    usage_pct: 64.0,
-                    vram_used_mb: 5320,
-                    vram_total_mb: 12288,
-                    temperature: 61.0,
-                    power_w: Some(132.0),
-                    fan_speed_pct: Some(48.0),
-                    clock_mhz: Some(1920),
-                    vram_kind: crate::app::state::VramKind::Dedicated,
-                    vendor: crate::app::state::GpuVendor::Nvidia,
-                    processes: Vec::new(),
-                },
-            ],
-            gpu_scroll: 0,
+                history_empty: VecDeque::new(),
+                scroll: 0,
+            },
             fans: vec![
                 FanReading { label: "cpu".into(), rpm: 3200 },
                 FanReading { label: "case".into(), rpm: 1850 },

@@ -60,23 +60,7 @@ impl super::App {
     }
 
     pub fn set_gpu_stats(&mut self, stats: Vec<GpuStats>) {
-        // Per-GPU usage trend. AMD/Intel are also sampled at 1 Hz in Tier 1
-        // (sample_usage_fast); NVIDIA/Unknown have no cheap per-tick source,
-        // so their trend advances here at the 5 s sensor cadence.
-        use crate::app::state::GpuVendor;
-        for g in &stats {
-            match g.vendor {
-                GpuVendor::Nvidia | GpuVendor::Unknown => {
-                    let h = self
-                        .gpu_usage_history
-                        .entry(g.id.clone())
-                        .or_insert_with(|| VecDeque::with_capacity(HISTORY_LEN));
-                    helpers::push_history(h, g.usage_pct.round() as u64);
-                }
-                GpuVendor::Amd | GpuVendor::Intel => {}
-            }
-        }
-        self.gpu_stats = stats;
+        self.gpus.set_stats(stats);
     }
 
     /// Push fast-tier (AMD/Intel) GPU usage samples into the per-GPU history
@@ -86,13 +70,7 @@ impl super::App {
     /// braille trend populated for AMD/Intel GPUs at the same cadence as the
     /// CPU history. Each sample is `(gpu_id, usage_pct)`.
     pub fn push_gpu_usage_samples(&mut self, samples: Vec<(String, u64)>) {
-        for (id, usage) in samples {
-            let h = self
-                .gpu_usage_history
-                .entry(id)
-                .or_insert_with(|| VecDeque::with_capacity(HISTORY_LEN));
-            helpers::push_history(h, usage);
-        }
+        self.gpus.push_samples(samples);
     }
 
     /// Primary-GPU usage history (0-100 per sample), for the Dashboard trend.
@@ -101,21 +79,13 @@ impl super::App {
     /// present or the primary GPU hasn't been sampled yet.
     #[allow(dead_code)]
     pub fn gpu_history(&self) -> &VecDeque<u64> {
-        match self.gpu_stats.first() {
-            Some(g) => self
-                .gpu_usage_history
-                .get(&g.id)
-                .unwrap_or(&self.gpu_history_empty),
-            None => &self.gpu_history_empty,
-        }
+        self.gpus.primary_history()
     }
 
     /// Per-GPU usage history for the GPU tab's per-card braille trend.
     #[allow(dead_code)]
     pub fn gpu_usage_history(&self, id: &str) -> &VecDeque<u64> {
-        self.gpu_usage_history
-            .get(id)
-            .unwrap_or(&self.gpu_history_empty)
+        self.gpus.history_for(id)
     }
 
     pub fn set_log_entries(&mut self, entries: std::collections::VecDeque<LogEntry>) {

@@ -37,7 +37,7 @@ impl super::App {
             self.network_stats(),
             &self.disk_io,
             &self.cached_partitions,
-            &self.gpu_stats,
+            self.gpu_stats(),
             &self.top_processes,
         );
 

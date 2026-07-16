@@ -10,7 +10,7 @@ pub mod helpers;
 pub mod processes;
 pub mod state;
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::time::Instant;
 
 use crossterm::event::Event;
@@ -132,15 +132,8 @@ pub struct App {
     // Cached data (refreshed at lower rate)
     cached_partitions: Vec<DiskPartitionInfo>,
 
-    // Live GPU stats
-    gpu_stats: Vec<GpuStats>,
-
-    /// Per-GPU usage history keyed by `GpuStats.id` (0-100 per sample), for the
-    /// GPU tab's per-card braille trend and the Dashboard's primary trend.
-    gpu_usage_history: HashMap<String, VecDeque<u64>>,
-    /// Zero-length fallback returned by accessors when a GPU id is not yet in
-    /// the map (e.g. before the first sample). Avoids allocating per frame.
-    gpu_history_empty: VecDeque<u64>,
+    // GPU (stats + per-GPU history + scroll) — see `gpu_view::GpuView`.
+    gpus: GpuView,
 
     /// Hardware fan readings (RPM) from `/sys/class/hwmon`.
     fans: Vec<FanReading>,
@@ -148,9 +141,6 @@ pub struct App {
     /// Active cooling/performance profile (e.g. "balanced", "performance") —
     /// a fallback signal for machines that expose no fan RPM.
     power_profile: String,
-
-    /// GPU tab scroll offset (for multi-GPU navigation).
-    gpu_scroll: usize,
 
     // Static hardware data (fetched once on startup)
     hardware_data: state::HardwareData,
@@ -202,8 +192,6 @@ impl App {
             mode: AppMode::Normal,
             should_quit: false,
             cpu_history: VecDeque::with_capacity(HISTORY_LEN),
-            gpu_usage_history: HashMap::new(),
-            gpu_history_empty: VecDeque::new(),
             per_core_history: vec![VecDeque::with_capacity(HISTORY_LEN); num_cores],
             // Seed frequency trackers from the initial sample; the collector
             // updates them on each refresh. `min` starts at the current reading
@@ -251,10 +239,9 @@ impl App {
             cpu_normalized: false,
             tick_count: 0,
             cached_partitions: Vec::new(),
-            gpu_stats: Vec::new(),
+            gpus: GpuView::new(),
             fans: Vec::new(),
             power_profile: String::new(),
-            gpu_scroll: 0,
             hardware_data: collectors::hardware::fetch_hardware_data(),
             cached_system_info: SystemInfo::default(),
             last_system_info_refresh: Instant::now() - std::time::Duration::from_secs(60),
@@ -286,6 +273,7 @@ impl App {
 mod accessors;
 mod command_palette;
 mod events_dispatch;
+mod gpu_view;
 mod log_view;
 mod messages;
 mod mutations;
@@ -299,6 +287,7 @@ mod tick;
 // The collector→state message type is part of the app's public API so
 // integration tests can drive an App with synthetic updates.
 pub(crate) use command_palette::CommandPalette;
+pub(crate) use gpu_view::GpuView;
 pub(crate) use log_view::LogView;
 pub use messages::StateUpdate;
 pub(crate) use network_view::NetworkView;
@@ -500,7 +489,7 @@ mod preview_tests {
         // GPU usage trend, mirroring set_battery's power history. With the
         // per-GPU history map, the primary GPU's entry advances.
         let mut app = App::new_sample(Config::default());
-        app.gpu_usage_history.clear();
+        app.clear_gpu_history();
         app.set_gpu_stats(vec![crate::app::state::GpuStats {
             id: String::new(),
             name: "x".into(),
@@ -525,7 +514,7 @@ mod preview_tests {
     #[test]
     fn per_gpu_history_kept_separately() {
         let mut app = App::new_sample(Config::default());
-        app.gpu_usage_history.clear();
+        app.clear_gpu_history();
         app.set_gpu_stats(vec![
             crate::app::state::GpuStats {
                 id: "a".into(),
@@ -552,7 +541,7 @@ mod preview_tests {
         // Without it, AMD/Intel GPU history never grows past the single
         // startup sample and the Dashboard/GPU-tab braille trend stays empty.
         let mut app = App::new_sample(Config::default());
-        app.gpu_usage_history.clear();
+        app.clear_gpu_history();
         app.push_gpu_usage_samples(vec![("0000:73:00.0".into(), 7), ("0000:73:00.0".into(), 9)]);
         assert_eq!(app.gpu_usage_history("0000:73:00.0").len(), 2);
         assert_eq!(

@@ -34,7 +34,7 @@ keywords = ["system-monitor", "tui", "linux", "terminal"]
 categories = ["command-line-utilities"]
 
 [dependencies]
-ratatui = "0.29"
+ratatui = "0.30"
 crossterm = { version = "0.28", features = ["event-stream"] }
 sysinfo = "0.34"
 serde = { version = "1", features = ["derive"] }

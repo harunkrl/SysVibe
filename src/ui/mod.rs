@@ -16,7 +16,7 @@ pub mod widgets;
 
 use ratatui::{
     Frame,
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    layout::{Constraint, Direction, HorizontalAlignment, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
@@ -43,7 +43,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                     .fg(palette::red())
                     .add_modifier(Modifier::BOLD),
             )
-            .alignment(Alignment::Center);
+            .alignment(HorizontalAlignment::Center);
         f.render_widget(paragraph, area);
         return;
     }

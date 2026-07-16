@@ -6,7 +6,7 @@
 
 use ratatui::{
     Frame,
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    layout::{Constraint, Direction, HorizontalAlignment, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
@@ -419,7 +419,7 @@ fn render_memory_section(f: &mut Frame, app: &App, area: Rect) {
             ),
             Span::styled(pressure, Style::default().fg(pressure_color)),
         ]))
-        .alignment(Alignment::Left),
+        .alignment(HorizontalAlignment::Left),
         rows[footer_idx],
     );
 
@@ -450,7 +450,7 @@ fn render_memory_section(f: &mut Frame, app: &App, area: Rect) {
                 ),
                 Style::default().fg(sapphire()),
             )))
-            .alignment(Alignment::Right),
+            .alignment(HorizontalAlignment::Right),
             rows[swap_start + 2],
         );
     }
@@ -541,7 +541,7 @@ fn render_battery_section(f: &mut Frame, app: &App, area: Rect) {
                 format!("Draw {:.1}W", cur_w),
                 Style::default().fg(peach()),
             )))
-            .alignment(Alignment::Right),
+            .alignment(HorizontalAlignment::Right),
             parts[0],
         );
         // y_floor = 30 W so the color gradient maps 0 W (green) → ~30 W (red);
@@ -569,7 +569,7 @@ fn render_network(f: &mut Frame, app: &App, area: Rect, focused: bool) {
                 "  No network interfaces",
                 Style::default().fg(overlay()),
             )))
-            .alignment(Alignment::Center),
+            .alignment(HorizontalAlignment::Center),
             inner,
         );
         return;

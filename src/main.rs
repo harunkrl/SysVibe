@@ -428,7 +428,10 @@ async fn run_async_app<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
     app: &mut App,
     rx: &mut mpsc::Receiver<StateUpdate>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error>>
+where
+    <B as ratatui::backend::Backend>::Error: 'static,
+{
     // Native-async crossterm event stream — replaces the old
     // `tokio::task::spawn_blocking(poll)` approach which created unnecessary
     // thread-pool churn on every iteration.

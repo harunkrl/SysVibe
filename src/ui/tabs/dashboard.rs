@@ -2,7 +2,7 @@
 
 use ratatui::{
     Frame,
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    layout::{Constraint, Direction, HorizontalAlignment, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Cell, Paragraph, Row, Table},
@@ -499,7 +499,10 @@ fn render_stat_card(f: &mut Frame, area: Rect, card: &HeroCard) {
         )));
     }
 
-    f.render_widget(Paragraph::new(lines).alignment(Alignment::Center), inner);
+    f.render_widget(
+        Paragraph::new(lines).alignment(HorizontalAlignment::Center),
+        inner,
+    );
 }
 
 /// Tiny one-line sparkline using 8-level half-block characters.
@@ -666,7 +669,10 @@ fn render_cpu_load(f: &mut Frame, area: Rect, app: &App) {
         vec![one]
     };
 
-    f.render_widget(Paragraph::new(lines).alignment(Alignment::Right), area);
+    f.render_widget(
+        Paragraph::new(lines).alignment(HorizontalAlignment::Right),
+        area,
+    );
 }
 
 /// Compact CPU frequency readout for the right side of the per-core strip:
@@ -741,7 +747,10 @@ fn render_cpu_freq(f: &mut Frame, area: Rect, app: &App) {
         vec![current]
     };
 
-    f.render_widget(Paragraph::new(lines).alignment(Alignment::Right), area);
+    f.render_widget(
+        Paragraph::new(lines).alignment(HorizontalAlignment::Right),
+        area,
+    );
 }
 
 /// X-axis start label for the CPU history window (e.g. "-60s", "-2m").
@@ -1025,7 +1034,7 @@ fn render_network_panel(f: &mut Frame, app: &App, area: Rect, nf: bool, focus: P
                 "  No network interfaces",
                 Style::default().fg(overlay()),
             )))
-            .alignment(ratatui::layout::Alignment::Center),
+            .alignment(ratatui::layout::HorizontalAlignment::Center),
             inner,
         );
         return;

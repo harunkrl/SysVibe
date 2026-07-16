@@ -4,7 +4,7 @@
 
 use ratatui::{
     Frame,
-    layout::{Alignment, Rect},
+    layout::{HorizontalAlignment, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Clear, Paragraph, Wrap},
@@ -27,7 +27,7 @@ pub fn render_help_modal(f: &mut Frame, area: Rect) {
             " Help ",
             Style::default().fg(lavender()).add_modifier(Modifier::BOLD),
         ))
-        .title_alignment(Alignment::Center)
+        .title_alignment(HorizontalAlignment::Center)
         .style(Style::default().bg(surface0()));
 
     let popup = centered_rect(50, 70, area);
@@ -234,7 +234,7 @@ pub fn render_kill_confirm_modal(f: &mut Frame, area: Rect, app: &App) {
             " [!] Confirm Kill ",
             Style::default().fg(red()).add_modifier(Modifier::BOLD),
         ))
-        .title_alignment(Alignment::Center)
+        .title_alignment(HorizontalAlignment::Center)
         .style(Style::default().bg(surface0()));
 
     let selected_count = app.selected_pids().len();

@@ -4,7 +4,7 @@
 
 use ratatui::{
     Frame,
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    layout::{Constraint, Direction, HorizontalAlignment, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
@@ -314,7 +314,7 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
             }
         }
         f.render_widget(
-            Paragraph::new(Line::from(dots)).alignment(Alignment::Right),
+            Paragraph::new(Line::from(dots)).alignment(HorizontalAlignment::Right),
             cols[1],
         );
     } else {

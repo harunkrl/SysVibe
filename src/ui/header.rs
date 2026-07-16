@@ -9,7 +9,7 @@
 
 use ratatui::{
     Frame,
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    layout::{Constraint, Direction, HorizontalAlignment, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
@@ -124,7 +124,7 @@ pub fn render_header(f: &mut Frame, app: &App, area: Rect) {
                 Style::default().fg(subtext()),
             ),
         ]))
-        .alignment(Alignment::Left),
+        .alignment(HorizontalAlignment::Left),
         top_cols[0],
     );
 
@@ -142,7 +142,7 @@ pub fn render_header(f: &mut Frame, app: &App, area: Rect) {
                 .fg(mantle())
                 .add_modifier(Modifier::BOLD),
         )))
-        .alignment(Alignment::Center),
+        .alignment(HorizontalAlignment::Center),
         top_cols[1],
     );
 
@@ -151,7 +151,7 @@ pub fn render_header(f: &mut Frame, app: &App, area: Rect) {
             Local::now().format("%H:%M:%S").to_string(),
             Style::default().fg(subtext()),
         )))
-        .alignment(Alignment::Right),
+        .alignment(HorizontalAlignment::Right),
         top_cols[2],
     );
 }

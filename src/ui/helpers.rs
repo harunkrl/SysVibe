@@ -4,7 +4,7 @@
 //! functions, layout helpers, and text formatting.
 
 use ratatui::{
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    layout::{Constraint, Direction, HorizontalAlignment, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType},
@@ -41,7 +41,7 @@ pub fn panel_block_focused(title: &str, focused: bool) -> Block<'_> {
                 .fg(if focused { text() } else { subtext() })
                 .add_modifier(Modifier::BOLD),
         ))
-        .title_alignment(Alignment::Center)
+        .title_alignment(HorizontalAlignment::Center)
 }
 
 /// Like `panel_block_focused`, but the border uses a per-panel accent colour so
@@ -59,7 +59,7 @@ pub fn panel_block_themed(title: &str, focused: bool, accent: Color) -> Block<'_
             format!(" {} ", title),
             Style::default().fg(text()).add_modifier(Modifier::BOLD),
         ))
-        .title_alignment(Alignment::Center)
+        .title_alignment(HorizontalAlignment::Center)
 }
 
 /// Inner content area for a panel, with a little horizontal breathing room

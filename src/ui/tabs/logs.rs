@@ -299,7 +299,7 @@ fn render_log_entries(f: &mut Frame, app: &App, area: Rect) {
             let mut prefix_len = used;
             let source_line = if let Some(src) = &entry.source {
                 if !src.is_empty() {
-                    prefix_len += src.len() + 2;
+                    prefix_len += src.chars().count() + 2;
                     Some(Span::styled(
                         format!("{}: ", src),
                         Style::default().fg(subtext()),

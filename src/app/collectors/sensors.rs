@@ -43,7 +43,9 @@ pub fn read_temperatures(prev: &mut Vec<SensorReading>) {
             temps.sort_by(|a, b| a.0.cmp(&b.0));
             for (_fname, mv) in temps {
                 let temp_c = mv as f32 / 1000.0;
-                if temp_c <= 0.0 {
+                // Skip unpowered/unplugged sensors (<=0) and obvious garbage
+                // values from disconnected/broken sensors (>150°C).
+                if !(0.0 < temp_c && temp_c <= 150.0) {
                     continue;
                 }
                 let base = device_label(&dev_name);

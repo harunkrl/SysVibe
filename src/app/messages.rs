@@ -116,8 +116,10 @@ impl super::App {
                     }
                 }
 
-                // Resize per-core history if core count changed
-                if self.num_cores() != per_core_usage.len() {
+                // Resize per-core history if the core count genuinely changed.
+                // Guard against a transiently-empty sysinfo snapshot (which
+                // would otherwise wipe the whole history and rebuild it empty).
+                if !per_core_usage.is_empty() && self.num_cores() != per_core_usage.len() {
                     self.set_per_core_history(vec![
                         std::collections::VecDeque::with_capacity(
                             state::HISTORY_LEN

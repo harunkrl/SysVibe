@@ -325,7 +325,10 @@ impl super::App {
         &self.cached_system_info
     }
 
-    /// Rebuild SystemInfo from scratch (called every ~10s or on demand).
+    /// Build the full SystemInfo, including the subprocess-heavy
+    /// boot/security/locale collection. Called ONCE at startup ([`App::new`]);
+    /// the dynamic fields are refreshed on the tick by
+    /// [`App::refresh_dynamic_system_info`].
     pub(super) fn build_system_info(&self) -> SystemInfo {
         let secs = System::uptime();
         let days = secs / 86400;
@@ -390,18 +393,41 @@ impl super::App {
         }
     }
 
-    /// Refresh the cached SystemInfo if enough time has elapsed.
+    /// Refresh the cheap, actually-dynamic SystemInfo fields (uptime,
+    /// load-average, power profile) at most once per second.
     ///
-    /// SystemInfo is almost entirely STATIC (OS, kernel, board/BIOS, RAM type,
-    /// GPU model/driver) — these never change at runtime. Only uptime, public
-    /// IP, and load average vary. So the cache refreshes far less often than
-    /// the live metric collectors (every 60 s vs ~every frame): the static
-    /// fields are effectively collected once.
+    /// SystemInfo is almost entirely STATIC (OS, kernel, board/BIOS, boot,
+    /// security, locale, …) — built once at startup ([`App::new`] calls
+    /// [`App::build_system_info`]) and never rebuilt here. Rebuilding it on the
+    /// tick used to spawn `ufw`/`nft`/`systemctl` every 60 s, which blocked the
+    /// UI loop (audit P1-3); only uptime/load-average/power change at runtime,
+    /// and those are cheap `/proc` reads.
     pub fn maybe_refresh_system_info(&mut self) {
-        if self.last_system_info_refresh.elapsed().as_secs() >= 60 {
-            self.cached_system_info = self.build_system_info();
+        if self.last_system_info_refresh.elapsed().as_secs() >= 1 {
+            self.refresh_dynamic_system_info();
             self.last_system_info_refresh = Instant::now();
         }
+    }
+
+    /// Update only the dynamic SystemInfo fields. No subprocesses — safe to run
+    /// on the UI tick.
+    fn refresh_dynamic_system_info(&mut self) {
+        let secs = System::uptime();
+        let days = secs / 86400;
+        let hours = (secs % 86400) / 3600;
+        let mins = (secs % 3600) / 60;
+        self.cached_system_info.uptime = if days > 0 {
+            format!("{}d {}h {}m", days, hours, mins)
+        } else if hours > 0 {
+            format!("{}h {}m", hours, mins)
+        } else {
+            format!("{}m", mins)
+        };
+        let load = System::load_average();
+        self.cached_system_info.load_average = (load.one, load.five, load.fifteen);
+        // power_profile is advanced by the sensors collector (set_power_profile,
+        // ~5 s); mirror it into the cached SystemInfo the System tab renders.
+        self.cached_system_info.power_profile = self.power_profile.clone();
     }
 
     /// Memory usage breakdown: (used, buffers, cached, free, total) in bytes.
